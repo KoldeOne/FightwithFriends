@@ -463,7 +463,7 @@ All professions can be owned; tokens decide which grow first.
   plus one new rule**, and keeps every rule from the tiers below it.
 - Winning a tier **unlocks the next**. ~5 tiers to start.
 
-| Tier | Numbers (proposed) | New rule (proposed) |
+| Tier | Numbers | New rule |
 |---|---|---|
 | 1 | Base | None — the normal game |
 | 2 | +10% enemy HP/damage | Elite Surge — more elites per wave |
@@ -471,9 +471,16 @@ All professions can be owned; tokens decide which grow first.
 | 4 | +30% | Empowered Bosses — each boss gains an extra spell |
 | 5 | +40% | Hardened Casters — enemy casts finish faster |
 
-- Each tier adds challenge (stronger enemies, more elites, new boss abilities,
-  faster reinforcements) and pays **more tokens** (e.g. +25% per tier).
-- Any unlocked tier can be chosen for a run.
+- **5 tiers to start**; new tiers can be added in updates.
+- **Rewards:** +25% tokens per tier, plus slightly better loot odds during the run.
+- **Any unlocked tier can be chosen**, and replaying a lower tier pays that tier's
+  **full** tokens — playing easier is never punished.
+- **Rules apply from wave 1**, but the stat increase **ramps up over the first
+  few waves** so early waves aren't brutal before a build exists.
+- **Endless mode uses the tier's numbers and rules.**
+- **Progress is tracked per account.** Optional cosmetic badges per class
+  (e.g. "beat Tier 4 with a Mage") with no gameplay effect.
+- **The AI never gets worse at higher tiers.**
 - **Endless mode** provides a "best wave" high-score chase alongside tiers.
 
 ---
@@ -492,7 +499,7 @@ All professions can be owned; tokens decide which grow first.
 
 ## 13. Open questions
 
-1. **Difficulty tiers:** confirm the tier rules; remaining tier questions (loot, replay rewards, endless, per-class tracking).
+1. **Difficulty tiers:** exact stat ramp and later tiers beyond 5.
 2. **Endless mode:** token rewards per group; whether bosses appear in it.
 3. *(reserved)*
 4. **Bosses:** specific bosses, abilities, and cast-bar spells.
