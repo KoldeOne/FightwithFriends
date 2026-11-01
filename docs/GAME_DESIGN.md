@@ -459,7 +459,18 @@ All professions can be owned; tokens decide which grow first.
 
 ### Difficulty tiers
 
+- **Fixed ladder:** tiers come in a set order. Each tier adds **a stat increase
+  plus one new rule**, and keeps every rule from the tiers below it.
 - Winning a tier **unlocks the next**. ~5 tiers to start.
+
+| Tier | Numbers (proposed) | New rule (proposed) |
+|---|---|---|
+| 1 | Base | None — the normal game |
+| 2 | +10% enemy HP/damage | Elite Surge — more elites per wave |
+| 3 | +20% | Swift Reinforcements — reinforcements arrive sooner |
+| 4 | +30% | Empowered Bosses — each boss gains an extra spell |
+| 5 | +40% | Hardened Casters — enemy casts finish faster |
+
 - Each tier adds challenge (stronger enemies, more elites, new boss abilities,
   faster reinforcements) and pays **more tokens** (e.g. +25% per tier).
 - Any unlocked tier can be chosen for a run.
@@ -481,7 +492,7 @@ All professions can be owned; tokens decide which grow first.
 
 ## 13. Open questions
 
-1. **Difficulty tiers:** exactly what each tier adds (in discussion).
+1. **Difficulty tiers:** confirm the tier rules; remaining tier questions (loot, replay rewards, endless, per-class tracking).
 2. **Endless mode:** token rewards per group; whether bosses appear in it.
 3. *(reserved)*
 4. **Bosses:** specific bosses, abilities, and cast-bar spells.
