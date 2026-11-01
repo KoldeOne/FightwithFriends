@@ -21,7 +21,7 @@ type UnitStats = Pick<
 
 export const HERO_STATS: Record<HeroClass, UnitStats> = {
   warrior: { label: 'Warrior', radius: 22, maxHp: 340, damage: 9, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true },
-  rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 7, attackInterval: 0.6, range: 120, attackStyle: 'melee', speed: 0 },
+  rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 10, attackInterval: 0.6, range: 120, attackStyle: 'melee', speed: 0 },
   mage: { label: 'Mage', radius: 18, maxHp: 170, damage: 20, attackInterval: 1.8, range: 380, attackStyle: 'ranged', speed: 0 },
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 28 },
 };
@@ -69,7 +69,7 @@ export const ABILITY_TUNING = {
   thunderclap: { radius: 120, damage: 12, threatBonus: 2, slow: 6 },
   renew: { total: 60, duration: 9, tick: 1.5 },
   fireball: { damage: 45, burnPerSecond: 5, burnDuration: 3 },
-  sinisterStrike: { damage: 22 },
+  sinisterStrike: { damage: 32 },
   /** Slowed units attack this much slower. */
   slowFactor: 1.3,
 };
