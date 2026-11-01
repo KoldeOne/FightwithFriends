@@ -87,6 +87,10 @@ export class BattleScene extends Phaser.Scene {
   private resourceBar!: Phaser.GameObjects.Graphics;
   private resourceText!: Phaser.GameObjects.Text;
   private focusText!: Phaser.GameObjects.Text;
+  /** Target frame: focused unit's name, health bar and numbers. */
+  private targetName!: Phaser.GameObjects.Text;
+  private targetBar!: Phaser.GameObjects.Graphics;
+  private targetHp!: Phaser.GameObjects.Text;
   private toast!: Phaser.GameObjects.Text;
   private autoBg!: Phaser.GameObjects.Rectangle;
   private autoText!: Phaser.GameObjects.Text;
@@ -319,7 +323,12 @@ export class BattleScene extends Phaser.Scene {
     this.resourceText = this.text(rx + 8, by + 3, '', 13, '#ffffff').setFontStyle('bold');
     this.resourceText.setStroke('#000000', 3);
     this.focusText = this.text(rx, by + 32, '', 13, '#8f9bb3').setWordWrapWidth(WORLD.width - rx - AUTO_BTN.w - 28);
-    this.toast = this.text(rx, by + 66, '', 14, '#ff9f1a').setFontStyle('bold');
+    this.targetName = this.text(rx, by + 30, '', 14, '#ffffff').setFontStyle('bold');
+    this.targetBar = this.add.graphics();
+    this.targetHp = this.text(rx + 6, by + 53, '', 12, '#ffffff').setFontStyle('bold');
+    this.targetHp.setStroke('#000000', 3);
+    this.toast = this.text(WORLD.width / 2, WORLD.hudTop - 30, '', 16, '#ff9f1a').setOrigin(0.5).setFontStyle('bold').setDepth(60);
+    this.toast.setStroke('#000000', 4);
 
     // AUTO toggle.
     const ax = WORLD.width - 16 - AUTO_BTN.w / 2;
@@ -373,6 +382,7 @@ export class BattleScene extends Phaser.Scene {
       this.abilityCooldownText.setText('');
       this.resourceText.setText('');
       this.focusText.setText('');
+      this.clearTargetFrame();
       return;
     }
 
@@ -404,9 +414,32 @@ export class BattleScene extends Phaser.Scene {
 
     // Focus info.
     const focus = this.battle.focusId !== null ? this.battle.unit(this.battle.focusId) : undefined;
-    if (!p.alive) this.focusText.setText('Your hero is down.');
-    else if (focus) this.focusText.setText(`Focus: ${focus.label}\nTap it again to clear.`);
-    else this.focusText.setText(p.heal ? 'Tap an enemy to focus it,\nor an ally to focus heals.' : 'Tap an enemy to focus it.');
+    if (focus?.alive) {
+      this.focusText.setText('');
+      this.drawTargetFrame(focus, rx, by + 50, rw);
+    } else {
+      this.clearTargetFrame();
+      if (!p.alive) this.focusText.setText('Your hero is down.');
+      else this.focusText.setText(p.heal ? 'Tap an enemy to focus it,\nor an ally to focus heals.' : 'Tap an enemy to focus it.');
+    }
+  }
+
+  /** Name + health bar of the focused unit, like an MMO target frame. */
+  private drawTargetFrame(u: Unit, x: number, y: number, w: number): void {
+    const enemy = u.side === 'enemy';
+    this.targetName.setText(`${enemy ? '◎' : '✚'} ${u.label}`).setColor(enemy ? '#ffd166' : '#7dff9b');
+    const pct = Math.max(0, u.hp / u.maxHp);
+    this.targetBar.clear();
+    this.targetBar.fillStyle(0x2b3445).fillRect(x, y, w, 20);
+    this.targetBar.fillStyle(enemy ? 0xe74c3c : 0x2ecc71).fillRect(x, y, w * pct, 20);
+    this.targetBar.lineStyle(1, enemy ? 0xffd166 : 0x7dff9b, 0.8).strokeRect(x, y, w, 20);
+    this.targetHp.setText(`${Math.ceil(u.hp)} / ${u.maxHp}`);
+  }
+
+  private clearTargetFrame(): void {
+    this.targetName.setText('');
+    this.targetBar.clear();
+    this.targetHp.setText('');
   }
 
   private showToast(msg: string): void {
