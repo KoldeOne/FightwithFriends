@@ -131,3 +131,102 @@ describe('Aggro', () => {
     expect(dpsPulls(false)).toBeGreaterThan(0);
   });
 });
+
+describe('Player controls and abilities', () => {
+  const grunts = (n: number) => ({
+    number: 1,
+    spawns: Array.from({ length: n }, (_, i) => ({ time: 0, kind: 'grunt' as const, x: 200 + i * 40 })),
+  });
+  const hero = (b: Battle, kind: string) => b.heroes.find((h) => h.kind === kind)!;
+
+  it('the player can pick a hero', () => {
+    const b = new Battle({ seed: 1, wave: WAVE_1, playerClass: 'mage' });
+    expect(b.player?.kind).toBe('mage');
+  });
+
+  it('using an ability spends resource and starts a cooldown', () => {
+    const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'mage' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const e = b.enemies[0];
+    e.y = 400; // in mage range
+    expect(b.useAbility()).toBe('ok');
+    expect(b.player!.resource).toBe(70);
+    expect(b.useAbility()).toBe('cooldown');
+    expect(e.hp).toBeLessThan(e.maxHp);
+  });
+
+  it('reports no target when nothing is in range', () => {
+    const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'rogue' });
+    b.playerAuto = false;
+    b.step(STEP);
+    expect(b.useAbility()).toBe('target');
+    expect(b.player!.resource).toBeGreaterThanOrEqual(99);
+  });
+
+  it('warrior starts with no rage and builds it in combat', () => {
+    const b = new Battle({ seed: 1, wave: grunts(2), playerClass: 'warrior' });
+    expect(b.player!.resource).toBe(0);
+    for (let i = 0; i < 30 / STEP; i++) b.step(STEP);
+    expect(b.player!.resource).toBeGreaterThan(0);
+  });
+
+  it('thunderclap hits every nearby enemy and slows them', () => {
+    const b = new Battle({ seed: 1, wave: grunts(3), playerClass: 'warrior' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const w = b.player!;
+    w.resource = 100;
+    b.enemies.forEach((e, i) => {
+      e.x = w.x - 40 + i * 40;
+      e.y = w.y - 60;
+    });
+    expect(b.useAbility()).toBe('ok');
+    for (const e of b.enemies) {
+      expect(e.hp).toBeLessThan(e.maxHp);
+      expect(b.hasEffect(e, 'slow')).toBe(true);
+      expect(b.topThreat(e).id).toBe(w.id);
+    }
+  });
+
+  it('renew heals the focused ally over time', () => {
+    const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'priest' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const rogue = hero(b, 'rogue');
+    rogue.hp = 100;
+    b.setFocus(rogue.id);
+    expect(b.useAbility()).toBe('ok');
+    expect(b.hasEffect(rogue, 'hot')).toBe(true);
+    for (let i = 0; i < 9.5 / STEP; i++) b.step(STEP);
+    expect(rogue.hp).toBeGreaterThanOrEqual(160);
+  });
+
+  it('the player hero attacks its focus target', () => {
+    const b = new Battle({ seed: 1, wave: grunts(2), playerClass: 'mage' });
+    b.step(STEP);
+    const [a, c] = b.enemies;
+    a.y = 300;
+    c.y = 420; // c is further advanced: the mage would normally pick it
+    b.setFocus(a.id);
+    for (let i = 0; i < 2 / STEP; i++) b.step(STEP);
+    expect(a.hp).toBeLessThan(a.maxHp);
+    expect(c.hp).toBe(c.maxHp);
+  });
+
+  it('with AUTO off, the AI does not use the player ability', () => {
+    const b = new Battle({ seed: 1, wave: WAVE_1, playerClass: 'mage' });
+    b.playerAuto = false;
+    while (b.outcome === 'running' && b.time < 600) b.step(STEP);
+    expect(b.outcome).toBe('victory');
+    expect(b.player!.resource).toBe(100);
+  });
+
+  it('a party with a player on AUTO still wins wave 1', () => {
+    for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
+      const b = new Battle({ seed: 5, wave: WAVE_1, playerClass: cls });
+      while (b.outcome === 'running' && b.time < 600) b.step(STEP);
+      expect(b.outcome).toBe('victory');
+    }
+  });
+});

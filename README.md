@@ -9,16 +9,19 @@ against waves of enemies. Built to play on a phone.
 
 ## Status
 
-Steps 1–2 of the first playable version are done:
+Steps 1–3 of the first playable version are done:
 
 1. **Battlefield** — heroes hold positions, goblins march down, auto attacks,
    gate HP, victory or the gate falling.
 2. **Aggro** — enemies attack whoever has the most threat (110% needed to
    steal it), healing creates threat, the Warrior auto-taunts loose enemies,
-   runners slip to the gate unless someone grabs them, and orange/red `!`
-   icons warn when a hero is close to pulling or has aggro.
+   runners slip to the gate unless someone grabs them.
+3. **Player controls** — choose your hero; tap an enemy to focus it (healers
+   can also tap allies); one ability button per class (Thunderclap, Renew,
+   Fireball, Sinister Strike) using rage / mana / energy; AUTO toggle; pause.
+   Orange/red `!` aggro warnings show on your hero.
 
-Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful DPS**
+Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**
 (ON = AI damage dealers hold back before pulling aggro; OFF = they don't).
 
 ## Running locally

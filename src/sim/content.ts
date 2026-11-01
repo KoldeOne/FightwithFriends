@@ -1,20 +1,23 @@
-import type { EnemyKind, HeroClass, Unit, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroClass, ResourceKind, Unit, WaveDef } from './types';
 
 /** World is a fixed portrait canvas; the renderer scales it to the screen. */
 export const WORLD = {
   width: 540,
   height: 960,
   /** Top edge of the gate wall. */
-  gateY: 800,
+  gateY: 770,
   gateHeight: 26,
   /** Top edge of the HUD panel. */
-  hudTop: 840,
+  hudTop: 810,
   spawnY: -24,
 };
 
 export const GATE_MAX_HP = 600;
 
-type UnitStats = Omit<Unit, 'id' | 'side' | 'kind' | 'x' | 'y' | 'hp' | 'cooldown' | 'targetId' | 'alive' | 'threat' | 'tauntedBy' | 'tauntTime' | 'tauntCooldown'>;
+type UnitStats = Pick<
+  Unit,
+  'label' | 'radius' | 'maxHp' | 'damage' | 'attackInterval' | 'range' | 'attackStyle' | 'speed' | 'heal' | 'goesForGate' | 'threatMultiplier' | 'isTank'
+>;
 
 export const HERO_STATS: Record<HeroClass, UnitStats> = {
   warrior: { label: 'Warrior', radius: 22, maxHp: 340, damage: 9, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true },
@@ -25,16 +28,57 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
 
 /** Fixed formation: tank front, DPS middle, healer back. Heroes never move. */
 export const FORMATION: { cls: HeroClass; x: number; y: number }[] = [
-  { cls: 'warrior', x: 270, y: 600 },
-  { cls: 'rogue', x: 175, y: 660 },
-  { cls: 'mage', x: 365, y: 660 },
-  { cls: 'priest', x: 270, y: 735 },
+  { cls: 'warrior', x: 270, y: 570 },
+  { cls: 'rogue', x: 175, y: 630 },
+  { cls: 'mage', x: 365, y: 630 },
+  { cls: 'priest', x: 270, y: 705 },
 ];
 
 export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
   grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 17, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
   archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 12, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
   runner: { label: 'Goblin Runner', radius: 13, maxHp: 90, damage: 14, attackInterval: 1.0, range: 6, attackStyle: 'melee', speed: 75, goesForGate: true },
+};
+
+export const RESOURCES: Record<ResourceKind, { label: string; max: number; start: number; regen: number }> = {
+  rage: { label: 'Rage', max: 100, start: 0, regen: 0 },
+  mana: { label: 'Mana', max: 100, start: 100, regen: 3 },
+  energy: { label: 'Energy', max: 100, start: 100, regen: 12 },
+};
+
+/** Rage gained per point of damage dealt / taken. */
+export const RAGE = { perDealt: 0.6, perTaken: 0.5 };
+
+export interface AbilityDef {
+  id: AbilityId;
+  name: string;
+  cost: number;
+  cooldown: number;
+  description: string;
+}
+
+export const ABILITIES: Record<AbilityId, AbilityDef> = {
+  thunderclap: { id: 'thunderclap', name: 'Thunderclap', cost: 20, cooldown: 6, description: 'Damage and high threat to nearby enemies; slows their attacks.' },
+  renew: { id: 'renew', name: 'Renew', cost: 20, cooldown: 3, description: 'Heals an ally over 9 seconds.' },
+  fireball: { id: 'fireball', name: 'Fireball', cost: 30, cooldown: 4, description: 'Big hit that leaves a burn.' },
+  sinisterStrike: { id: 'sinisterStrike', name: 'Sinister Strike', cost: 40, cooldown: 1.5, description: 'A fast, heavy strike.' },
+};
+
+/** Ability tuning numbers. */
+export const ABILITY_TUNING = {
+  thunderclap: { radius: 120, damage: 12, threatBonus: 2, slow: 6 },
+  renew: { total: 60, duration: 9, tick: 1.5 },
+  fireball: { damage: 45, burnPerSecond: 5, burnDuration: 3 },
+  sinisterStrike: { damage: 22 },
+  /** Slowed units attack this much slower. */
+  slowFactor: 1.3,
+};
+
+export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; ability: AbilityId; role: string }> = {
+  warrior: { resource: 'rage', ability: 'thunderclap', role: 'Tank — holds enemies with threat' },
+  priest: { resource: 'mana', ability: 'renew', role: 'Healer — keeps the party alive' },
+  mage: { resource: 'mana', ability: 'fireball', role: 'Ranged damage' },
+  rogue: { resource: 'energy', ability: 'sinisterStrike', role: 'Melee damage' },
 };
 
 /** Aggro tuning. */

@@ -1,6 +1,6 @@
 # First Playable Version — Plan
 
-> Companion to [GAME_DESIGN.md](GAME_DESIGN.md). Status: **steps 1–2 done.**
+> Companion to [GAME_DESIGN.md](GAME_DESIGN.md). Status: **steps 1–3 done.**
 
 ## Goal
 
@@ -40,7 +40,9 @@ Each milestone ends with something playable.
 2. **Aggro** — threat, target switching, Taunt, orange/red icons.
 3. **Player controls** — tap to focus, ability buttons, resource bar, AUTO, pause.
 4. **Class kits** — 4 classes with signatures, traits, starting abilities;
-   healing, buffs, debuffs.
+   healing, buffs, debuffs. (Step 3 already added each class's default
+   starting ability, its resource, and simple effects: heal/damage over time
+   and slows.)
 5. **Between waves** — level-up choices, loot choices, "Choose for me",
    Full Auto countdown, autosave.
 6. **Chapter 1** — 10 waves, reinforcements, 5 goblin archetypes, 2 bosses with

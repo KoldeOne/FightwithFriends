@@ -2,6 +2,20 @@ export type Side = 'hero' | 'enemy';
 export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue';
 export type EnemyKind = 'grunt' | 'archer' | 'runner';
 export type AttackStyle = 'melee' | 'ranged';
+export type ResourceKind = 'rage' | 'mana' | 'energy';
+export type AbilityId = 'thunderclap' | 'renew' | 'fireball' | 'sinisterStrike';
+
+/** A timed buff/debuff on a unit. */
+export interface Effect {
+  kind: 'hot' | 'dot' | 'slow';
+  /** Seconds left. */
+  remaining: number;
+  /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */
+  tickEvery: number;
+  tickTimer: number;
+  amount: number;
+  sourceId: number;
+}
 
 /** Target id used when an enemy is attacking the gate. */
 export const GATE_ID = -1;
@@ -44,6 +58,15 @@ export interface Unit {
   /** Enemy: hero id forced as target by a taunt, and seconds remaining. */
   tauntedBy?: number;
   tauntTime?: number;
+  /** Hero: class resource (rage / mana / energy). */
+  resourceKind?: ResourceKind;
+  resource?: number;
+  maxResource?: number;
+  /** Hero: the one active ability for now, and seconds until it's ready. */
+  ability?: AbilityId;
+  abilityCooldown?: number;
+  /** Active buffs/debuffs. */
+  effects?: Effect[];
 }
 
 /** Aggro warning level shown on a hero. */
@@ -51,7 +74,9 @@ export type AggroLevel = 'none' | 'warning' | 'aggro';
 
 export type BattleEvent =
   | { type: 'spawn'; id: number }
-  | { type: 'attack'; from: number; to: number; style: AttackStyle; amount: number }
+  | { type: 'attack'; from: number; to: number; style: AttackStyle; amount: number; ability?: AbilityId }
+  | { type: 'ability'; from: number; ability: AbilityId; to?: number }
+  | { type: 'tick'; to: number; amount: number; kind: 'hot' | 'dot' }
   | { type: 'heal'; from: number; to: number; amount: number }
   | { type: 'taunt'; from: number; to: number }
   | { type: 'death'; id: number };

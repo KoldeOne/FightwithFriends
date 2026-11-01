@@ -1,6 +1,6 @@
-import { AGGRO, ENEMY_STATS, FORMATION, GATE_MAX_HP, HERO_STATS, WORLD } from './content';
+import { ABILITIES, ABILITY_TUNING, AGGRO, ENEMY_STATS, FORMATION, GATE_MAX_HP, HERO_KIT, HERO_STATS, RAGE, RESOURCES, WORLD } from './content';
 import { createRng } from './rng';
-import type { AggroLevel, BattleEvent, EnemyKind, HeroClass, Outcome, SpawnDef, Unit, WaveDef } from './types';
+import type { AbilityId, AggroLevel, BattleEvent, Effect, EnemyKind, HeroClass, Outcome, SpawnDef, Unit, WaveDef } from './types';
 import { GATE_ID } from './types';
 
 /** Fixed simulation step in seconds. The renderer calls step() with this. */
@@ -13,7 +13,11 @@ export interface BattleOptions {
   heroes?: HeroClass[];
   /** AI DPS/healers hold back before pulling aggro (default true). */
   carefulAI?: boolean;
+  /** The class the player controls (can also be set later with setPlayer). */
+  playerClass?: HeroClass;
 }
+
+export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
 
 /**
  * Pure combat simulation for one wave. Knows nothing about rendering:
@@ -26,6 +30,12 @@ export class Battle {
   outcome: Outcome = 'running';
   readonly wave: WaveDef;
   carefulAI: boolean;
+  /** Id of the hero the player controls, if chosen. */
+  playerId: number | null = null;
+  /** AUTO: the AI also plays the player's hero (casts its ability). */
+  playerAuto = true;
+  /** Player's focus: an enemy (or, for healers, an ally). */
+  focusId: number | null = null;
 
   private nextId = 1;
   private pending: SpawnDef[];
@@ -41,6 +51,41 @@ export class Battle {
     for (const slot of FORMATION) {
       if (classes.includes(slot.cls)) this.addHero(slot.cls, slot.x, slot.y);
     }
+    if (opts.playerClass) this.setPlayer(opts.playerClass);
+  }
+
+  get player(): Unit | undefined {
+    return this.playerId === null ? undefined : this.unit(this.playerId);
+  }
+
+  setPlayer(cls: HeroClass): void {
+    this.playerId = this.units.find((u) => u.side === 'hero' && u.kind === cls)?.id ?? null;
+  }
+
+  /** Focus an enemy (or an ally, if the player is a healer). null clears. */
+  setFocus(id: number | null): void {
+    const u = id === null ? undefined : this.unit(id);
+    this.focusId = u?.alive ? u.id : null;
+  }
+
+  /** Why the player's ability can't be used right now, or 'ok'. */
+  abilityState(h: Unit | undefined = this.player): AbilityResult {
+    if (!h?.alive || !h.ability) return 'dead';
+    if ((h.abilityCooldown ?? 0) > 0) return 'cooldown';
+    if ((h.resource ?? 0) < ABILITIES[h.ability].cost) return 'resource';
+    return 'ok';
+  }
+
+  /** The player taps their ability button. */
+  useAbility(): AbilityResult {
+    const h = this.player;
+    const state = this.abilityState(h);
+    if (state !== 'ok' || !h) return state;
+    return this.cast(h, true) ? 'ok' : 'target';
+  }
+
+  hasEffect(u: Unit, kind: Effect['kind']): boolean {
+    return !!u.effects?.some((e) => e.kind === kind);
   }
 
   get heroes(): Unit[] {
@@ -112,9 +157,14 @@ export class Battle {
       u.cooldown = Math.max(0, u.cooldown - dt);
       if (u.tauntCooldown) u.tauntCooldown = Math.max(0, u.tauntCooldown - dt);
       if (u.tauntTime) u.tauntTime = Math.max(0, u.tauntTime - dt);
+      if (u.abilityCooldown) u.abilityCooldown = Math.max(0, u.abilityCooldown - dt);
+      if (u.resourceKind) u.resource = Math.min(u.maxResource!, u.resource! + RESOURCES[u.resourceKind].regen * dt);
+      this.tickEffects(u, dt);
+      if (!u.alive) continue;
       if (u.side === 'enemy') this.updateEnemy(u, dt);
       else {
         if (u.isTank) this.tryTaunt(u);
+        if (u.id !== this.playerId || this.playerAuto) this.aiAbility(u);
         this.updateHero(u);
       }
     }
@@ -133,13 +183,32 @@ export class Battle {
 
   private addHero(cls: HeroClass, x: number, y: number): void {
     const s = HERO_STATS[cls];
-    this.addUnit({ ...s, id: 0, side: 'hero', kind: cls, x, y, hp: s.maxHp, cooldown: 0.3 * this.rng(), targetId: null, alive: true });
+    const kit = HERO_KIT[cls];
+    const res = RESOURCES[kit.resource];
+    this.addUnit({
+      ...s,
+      id: 0,
+      side: 'hero',
+      kind: cls,
+      x,
+      y,
+      hp: s.maxHp,
+      cooldown: 0.3 * this.rng(),
+      targetId: null,
+      alive: true,
+      resourceKind: kit.resource,
+      resource: res.start,
+      maxResource: res.max,
+      ability: kit.ability,
+      abilityCooldown: 0,
+      effects: [],
+    });
   }
 
   private addEnemy(kind: EnemyKind, x: number): void {
     const s = ENEMY_STATS[kind];
     const clampedX = Math.min(WORLD.width - s.radius, Math.max(s.radius, x));
-    this.addUnit({ ...s, id: 0, side: 'enemy', kind, x: clampedX, y: WORLD.spawnY, hp: s.maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {} });
+    this.addUnit({ ...s, id: 0, side: 'enemy', kind, x: clampedX, y: WORLD.spawnY, hp: s.maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [] });
   }
 
   private addUnit(u: Unit): void {
@@ -169,7 +238,7 @@ export class Battle {
 
     if (gap <= e.range) {
       if (e.cooldown <= 0) {
-        e.cooldown = e.attackInterval;
+        e.cooldown = e.attackInterval * (this.hasEffect(e, 'slow') ? ABILITY_TUNING.slowFactor : 1);
         const amount = this.roll(e.damage);
         if (target) this.damage(e, target, amount);
         else {
@@ -262,11 +331,15 @@ export class Battle {
 
   private updateHero(h: Unit): void {
     if (h.cooldown > 0) return;
+    const isPlayer = h.id === this.playerId;
+    const focus = isPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
 
     if (h.heal) {
-      const hurt = this.units
+      let hurt = this.units
         .filter((u) => u.side === 'hero' && u.alive && u.maxHp - u.hp >= h.heal! * 0.6)
         .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+      // A focused ally gets heals first whenever they're missing any health.
+      if (focus?.side === 'hero' && focus.alive && focus.hp < focus.maxHp) hurt = focus;
       if (hurt) {
         const amount = Math.min(hurt.maxHp - hurt.hp, this.roll(h.heal));
         hurt.hp += amount;
@@ -277,23 +350,153 @@ export class Battle {
       }
     }
 
-    let inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) - h.radius - u.radius <= h.range);
-    if (this.carefulAI && !h.isTank) {
-      inRange = inRange.filter((u) => !this.wouldPull(h, u, h.damage * 1.1));
-    }
-    if (!inRange.length) {
+    const target = this.pickEnemyTarget(h, h.damage * 1.1);
+    if (!target) {
       h.targetId = null;
       return;
-    }
-    // Keep the current target if still valid; otherwise pick one.
-    let target = inRange.find((u) => u.id === h.targetId);
-    if (!target) {
-      // Melee hit what's closest; ranged hit whoever is furthest advanced.
-      target = h.attackStyle === 'melee' ? nearest(h, inRange) : inRange.reduce((a, b) => (b.y > a.y ? b : a));
     }
     h.targetId = target.id;
     h.cooldown = h.attackInterval;
     this.damage(h, target, this.roll(h.damage));
+  }
+
+  /** Is this hero controlled by careful AI right now? */
+  private isCareful(h: Unit): boolean {
+    if (h.isTank || !this.carefulAI) return false;
+    return h.id !== this.playerId || this.playerAuto;
+  }
+
+  private inReach(h: Unit, e: Unit): boolean {
+    return dist(h, e) - h.radius - e.radius <= h.range;
+  }
+
+  /**
+   * Choose an enemy for a hero to hit: the player's focus if it's in range,
+   * else the current target, else closest (melee) / most advanced (ranged).
+   */
+  private pickEnemyTarget(h: Unit, hitSize: number): Unit | null {
+    if (h.id === this.playerId && this.focusId !== null) {
+      const f = this.unit(this.focusId);
+      if (f?.side === 'enemy' && f.alive && this.inReach(h, f)) return f;
+    }
+    let inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && this.inReach(h, u));
+    if (this.isCareful(h)) inRange = inRange.filter((u) => !this.wouldPull(h, u, hitSize));
+    if (!inRange.length) return null;
+    const current = inRange.find((u) => u.id === h.targetId);
+    if (current) return current;
+    return h.attackStyle === 'melee' ? nearest(h, inRange) : inRange.reduce((a, b) => (b.y > a.y ? b : a));
+  }
+
+  // --- abilities ----------------------------------------------------------
+
+  /** AI decides whether to use a hero's ability this tick. */
+  private aiAbility(h: Unit): void {
+    if (this.abilityState(h) !== 'ok') return;
+    const t = ABILITY_TUNING;
+    switch (h.ability) {
+      case 'thunderclap':
+        if (this.enemiesNear(h, t.thunderclap.radius).length) this.cast(h, false);
+        break;
+      case 'renew':
+        if (this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.85 && !this.hasEffect(u, 'hot'))) this.cast(h, false);
+        break;
+      case 'fireball':
+        if (this.pickEnemyTarget(h, t.fireball.damage)) this.cast(h, false);
+        break;
+      case 'sinisterStrike':
+        if (this.pickEnemyTarget(h, t.sinisterStrike.damage)) this.cast(h, false);
+        break;
+    }
+  }
+
+  private enemiesNear(h: Unit, radius: number): Unit[] {
+    return this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) <= radius);
+  }
+
+  /** Perform the hero's ability. Returns false if there was no valid target. */
+  private cast(h: Unit, byPlayer: boolean): boolean {
+    const id = h.ability!;
+    const def = ABILITIES[id];
+    const t = ABILITY_TUNING;
+    let to: Unit | undefined;
+
+    switch (id) {
+      case 'thunderclap': {
+        const hit = this.enemiesNear(h, t.thunderclap.radius);
+        if (!hit.length) return false;
+        this.events.push({ type: 'ability', from: h.id, ability: id });
+        for (const e of hit) {
+          this.damage(h, e, this.roll(t.thunderclap.damage), { threatScale: t.thunderclap.threatBonus, ability: id });
+          this.addEffect(e, { kind: 'slow', remaining: t.thunderclap.slow, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+        }
+        break;
+      }
+      case 'renew': {
+        const focus = byPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
+        const allies = this.units.filter((u) => u.side === 'hero' && u.alive);
+        to =
+          focus?.side === 'hero' && focus.alive
+            ? focus
+            : allies.filter((u) => !this.hasEffect(u, 'hot')).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0] ??
+              allies.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+        if (!to) return false;
+        const ticks = t.renew.duration / t.renew.tick;
+        to.effects = (to.effects ?? []).filter((e) => e.kind !== 'hot');
+        this.addEffect(to, { kind: 'hot', remaining: t.renew.duration, tickEvery: t.renew.tick, tickTimer: t.renew.tick, amount: t.renew.total / ticks, sourceId: h.id });
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        break;
+      }
+      case 'fireball':
+      case 'sinisterStrike': {
+        const size = id === 'fireball' ? t.fireball.damage : t.sinisterStrike.damage;
+        to = this.pickEnemyTarget(h, byPlayer ? 0 : size) ?? undefined;
+        if (!to) return false;
+        h.targetId = to.id;
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        this.damage(h, to, this.roll(size), { ability: id });
+        if (id === 'fireball' && to.alive) {
+          const f = t.fireball;
+          this.addEffect(to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: f.burnPerSecond, sourceId: h.id });
+        }
+        break;
+      }
+    }
+    h.resource = h.resource! - def.cost;
+    h.abilityCooldown = def.cooldown;
+    return true;
+  }
+
+  private addEffect(u: Unit, effect: Effect): void {
+    u.effects ??= [];
+    const same = u.effects.find((e) => e.kind === effect.kind && e.sourceId === effect.sourceId);
+    if (same) Object.assign(same, effect);
+    else u.effects.push(effect);
+  }
+
+  private tickEffects(u: Unit, dt: number): void {
+    if (!u.effects?.length) return;
+    for (const e of u.effects) {
+      e.remaining -= dt;
+      if (e.kind === 'slow') continue;
+      e.tickTimer -= dt;
+      if (e.tickTimer > 1e-6) continue;
+      e.tickTimer += e.tickEvery;
+      const amount = Math.round(e.amount);
+      if (e.kind === 'hot') {
+        const healed = Math.min(u.maxHp - u.hp, amount);
+        u.hp += healed;
+        if (healed > 0) {
+          this.events.push({ type: 'tick', to: u.id, amount: healed, kind: 'hot' });
+          const source = this.unit(e.sourceId);
+          if (source) this.addHealThreat(source, healed);
+        }
+      } else {
+        const source = this.unit(e.sourceId);
+        if (source) this.damage(source, u, amount, { tick: true });
+      }
+      if (!u.alive) break;
+    }
+    u.effects = u.effects.filter((e) => e.remaining > 1e-6);
   }
 
   private addHealThreat(healer: Unit, amount: number): void {
@@ -307,16 +510,22 @@ export class Battle {
     }
   }
 
-  private damage(from: Unit, to: Unit, amount: number): void {
+  private damage(from: Unit, to: Unit, amount: number, opts: { threatScale?: number; ability?: AbilityId; tick?: boolean } = {}): void {
+    if (!to.alive) return;
     to.hp -= amount;
     if (from.side === 'hero' && to.side === 'enemy') {
       to.threat ??= {};
-      to.threat[from.id] = this.threatOf(to, from.id) + amount * (from.threatMultiplier ?? 1);
+      to.threat[from.id] = this.threatOf(to, from.id) + amount * (from.threatMultiplier ?? 1) * (opts.threatScale ?? 1);
     }
-    this.events.push({ type: 'attack', from: from.id, to: to.id, style: from.attackStyle, amount });
+    if (from.resourceKind === 'rage') from.resource = Math.min(from.maxResource!, from.resource! + amount * RAGE.perDealt);
+    if (to.resourceKind === 'rage') to.resource = Math.min(to.maxResource!, to.resource! + amount * RAGE.perTaken);
+    if (opts.tick) this.events.push({ type: 'tick', to: to.id, amount, kind: 'dot' });
+    else this.events.push({ type: 'attack', from: from.id, to: to.id, style: from.attackStyle, amount, ability: opts.ability });
     if (to.hp <= 0 && to.alive) {
       to.hp = 0;
       to.alive = false;
+      to.effects = [];
+      if (this.focusId === to.id) this.focusId = null;
       this.events.push({ type: 'death', id: to.id });
     }
   }
