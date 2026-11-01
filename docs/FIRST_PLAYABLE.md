@@ -1,6 +1,6 @@
 # First Playable Version — Plan
 
-> Companion to [GAME_DESIGN.md](GAME_DESIGN.md). Status: **planned, not started.**
+> Companion to [GAME_DESIGN.md](GAME_DESIGN.md). Status: **step 1 done.**
 
 ## Goal
 

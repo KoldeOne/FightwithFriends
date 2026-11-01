@@ -1,0 +1,57 @@
+export type Side = 'hero' | 'enemy';
+export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue';
+export type EnemyKind = 'grunt' | 'archer' | 'runner';
+export type AttackStyle = 'melee' | 'ranged';
+
+/** Target id used when an enemy is attacking the gate. */
+export const GATE_ID = -1;
+
+export interface Unit {
+  id: number;
+  side: Side;
+  kind: HeroClass | EnemyKind;
+  label: string;
+  x: number;
+  y: number;
+  radius: number;
+  hp: number;
+  maxHp: number;
+  /** Damage per auto attack. */
+  damage: number;
+  /** Seconds between auto attacks. */
+  attackInterval: number;
+  /** Seconds until the next attack is ready. */
+  cooldown: number;
+  /** Reach measured edge-to-edge (gap between the two circles). */
+  range: number;
+  attackStyle: AttackStyle;
+  /** Movement speed in px/s (heroes hold position: 0). */
+  speed: number;
+  /** Healing per heal cast (healers only). */
+  heal?: number;
+  /** Ignores heroes and heads straight for the gate. */
+  goesForGate?: boolean;
+  targetId: number | null;
+  alive: boolean;
+}
+
+export type BattleEvent =
+  | { type: 'spawn'; id: number }
+  | { type: 'attack'; from: number; to: number; style: AttackStyle; amount: number }
+  | { type: 'heal'; from: number; to: number; amount: number }
+  | { type: 'death'; id: number };
+
+export type Outcome = 'running' | 'victory' | 'defeat';
+
+export interface SpawnDef {
+  /** Seconds after the wave starts. */
+  time: number;
+  kind: EnemyKind;
+  /** Horizontal spawn position. */
+  x: number;
+}
+
+export interface WaveDef {
+  number: number;
+  spawns: SpawnDef[];
+}
