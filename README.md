@@ -9,9 +9,17 @@ against waves of enemies. Built to play on a phone.
 
 ## Status
 
-Step 1 of the first playable version: heroes hold their positions, goblins
-march down, everyone auto-attacks, and the wave ends in victory or the gate
-falling. The **Speed** button (1x / 2x / 4x) is a testing aid.
+Steps 1–2 of the first playable version are done:
+
+1. **Battlefield** — heroes hold positions, goblins march down, auto attacks,
+   gate HP, victory or the gate falling.
+2. **Aggro** — enemies attack whoever has the most threat (110% needed to
+   steal it), healing creates threat, the Warrior auto-taunts loose enemies,
+   runners slip to the gate unless someone grabs them, and orange/red `!`
+   icons warn when a hero is close to pulling or has aggro.
+
+Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful DPS**
+(ON = AI damage dealers hold back before pulling aggro; OFF = they don't).
 
 ## Running locally
 

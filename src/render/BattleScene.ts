@@ -34,6 +34,8 @@ interface UnitView {
   container: Phaser.GameObjects.Container;
   body: Phaser.GameObjects.Arc;
   hpBar: Phaser.GameObjects.Graphics;
+  /** Aggro warning badge (non-tank heroes only). */
+  aggroIcon?: { container: Phaser.GameObjects.Container; disc: Phaser.GameObjects.Arc };
   dead: boolean;
 }
 
@@ -45,6 +47,9 @@ export class BattleScene extends Phaser.Scene {
   private views = new Map<number, UnitView>();
   private acc = 0;
   private speed = 1;
+  /** Testing aid: AI DPS hold back before pulling aggro. Persists across restarts. */
+  private careful = true;
+  private carefulButton!: Phaser.GameObjects.Text;
   private gateBar!: Phaser.GameObjects.Graphics;
   private gateWall!: Phaser.GameObjects.Rectangle;
   private hudText!: Phaser.GameObjects.Text;
@@ -59,7 +64,7 @@ export class BattleScene extends Phaser.Scene {
     this.views.clear();
     this.acc = 0;
     this.overlayShown = false;
-    this.battle = new Battle({ seed: Date.now() % 1_000_000, wave: WAVE_1 });
+    this.battle = new Battle({ seed: Date.now() % 1_000_000, wave: WAVE_1, carefulAI: this.careful });
 
     this.drawField();
     this.drawHud();
@@ -109,9 +114,9 @@ export class BattleScene extends Phaser.Scene {
     this.text(20, top + 16, 'Gate', 16, '#c9d1e0');
     this.gateBar = this.add.graphics();
 
-    this.hudText = this.text(20, top + 62, '', 18, '#ffffff');
+    this.hudText = this.text(20, top + 48, '', 18, '#ffffff');
 
-    this.speedButton = this.text(WORLD.width - 20, top + 62, '', 18, '#ffffff')
+    this.speedButton = this.text(WORLD.width - 20, top + 78, '', 16, '#ffffff')
       .setOrigin(1, 0)
       .setPadding(14, 8, 14, 8)
       .setBackgroundColor('#2b3445')
@@ -120,7 +125,17 @@ export class BattleScene extends Phaser.Scene {
         this.speed = this.speed === 1 ? 2 : this.speed === 2 ? 4 : 1;
       });
 
-    this.text(20, WORLD.height - 30, 'Step 1 prototype — abilities & controls come later', 13, '#5d6880');
+    this.carefulButton = this.text(20, top + 78, '', 16, '#ffffff')
+      .setPadding(14, 8, 14, 8)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        this.careful = !this.careful;
+        this.battle.carefulAI = this.careful;
+      });
+
+    this.text(WORLD.width / 2, 8, 'Step 2 prototype: aggro.   ! orange = close to pulling aggro · ! red = being attacked', 12, '#7f8aa3')
+      .setOrigin(0.5, 0)
+      .setDepth(50);
   }
 
   private updateHud(): void {
@@ -135,6 +150,8 @@ export class BattleScene extends Phaser.Scene {
     const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
     this.hudText.setText(`Wave ${this.battle.wave.number}   Enemies ${this.battle.enemiesRemaining}   ${clock}`);
     this.speedButton.setText(`Speed ${this.speed}x`);
+    this.carefulButton.setText(`Careful DPS: ${this.careful ? 'ON' : 'OFF'}`);
+    this.carefulButton.setBackgroundColor(this.careful ? '#1e6f50' : '#7a2e2e');
   }
 
   // --- units --------------------------------------------------------------
@@ -156,7 +173,15 @@ export class BattleScene extends Phaser.Scene {
       container.setAlpha(0);
       this.tweens.add({ targets: container, alpha: 1, duration: 300 });
     }
-    this.views.set(u.id, { container, body, hpBar, dead: false });
+    let aggroIcon: UnitView['aggroIcon'];
+    if (u.side === 'hero' && !u.isTank) {
+      const disc = this.add.circle(0, 0, 10, 0xf39c12).setStrokeStyle(2, 0x000000);
+      const mark = this.text(0, 0, '!', 15, '#000').setOrigin(0.5).setFontStyle('bold');
+      const iconContainer = this.add.container(u.radius + 12, -u.radius - 6, [disc, mark]).setVisible(false);
+      container.add(iconContainer);
+      aggroIcon = { container: iconContainer, disc };
+    }
+    this.views.set(u.id, { container, body, hpBar, aggroIcon, dead: false });
   }
 
   private syncViews(): void {
@@ -171,6 +196,11 @@ export class BattleScene extends Phaser.Scene {
       const pct = u.hp / u.maxHp;
       const color = u.side === 'enemy' ? 0xe74c3c : pct > 0.5 ? 0x2ecc71 : pct > 0.25 ? 0xf39c12 : 0xe74c3c;
       v.hpBar.fillStyle(color).fillRect(-w / 2, y, w * pct, 5);
+      if (v.aggroIcon) {
+        const level = this.battle.aggroLevel(u.id);
+        v.aggroIcon.container.setVisible(level !== 'none');
+        v.aggroIcon.disc.setFillStyle(level === 'aggro' ? 0xe74c3c : 0xf39c12);
+      }
     }
   }
 
@@ -189,6 +219,9 @@ export class BattleScene extends Phaser.Scene {
           break;
         case 'heal':
           this.showHeal(e.from, e.to, e.amount);
+          break;
+        case 'taunt':
+          this.showTaunt(e.from, e.to);
           break;
         case 'death':
           this.showDeath(e.id);
@@ -250,12 +283,25 @@ export class BattleScene extends Phaser.Scene {
     this.floatText(to.x, to.y - 18, `+${amount}`, '#7dff9b');
   }
 
+  private showTaunt(fromId: number, toId: number): void {
+    const from = this.battle.unit(fromId);
+    const to = this.battle.unit(toId);
+    if (!from || !to) return;
+    const line = this.add.graphics().setDepth(30);
+    line.lineStyle(4, 0xff9f1a, 0.9).lineBetween(from.x, from.y, to.x, to.y);
+    this.tweens.add({ targets: line, alpha: 0, duration: 450, onComplete: () => line.destroy() });
+    const ring = this.add.circle(to.x, to.y, to.radius + 5).setStrokeStyle(3, 0xff9f1a).setDepth(30);
+    this.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
+    this.floatText(from.x, from.y - from.radius - 22, 'Taunt!', '#ff9f1a');
+  }
+
   private showDeath(id: number): void {
     const v = this.views.get(id);
     const u = this.battle.unit(id);
     if (!v) return;
     v.dead = true;
     v.hpBar.clear();
+    v.aggroIcon?.container.setVisible(false);
     if (u?.side === 'hero') {
       v.body.setFillStyle(0x444444);
       v.container.setAlpha(0.5);

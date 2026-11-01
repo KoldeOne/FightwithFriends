@@ -1,6 +1,6 @@
-import { ENEMY_STATS, FORMATION, GATE_MAX_HP, HERO_STATS, WORLD } from './content';
+import { AGGRO, ENEMY_STATS, FORMATION, GATE_MAX_HP, HERO_STATS, WORLD } from './content';
 import { createRng } from './rng';
-import type { BattleEvent, EnemyKind, HeroClass, Outcome, SpawnDef, Unit, WaveDef } from './types';
+import type { AggroLevel, BattleEvent, EnemyKind, HeroClass, Outcome, SpawnDef, Unit, WaveDef } from './types';
 import { GATE_ID } from './types';
 
 /** Fixed simulation step in seconds. The renderer calls step() with this. */
@@ -11,6 +11,8 @@ export interface BattleOptions {
   wave: WaveDef;
   /** Defaults to the standard 4-hero formation. */
   heroes?: HeroClass[];
+  /** AI DPS/healers hold back before pulling aggro (default true). */
+  carefulAI?: boolean;
 }
 
 /**
@@ -23,6 +25,7 @@ export class Battle {
   gate = { hp: GATE_MAX_HP, maxHp: GATE_MAX_HP };
   outcome: Outcome = 'running';
   readonly wave: WaveDef;
+  carefulAI: boolean;
 
   private nextId = 1;
   private pending: SpawnDef[];
@@ -32,6 +35,7 @@ export class Battle {
   constructor(opts: BattleOptions) {
     this.rng = createRng(opts.seed);
     this.wave = opts.wave;
+    this.carefulAI = opts.carefulAI ?? true;
     this.pending = [...opts.wave.spawns].sort((a, b) => a.time - b.time);
     const classes = opts.heroes ?? FORMATION.map((f) => f.cls);
     for (const slot of FORMATION) {
@@ -56,6 +60,38 @@ export class Battle {
     return this.units.find((u) => u.id === id);
   }
 
+  /** Threat `hero` has on `enemy`. */
+  threatOf(enemy: Unit, heroId: number): number {
+    return enemy.threat?.[heroId] ?? 0;
+  }
+
+  /** Highest threat value on an enemy among living heroes, and who holds it. */
+  topThreat(enemy: Unit): { id: number | null; value: number } {
+    let id: number | null = null;
+    let value = 0;
+    for (const [key, v] of Object.entries(enemy.threat ?? {})) {
+      const hero = this.unit(Number(key));
+      if (hero?.alive && v > value) {
+        id = hero.id;
+        value = v;
+      }
+    }
+    return { id, value };
+  }
+
+  /** Aggro icon state for a hero: being attacked, close to pulling, or fine. */
+  aggroLevel(heroId: number): AggroLevel {
+    let warning = false;
+    for (const e of this.units) {
+      if (e.side !== 'enemy' || !e.alive) continue;
+      if (e.targetId === heroId) return 'aggro';
+      const top = this.topThreat(e);
+      const mine = this.threatOf(e, heroId);
+      if (top.id !== heroId && top.value > 0 && mine >= top.value * AGGRO.warningAt) warning = true;
+    }
+    return warning ? 'warning' : 'none';
+  }
+
   drainEvents(): BattleEvent[] {
     const out = this.events;
     this.events = [];
@@ -74,8 +110,13 @@ export class Battle {
     for (const u of this.units) {
       if (!u.alive) continue;
       u.cooldown = Math.max(0, u.cooldown - dt);
+      if (u.tauntCooldown) u.tauntCooldown = Math.max(0, u.tauntCooldown - dt);
+      if (u.tauntTime) u.tauntTime = Math.max(0, u.tauntTime - dt);
       if (u.side === 'enemy') this.updateEnemy(u, dt);
-      else this.updateHero(u);
+      else {
+        if (u.isTank) this.tryTaunt(u);
+        this.updateHero(u);
+      }
     }
     this.separate();
     this.units = this.units.filter((u) => u.alive || u.side === 'hero');
@@ -98,7 +139,7 @@ export class Battle {
   private addEnemy(kind: EnemyKind, x: number): void {
     const s = ENEMY_STATS[kind];
     const clampedX = Math.min(WORLD.width - s.radius, Math.max(s.radius, x));
-    this.addUnit({ ...s, id: 0, side: 'enemy', kind, x: clampedX, y: WORLD.spawnY, hp: s.maxHp, cooldown: 0.5, targetId: null, alive: true });
+    this.addUnit({ ...s, id: 0, side: 'enemy', kind, x: clampedX, y: WORLD.spawnY, hp: s.maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {} });
   }
 
   private addUnit(u: Unit): void {
@@ -110,11 +151,7 @@ export class Battle {
   // --- behaviour ----------------------------------------------------------
 
   private updateEnemy(e: Unit, dt: number): void {
-    const livingHeroes = this.units.filter((u) => u.side === 'hero' && u.alive);
-    let target: Unit | null = null;
-    if (!e.goesForGate && livingHeroes.length) {
-      target = nearest(e, livingHeroes);
-    }
+    const target = this.chooseEnemyTarget(e);
     e.targetId = target ? target.id : GATE_ID;
 
     let gap: number;
@@ -152,6 +189,77 @@ export class Battle {
     e.y += (dy / len) * move;
   }
 
+  /**
+   * Aggro rules: a taunt forces the target; otherwise the hero with the most
+   * threat, with a 110% margin needed to steal it from the current target.
+   * Enemies with no threat yet go for the nearest hero; runners go for the gate.
+   */
+  private chooseEnemyTarget(e: Unit): Unit | null {
+    const livingHeroes = this.units.filter((u) => u.side === 'hero' && u.alive);
+    if (!livingHeroes.length) return null;
+
+    if (e.tauntTime && e.tauntedBy !== undefined) {
+      const taunter = this.unit(e.tauntedBy);
+      if (taunter?.alive) return taunter;
+    }
+
+    const top = this.topThreat(e);
+    if (e.goesForGate) {
+      return top.id !== null && top.value >= AGGRO.runnerThreshold ? this.pickWithMargin(e, top) : null;
+    }
+    if (top.id === null) return nearest(e, livingHeroes);
+    return this.pickWithMargin(e, top);
+  }
+
+  private pickWithMargin(e: Unit, top: { id: number | null; value: number }): Unit | null {
+    const current = e.targetId !== null && e.targetId !== GATE_ID ? this.unit(e.targetId) : undefined;
+    if (current?.alive && current.side === 'hero') {
+      const held = this.threatOf(e, current.id);
+      if (top.value <= held * AGGRO.pullFactor) return current;
+    }
+    return top.id !== null ? this.unit(top.id)! : null;
+  }
+
+  /** Tank AI: taunt the closest enemy that is attacking someone else. */
+  private tryTaunt(tank: Unit): void {
+    if (!tank.alive || tank.tauntCooldown) return;
+    const loose = this.units.filter(
+      (u) =>
+        u.side === 'enemy' &&
+        u.alive &&
+        u.targetId !== null &&
+        u.targetId !== tank.id &&
+        (u.targetId !== GATE_ID || this.topThreat(u).value > 0) &&
+        dist(tank, u) <= AGGRO.tauntRange,
+    );
+    if (!loose.length) return;
+    const e = nearest(tank, loose);
+    e.threat ??= {};
+    const floor = e.goesForGate ? AGGRO.runnerThreshold : 0;
+    e.threat[tank.id] = Math.max(this.threatOf(e, tank.id), this.topThreat(e).value, floor) + 1;
+    e.tauntedBy = tank.id;
+    e.tauntTime = AGGRO.tauntDuration;
+    e.targetId = tank.id;
+    tank.tauntCooldown = AGGRO.tauntCooldown;
+    this.events.push({ type: 'taunt', from: tank.id, to: e.id });
+  }
+
+  /** Would hitting `e` for `amount` push a careful hero past the caution line? */
+  private wouldPull(h: Unit, e: Unit, amount: number): boolean {
+    // Only hold back on enemies the tank is currently holding. Anything loose —
+    // hitting me, a friend, or the gate — is fair game.
+    const target = e.targetId !== null && e.targetId !== GATE_ID ? this.unit(e.targetId) : undefined;
+    if (!target?.isTank) return false;
+    // An enemy already attacking the tank from somewhere the tank can't reach
+    // (e.g. an archer) can't be held — holding back would stall the fight.
+    const gap = dist(target, e) - target.radius - e.radius;
+    if (gap <= e.range && gap > target.range) return false;
+    const top = this.topThreat(e);
+    if (top.id === h.id) return false;
+    const after = this.threatOf(e, h.id) + amount * (h.threatMultiplier ?? 1);
+    return after > top.value * AGGRO.cautionAt;
+  }
+
   private updateHero(h: Unit): void {
     if (h.cooldown > 0) return;
 
@@ -164,11 +272,15 @@ export class Battle {
         hurt.hp += amount;
         h.cooldown = h.attackInterval;
         this.events.push({ type: 'heal', from: h.id, to: hurt.id, amount });
+        this.addHealThreat(h, amount);
         return;
       }
     }
 
-    const inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) - h.radius - u.radius <= h.range);
+    let inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) - h.radius - u.radius <= h.range);
+    if (this.carefulAI && !h.isTank) {
+      inRange = inRange.filter((u) => !this.wouldPull(h, u, h.damage * 1.1));
+    }
     if (!inRange.length) {
       h.targetId = null;
       return;
@@ -184,8 +296,23 @@ export class Battle {
     this.damage(h, target, this.roll(h.damage));
   }
 
+  private addHealThreat(healer: Unit, amount: number): void {
+    // Only enemies already in the fight (someone has threat on them) notice healing.
+    const engaged = this.units.filter((u) => u.side === 'enemy' && u.alive && !u.goesForGate && this.topThreat(u).value > 0);
+    if (!engaged.length) return;
+    const share = (amount * AGGRO.healThreat) / engaged.length;
+    for (const e of engaged) {
+      e.threat ??= {};
+      e.threat[healer.id] = this.threatOf(e, healer.id) + share;
+    }
+  }
+
   private damage(from: Unit, to: Unit, amount: number): void {
     to.hp -= amount;
+    if (from.side === 'hero' && to.side === 'enemy') {
+      to.threat ??= {};
+      to.threat[from.id] = this.threatOf(to, from.id) + amount * (from.threatMultiplier ?? 1);
+    }
     this.events.push({ type: 'attack', from: from.id, to: to.id, style: from.attackStyle, amount });
     if (to.hp <= 0 && to.alive) {
       to.hp = 0;

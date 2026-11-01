@@ -14,10 +14,10 @@ export const WORLD = {
 
 export const GATE_MAX_HP = 600;
 
-type UnitStats = Omit<Unit, 'id' | 'side' | 'kind' | 'x' | 'y' | 'hp' | 'cooldown' | 'targetId' | 'alive'>;
+type UnitStats = Omit<Unit, 'id' | 'side' | 'kind' | 'x' | 'y' | 'hp' | 'cooldown' | 'targetId' | 'alive' | 'threat' | 'tauntedBy' | 'tauntTime' | 'tauntCooldown'>;
 
 export const HERO_STATS: Record<HeroClass, UnitStats> = {
-  warrior: { label: 'Warrior', radius: 22, maxHp: 340, damage: 9, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0 },
+  warrior: { label: 'Warrior', radius: 22, maxHp: 340, damage: 9, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true },
   rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 7, attackInterval: 0.6, range: 120, attackStyle: 'melee', speed: 0 },
   mage: { label: 'Mage', radius: 18, maxHp: 170, damage: 20, attackInterval: 1.8, range: 380, attackStyle: 'ranged', speed: 0 },
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 28 },
@@ -35,6 +35,23 @@ export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
   grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 17, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
   archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 12, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
   runner: { label: 'Goblin Runner', radius: 13, maxHp: 90, damage: 14, attackInterval: 1.0, range: 6, attackStyle: 'melee', speed: 75, goesForGate: true },
+};
+
+/** Aggro tuning. */
+export const AGGRO = {
+  /** A new hero must exceed the current target's threat by this factor to pull aggro. */
+  pullFactor: 1.1,
+  /** Healing creates this much threat per point healed, split across all enemies. */
+  healThreat: 0.3,
+  /** Hero icon turns orange at this fraction of the top threat on any enemy. */
+  warningAt: 0.8,
+  /** Careful AI DPS won't attack if it would push them past this fraction. */
+  cautionAt: 0.9,
+  /** Runners ignore heroes until someone has at least this much threat on them. */
+  runnerThreshold: 40,
+  tauntCooldown: 8,
+  tauntDuration: 3,
+  tauntRange: 420,
 };
 
 export const WAVE_1: WaveDef = {
