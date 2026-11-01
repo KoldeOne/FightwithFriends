@@ -398,7 +398,8 @@ export class Battle {
         if (this.enemiesNear(h, t.thunderclap.radius).length) this.cast(h, false);
         break;
       case 'renew':
-        if (this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.85 && !this.hasEffect(u, 'hot'))) this.cast(h, false);
+        // Proactive: keep Renew rolling on anyone being attacked or hurt.
+        if (this.renewCandidates().length) this.cast(h, false);
         break;
       case 'fireball':
         if (this.pickEnemyTarget(h, t.fireball.damage)) this.cast(h, false);
@@ -407,6 +408,17 @@ export class Battle {
         if (this.pickEnemyTarget(h, t.sinisterStrike.damage)) this.cast(h, false);
         break;
     }
+  }
+
+  /**
+   * Allies without Renew who are being attacked or are missing health,
+   * most-attacked first, then lowest health.
+   */
+  private renewCandidates(): Unit[] {
+    const attackers = (u: Unit) => this.units.filter((e) => e.side === 'enemy' && e.alive && e.targetId === u.id).length;
+    return this.units
+      .filter((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'hot') && (attackers(u) > 0 || u.hp < u.maxHp * 0.95))
+      .sort((a, b) => attackers(b) - attackers(a) || a.hp / a.maxHp - b.hp / b.maxHp);
   }
 
   private enemiesNear(h: Unit, radius: number): Unit[] {
@@ -437,8 +449,7 @@ export class Battle {
         to =
           focus?.side === 'hero' && focus.alive
             ? focus
-            : allies.filter((u) => !this.hasEffect(u, 'hot')).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0] ??
-              allies.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+            : (this.renewCandidates()[0] ?? allies.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0]);
         if (!to) return false;
         const ticks = t.renew.duration / t.renew.tick;
         to.effects = (to.effects ?? []).filter((e) => e.kind !== 'hot');
