@@ -232,8 +232,8 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 └─────────────────────┘
 ```
 
-Formation (tank front, DPS middle, healer back) and whether heroes move are
-**(proposed)** — see open questions.
+**Heroes hold their positions** — they do not move. Formation: tank front,
+DPS middle, healer back.
 
 ### Basics
 
@@ -331,10 +331,17 @@ Bosses come with a few supporting enemies (e.g. "the boss is shielded while its
 ## 8. Run structure
 
 - **30 waves** per run, with a **boss every 5 waves** (5, 10, 15, 20, 25, 30).
-- **Beating wave 30 is a win.** The run then continues in **endless mode**, with
-  a boss every 5 waves.
+- **Beating wave 30 is a win.** The run then continues into **endless mode** (§8a).
 - **No branching map** — waves come in a fixed sequence.
 - **Run length:** ~60+ minutes of fighting, split across sessions via saving.
+
+### 8a. Endless mode
+
+- After wave 30, endless mode is **one single continuous wave**.
+- Enemies arrive **automatically in groups at set intervals**, each group a
+  little harder than the last (gradual, not steep).
+- Tuned so the party is **overwhelmed within ~10 minutes** at most.
+- No between-wave screen during endless mode — it ends when the gate falls.
 
 ### Between-wave screen
 
@@ -438,7 +445,7 @@ All professions can be owned; tokens decide which grow first.
 | Each boss defeated | +5 |
 | First-time milestones (first clear of wave 10, 20, 30) | +25 each |
 | Winning a run (wave 30) | +20 |
-| Endless waves (31+) | 2 per wave |
+| Endless mode | Tokens per enemy group survived (amount TBD) |
 
 - **Losing runs keep** all tokens earned up to that point.
 - **Auto mode earns the same** tokens as manual play.
@@ -474,10 +481,9 @@ All professions can be owned; tokens decide which grow first.
 
 ## 13. Open questions
 
-1. **Hero movement / formation:** do heroes hold fixed positions (tank front,
-   DPS middle, healer back) or move? (Proposed: fixed formation.)
-2. **Endless mode:** anything new after wave 30 beyond harder waves?
-3. **Difficulty tiers:** exactly what each tier adds.
+1. **Difficulty tiers:** exactly what each tier adds (in discussion).
+2. **Endless mode:** token rewards per group; whether bosses appear in it.
+3. *(reserved)*
 4. **Bosses:** specific bosses, abilities, and cast-bar spells.
 5. **Enemy abilities:** details per archetype and faction.
 6. **Starting-ability options:** the 2 unlockable options for Paladin, Priest,
