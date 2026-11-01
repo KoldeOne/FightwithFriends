@@ -1,13 +1,14 @@
 export type Side = 'hero' | 'enemy';
 export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue';
-export type EnemyKind = 'grunt' | 'archer' | 'runner';
+export type EnemyKind = 'grunt' | 'archer' | 'runner' | 'shaman';
 export type AttackStyle = 'melee' | 'ranged';
 export type ResourceKind = 'rage' | 'mana' | 'energy';
 export type AbilityId = 'thunderclap' | 'renew' | 'fireball' | 'sinisterStrike';
+export type SignatureId = 'taunt' | 'guardianSpirit' | 'polymorph' | 'kick';
 
 /** A timed buff/debuff on a unit. */
 export interface Effect {
-  kind: 'hot' | 'dot' | 'slow';
+  kind: 'hot' | 'dot' | 'slow' | 'guardian' | 'sheep' | 'silence';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */
@@ -51,8 +52,6 @@ export interface Unit {
   threatMultiplier?: number;
   /** Hero: true for the party's tank (ignores threat caution, taunts). */
   isTank?: boolean;
-  /** Hero: seconds until Taunt is ready again. */
-  tauntCooldown?: number;
   /** Enemy: threat per hero id. */
   threat?: Record<number, number>;
   /** Enemy: hero id forced as target by a taunt, and seconds remaining. */
@@ -67,6 +66,17 @@ export interface Unit {
   abilityCooldown?: number;
   /** Active buffs/debuffs. */
   effects?: Effect[];
+  /** Hero: fixed class signature ability and its cooldown. */
+  signature?: SignatureId;
+  signatureCooldown?: number;
+  /** Rogue: combo points (0-5). */
+  comboPoints?: number;
+  /** Enemy: spell being cast, if any. */
+  casting?: { spell: string; remaining: number; total: number; targetId: number };
+  /** Enemy: seconds until it may start another cast. */
+  castCooldown?: number;
+  /** Enemy: bosses are immune to Polymorph. */
+  isBoss?: boolean;
 }
 
 /** Aggro warning level shown on a hero. */
@@ -79,6 +89,10 @@ export type BattleEvent =
   | { type: 'tick'; to: number; amount: number; kind: 'hot' | 'dot' }
   | { type: 'heal'; from: number; to: number; amount: number }
   | { type: 'taunt'; from: number; to: number }
+  | { type: 'signature'; from: number; signature: SignatureId; to?: number }
+  | { type: 'castStart'; from: number; spell: string; to: number; duration: number }
+  | { type: 'castEnd'; from: number; interrupted: boolean }
+  | { type: 'notice'; id: number; text: string; tone: 'good' | 'bad' | 'info' }
   | { type: 'death'; id: number };
 
 export type Outcome = 'running' | 'victory' | 'defeat';

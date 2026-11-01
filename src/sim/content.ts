@@ -1,4 +1,4 @@
-import type { AbilityId, EnemyKind, HeroClass, ResourceKind, Unit, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroClass, ResourceKind, SignatureId, Unit, WaveDef } from './types';
 
 /** World is a fixed portrait canvas; the renderer scales it to the screen. */
 export const WORLD = {
@@ -37,6 +37,7 @@ export const FORMATION: { cls: HeroClass; x: number; y: number }[] = [
 export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
   grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 17, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
   archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 12, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
+  shaman: { label: 'Goblin Shaman', radius: 16, maxHp: 150, damage: 8, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30 },
   runner: { label: 'Goblin Runner', radius: 13, maxHp: 90, damage: 14, attackInterval: 1.0, range: 6, attackStyle: 'melee', speed: 75, goesForGate: true },
 };
 
@@ -74,11 +75,57 @@ export const ABILITY_TUNING = {
   slowFactor: 1.3,
 };
 
-export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; ability: AbilityId; role: string }> = {
-  warrior: { resource: 'rage', ability: 'thunderclap', role: 'Tank — holds enemies with threat' },
-  priest: { resource: 'mana', ability: 'renew', role: 'Healer — keeps the party alive' },
-  mage: { resource: 'mana', ability: 'fireball', role: 'Ranged damage' },
-  rogue: { resource: 'energy', ability: 'sinisterStrike', role: 'Melee damage' },
+export interface SignatureDef {
+  id: SignatureId;
+  name: string;
+  cooldown: number;
+  description: string;
+}
+
+export const SIGNATURES: Record<SignatureId, SignatureDef> = {
+  taunt: { id: 'taunt', name: 'Taunt', cooldown: 8, description: 'Forces an enemy to attack you.' },
+  guardianSpirit: { id: 'guardianSpirit', name: 'Guardian Spirit', cooldown: 30, description: 'The next killing blow on an ally leaves them at 30% instead.' },
+  polymorph: { id: 'polymorph', name: 'Polymorph', cooldown: 15, description: 'Turns an enemy (not a boss) into a sheep for 10s.' },
+  kick: { id: 'kick', name: 'Kick', cooldown: 10, description: 'Interrupts an enemy cast from range and locks it out of casting.' },
+};
+
+export const SIGNATURE_TUNING = {
+  guardianSpirit: { duration: 12, saveTo: 0.3 },
+  polymorph: { duration: 10, range: 380 },
+  /** Kick has its own range, separate from the Rogue's melee reach. */
+  kick: { damage: 8, silence: 4, range: 420 },
+};
+
+export interface TraitDef {
+  name: string;
+  description: string;
+}
+
+export const TRAITS: Record<HeroClass, TraitDef> = {
+  warrior: { name: 'Rage', description: 'Builds rage from dealing and taking damage, and hits harder the more rage he has.' },
+  priest: { name: 'Inner Focus', description: 'Renew costs half while the whole party is above 80% health.' },
+  mage: { name: 'Arcane Surge', description: 'Fireball has a 25% chance to cost no mana.' },
+  rogue: { name: 'Combo Points', description: 'Auto attacks build combo points; Sinister Strike spends them for bonus damage.' },
+};
+
+export const TRAIT_TUNING = {
+  /** Warrior: +20% damage at full rage. */
+  rageDamageAtMax: 0.2,
+  innerFocusThreshold: 0.8,
+  arcaneSurgeChance: 0.25,
+  maxComboPoints: 5,
+  /** Sinister Strike: +15% damage per combo point. */
+  comboBonusPerPoint: 0.15,
+};
+
+/** Goblin Shaman's heal spell. It must walk within `range` of the goblin it heals. */
+export const SHAMAN_MEND = { name: 'Mend', castTime: 2.5, heal: 70, cooldown: 7, minMissing: 40, range: 90 };
+
+export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; ability: AbilityId; signature: SignatureId; role: string }> = {
+  warrior: { resource: 'rage', ability: 'thunderclap', signature: 'taunt', role: 'Tank — holds enemies with threat' },
+  priest: { resource: 'mana', ability: 'renew', signature: 'guardianSpirit', role: 'Healer — keeps the party alive' },
+  mage: { resource: 'mana', ability: 'fireball', signature: 'polymorph', role: 'Ranged damage and control' },
+  rogue: { resource: 'energy', ability: 'sinisterStrike', signature: 'kick', role: 'Melee damage and interrupts' },
 };
 
 /** Aggro tuning. */
@@ -105,6 +152,6 @@ export const WAVE_1: WaveDef = {
     { time: 0.6, kind: 'grunt', x: 330 },
     { time: 3, kind: 'archer', x: 270 },
     { time: 6, kind: 'runner', x: 110 },
-    { time: 9, kind: 'grunt', x: 420 },
+    { time: 9, kind: 'shaman', x: 420 },
   ],
 };

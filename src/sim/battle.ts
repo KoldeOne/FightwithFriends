@@ -1,4 +1,20 @@
-import { ABILITIES, ABILITY_TUNING, AGGRO, ENEMY_STATS, FORMATION, GATE_MAX_HP, HERO_KIT, HERO_STATS, RAGE, RESOURCES, WORLD } from './content';
+import {
+  ABILITIES,
+  ABILITY_TUNING,
+  AGGRO,
+  ENEMY_STATS,
+  FORMATION,
+  GATE_MAX_HP,
+  HERO_KIT,
+  HERO_STATS,
+  RAGE,
+  RESOURCES,
+  SHAMAN_MEND,
+  SIGNATURE_TUNING,
+  SIGNATURES,
+  TRAIT_TUNING,
+  WORLD,
+} from './content';
 import { createRng } from './rng';
 import type { AbilityId, AggroLevel, BattleEvent, Effect, EnemyKind, HeroClass, Outcome, SpawnDef, Unit, WaveDef } from './types';
 import { GATE_ID } from './types';
@@ -68,12 +84,37 @@ export class Battle {
     this.focusId = u?.alive ? u.id : null;
   }
 
+  /** Current resource cost of a hero's ability (traits can change it). */
+  abilityCost(h: Unit): number {
+    const base = h.ability ? ABILITIES[h.ability].cost : 0;
+    if (h.ability === 'renew') {
+      const healthy = this.units.filter((u) => u.side === 'hero' && u.alive).every((u) => u.hp >= u.maxHp * TRAIT_TUNING.innerFocusThreshold);
+      if (healthy) return Math.ceil(base / 2);
+    }
+    return base;
+  }
+
   /** Why the player's ability can't be used right now, or 'ok'. */
   abilityState(h: Unit | undefined = this.player): AbilityResult {
     if (!h?.alive || !h.ability) return 'dead';
     if ((h.abilityCooldown ?? 0) > 0) return 'cooldown';
-    if ((h.resource ?? 0) < ABILITIES[h.ability].cost) return 'resource';
+    if ((h.resource ?? 0) < this.abilityCost(h)) return 'resource';
     return 'ok';
+  }
+
+  /** Why the player's signature can't be used right now, or 'ok'. */
+  signatureState(h: Unit | undefined = this.player): AbilityResult {
+    if (!h?.alive || !h.signature) return 'dead';
+    if ((h.signatureCooldown ?? 0) > 0) return 'cooldown';
+    return 'ok';
+  }
+
+  /** The player taps their signature button. */
+  useSignature(): AbilityResult {
+    const h = this.player;
+    const state = this.signatureState(h);
+    if (state !== 'ok' || !h) return state;
+    return this.castSignature(h, true) ? 'ok' : 'target';
   }
 
   /** The player taps their ability button. */
@@ -86,6 +127,11 @@ export class Battle {
 
   hasEffect(u: Unit, kind: Effect['kind']): boolean {
     return !!u.effects?.some((e) => e.kind === kind);
+  }
+
+  /** Polymorphed enemies are out of the fight until hit directly. */
+  isSheep(u: Unit): boolean {
+    return this.hasEffect(u, 'sheep');
   }
 
   get heroes(): Unit[] {
@@ -155,16 +201,19 @@ export class Battle {
     for (const u of this.units) {
       if (!u.alive) continue;
       u.cooldown = Math.max(0, u.cooldown - dt);
-      if (u.tauntCooldown) u.tauntCooldown = Math.max(0, u.tauntCooldown - dt);
       if (u.tauntTime) u.tauntTime = Math.max(0, u.tauntTime - dt);
       if (u.abilityCooldown) u.abilityCooldown = Math.max(0, u.abilityCooldown - dt);
+      if (u.signatureCooldown) u.signatureCooldown = Math.max(0, u.signatureCooldown - dt);
+      if (u.castCooldown) u.castCooldown = Math.max(0, u.castCooldown - dt);
       if (u.resourceKind) u.resource = Math.min(u.maxResource!, u.resource! + RESOURCES[u.resourceKind].regen * dt);
       this.tickEffects(u, dt);
       if (!u.alive) continue;
       if (u.side === 'enemy') this.updateEnemy(u, dt);
       else {
-        if (u.isTank) this.tryTaunt(u);
-        if (u.id !== this.playerId || this.playerAuto) this.aiAbility(u);
+        if (u.id !== this.playerId || this.playerAuto) {
+          this.aiSignature(u);
+          this.aiAbility(u);
+        }
         this.updateHero(u);
       }
     }
@@ -201,6 +250,9 @@ export class Battle {
       maxResource: res.max,
       ability: kit.ability,
       abilityCooldown: 0,
+      signature: kit.signature,
+      signatureCooldown: 0,
+      comboPoints: 0,
       effects: [],
     });
   }
@@ -220,6 +272,16 @@ export class Battle {
   // --- behaviour ----------------------------------------------------------
 
   private updateEnemy(e: Unit, dt: number): void {
+    if (this.isSheep(e)) {
+      e.targetId = null;
+      return;
+    }
+    if (e.casting) {
+      this.progressCast(e, dt);
+      return;
+    }
+    if (e.kind === 'shaman' && this.shamanMend(e, dt)) return;
+
     const target = this.chooseEnemyTarget(e);
     e.targetId = target ? target.id : GATE_ID;
 
@@ -289,28 +351,176 @@ export class Battle {
     return top.id !== null ? this.unit(top.id)! : null;
   }
 
-  /** Tank AI: taunt the closest enemy that is attacking someone else. */
-  private tryTaunt(tank: Unit): void {
-    if (!tank.alive || tank.tauntCooldown) return;
-    const loose = this.units.filter(
+  /** Enemies attacking someone other than this tank, within taunt range. */
+  private looseEnemies(tank: Unit): Unit[] {
+    return this.units.filter(
       (u) =>
         u.side === 'enemy' &&
         u.alive &&
+        !this.isSheep(u) &&
         u.targetId !== null &&
         u.targetId !== tank.id &&
         (u.targetId !== GATE_ID || this.topThreat(u).value > 0) &&
         dist(tank, u) <= AGGRO.tauntRange,
     );
-    if (!loose.length) return;
-    const e = nearest(tank, loose);
+  }
+
+  private applyTaunt(tank: Unit, e: Unit): void {
     e.threat ??= {};
     const floor = e.goesForGate ? AGGRO.runnerThreshold : 0;
     e.threat[tank.id] = Math.max(this.threatOf(e, tank.id), this.topThreat(e).value, floor) + 1;
     e.tauntedBy = tank.id;
     e.tauntTime = AGGRO.tauntDuration;
     e.targetId = tank.id;
-    tank.tauntCooldown = AGGRO.tauntCooldown;
     this.events.push({ type: 'taunt', from: tank.id, to: e.id });
+  }
+
+  // --- shaman casting ------------------------------------------------------
+
+  /**
+   * Shaman: if a goblin is hurt and Mend is available, walk to within range of
+   * it and start casting. Returns true if it spent this tick on that.
+   */
+  private shamanMend(e: Unit, dt: number): boolean {
+    if (e.castCooldown || this.hasEffect(e, 'silence') || e.y < 0) return false;
+    const hurt = this.units
+      .filter((u) => u.side === 'enemy' && u.alive && u.id !== e.id && !this.isSheep(u) && u.maxHp - u.hp >= SHAMAN_MEND.minMissing)
+      .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    if (!hurt) return false;
+    const gap = dist(e, hurt) - e.radius - hurt.radius;
+    if (gap > SHAMAN_MEND.range) {
+      const len = dist(e, hurt) || 1;
+      const move = Math.min(e.speed * dt, gap - SHAMAN_MEND.range + 0.5);
+      e.x += ((hurt.x - e.x) / len) * move;
+      e.y += ((hurt.y - e.y) / len) * move;
+      e.targetId = null;
+      return true;
+    }
+    e.casting = { spell: SHAMAN_MEND.name, remaining: SHAMAN_MEND.castTime, total: SHAMAN_MEND.castTime, targetId: hurt.id };
+    this.events.push({ type: 'castStart', from: e.id, spell: SHAMAN_MEND.name, to: hurt.id, duration: SHAMAN_MEND.castTime });
+    return true;
+  }
+
+  private progressCast(e: Unit, dt: number): void {
+    const c = e.casting!;
+    const target = this.unit(c.targetId);
+    if (!target?.alive) {
+      this.endCast(e, false);
+      return;
+    }
+    c.remaining -= dt;
+    if (c.remaining > 0) return;
+    const amount = Math.min(target.maxHp - target.hp, SHAMAN_MEND.heal);
+    target.hp += amount;
+    this.events.push({ type: 'heal', from: e.id, to: target.id, amount });
+    this.endCast(e, false);
+  }
+
+  private endCast(e: Unit, interrupted: boolean): void {
+    if (!e.casting) return;
+    e.casting = undefined;
+    e.castCooldown = interrupted ? SHAMAN_MEND.cooldown : SHAMAN_MEND.cooldown;
+    this.events.push({ type: 'castEnd', from: e.id, interrupted });
+  }
+
+  // --- signature abilities -------------------------------------------------
+
+  /** AI decides whether to use a hero's signature this tick. */
+  private aiSignature(h: Unit): void {
+    if (this.signatureState(h) !== 'ok') return;
+    switch (h.signature) {
+      case 'taunt':
+        if (this.looseEnemies(h).length) this.castSignature(h, false);
+        break;
+      case 'guardianSpirit':
+        if (this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.35 && !this.hasEffect(u, 'guardian'))) this.castSignature(h, false);
+        break;
+      case 'polymorph':
+        if (this.polymorphCandidate(h)) this.castSignature(h, false);
+        break;
+      case 'kick':
+        if (this.kickTargets(h).some((u) => u.casting)) this.castSignature(h, false);
+        break;
+    }
+  }
+
+  private canPolymorph(h: Unit, e: Unit): boolean {
+    return e.side === 'enemy' && e.alive && !e.isBoss && !this.isSheep(e) && dist(h, e) - h.radius - e.radius <= SIGNATURE_TUNING.polymorph.range;
+  }
+
+  /** AI: sheep an enemy that is beating on a non-tank, if it isn't the last one. */
+  private polymorphCandidate(h: Unit): Unit | undefined {
+    const active = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u));
+    if (active.length < 2) return undefined;
+    return active.find((e) => {
+      if (e.goesForGate || !this.canPolymorph(h, e)) return false;
+      const victim = e.targetId !== null && e.targetId >= 0 ? this.unit(e.targetId) : undefined;
+      return victim?.side === 'hero' && !victim.isTank;
+    });
+  }
+
+  private kickTargets(h: Unit): Unit[] {
+    const reach = SIGNATURE_TUNING.kick.range;
+    return this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) - h.radius - u.radius <= reach);
+  }
+
+  /** Perform the hero's signature. Returns false if there was no valid target. */
+  private castSignature(h: Unit, byPlayer: boolean): boolean {
+    const id = h.signature!;
+    const focus = byPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
+    let to: Unit | undefined;
+
+    switch (id) {
+      case 'taunt': {
+        const inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) <= AGGRO.tauntRange);
+        if (focus && inRange.includes(focus)) to = focus;
+        else {
+          const loose = this.looseEnemies(h);
+          to = loose.length ? nearest(h, loose) : inRange.length ? nearest(h, inRange) : undefined;
+        }
+        if (!to) return false;
+        this.applyTaunt(h, to);
+        break;
+      }
+      case 'guardianSpirit': {
+        const allies = this.units.filter((u) => u.side === 'hero' && u.alive);
+        to = focus?.side === 'hero' && focus.alive ? focus : allies.filter((u) => !this.hasEffect(u, 'guardian')).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+        if (!to) return false;
+        this.addEffect(to, { kind: 'guardian', remaining: SIGNATURE_TUNING.guardianSpirit.duration, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+        break;
+      }
+      case 'polymorph': {
+        to = focus && this.canPolymorph(h, focus) ? focus : byPlayer ? undefined : this.polymorphCandidate(h);
+        if (!to && byPlayer) {
+          // No valid focus: sheep whatever is beating on a non-tank, else the most advanced enemy.
+          to = this.polymorphCandidate(h) ?? this.units.filter((u) => this.canPolymorph(h, u) && !u.goesForGate).sort((a, b) => b.y - a.y)[0];
+        }
+        if (!to) return false;
+        if (to.casting) this.endCast(to, true);
+        to.targetId = null;
+        to.tauntTime = 0;
+        this.addEffect(to, { kind: 'sheep', remaining: SIGNATURE_TUNING.polymorph.duration, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+        for (const hero of this.units) if (hero.side === 'hero' && hero.targetId === to.id) hero.targetId = null;
+        // Don't let your own auto attacks break the sheep you just made.
+        if (this.focusId === to.id) this.focusId = null;
+        break;
+      }
+      case 'kick': {
+        const targets = this.kickTargets(h);
+        to = focus && targets.includes(focus) ? focus : (targets.find((u) => u.casting) ?? (targets.length ? nearest(h, targets) : undefined));
+        if (!to) return false;
+        if (to.casting) {
+          this.endCast(to, true);
+          this.addEffect(to, { kind: 'silence', remaining: SIGNATURE_TUNING.kick.silence, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+          this.events.push({ type: 'notice', id: to.id, text: 'Interrupted!', tone: 'good' });
+        }
+        this.damage(h, to, SIGNATURE_TUNING.kick.damage);
+        break;
+      }
+    }
+    h.signatureCooldown = SIGNATURES[id].cooldown;
+    this.events.push({ type: 'signature', from: h.id, signature: id, to: to?.id });
+    return true;
   }
 
   /** Would hitting `e` for `amount` push a careful hero past the caution line? */
@@ -358,6 +568,7 @@ export class Battle {
     h.targetId = target.id;
     h.cooldown = h.attackInterval;
     this.damage(h, target, this.roll(h.damage));
+    if (h.comboPoints !== undefined && h.kind === 'rogue') h.comboPoints = Math.min(TRAIT_TUNING.maxComboPoints, h.comboPoints + 1);
   }
 
   /** Is this hero controlled by careful AI right now? */
@@ -380,6 +591,9 @@ export class Battle {
       if (f?.side === 'enemy' && f.alive && this.inReach(h, f)) return f;
     }
     let inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && this.inReach(h, u));
+    // Sheep are the lowest priority: only attacked when nothing else is left anywhere.
+    const othersAlive = this.units.some((u) => u.side === 'enemy' && u.alive && !this.isSheep(u));
+    inRange = inRange.filter((u) => !this.isSheep(u) || !othersAlive);
     if (this.isCareful(h)) inRange = inRange.filter((u) => !this.wouldPull(h, u, hitSize));
     if (!inRange.length) return null;
     const current = inRange.find((u) => u.id === h.targetId);
@@ -422,7 +636,7 @@ export class Battle {
   }
 
   private enemiesNear(h: Unit, radius: number): Unit[] {
-    return this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) <= radius);
+    return this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) <= radius);
   }
 
   /** Perform the hero's ability. Returns false if there was no valid target. */
@@ -438,7 +652,7 @@ export class Battle {
         if (!hit.length) return false;
         this.events.push({ type: 'ability', from: h.id, ability: id });
         for (const e of hit) {
-          this.damage(h, e, this.roll(t.thunderclap.damage), { threatScale: t.thunderclap.threatBonus, ability: id });
+          this.damage(h, e, this.roll(t.thunderclap.damage), { threatScale: t.thunderclap.threatBonus, ability: id, aoe: true });
           this.addEffect(e, { kind: 'slow', remaining: t.thunderclap.slow, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
         }
         break;
@@ -459,9 +673,13 @@ export class Battle {
       }
       case 'fireball':
       case 'sinisterStrike': {
-        const size = id === 'fireball' ? t.fireball.damage : t.sinisterStrike.damage;
+        let size = id === 'fireball' ? t.fireball.damage : t.sinisterStrike.damage;
         to = this.pickEnemyTarget(h, byPlayer ? 0 : size) ?? undefined;
         if (!to) return false;
+        if (id === 'sinisterStrike' && h.comboPoints) {
+          size *= 1 + h.comboPoints * TRAIT_TUNING.comboBonusPerPoint;
+          h.comboPoints = 0;
+        }
         h.targetId = to.id;
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
         this.damage(h, to, this.roll(size), { ability: id });
@@ -472,7 +690,12 @@ export class Battle {
         break;
       }
     }
-    h.resource = h.resource! - def.cost;
+    let cost = this.abilityCost(h);
+    if (id === 'fireball' && this.rng() < TRAIT_TUNING.arcaneSurgeChance) {
+      cost = 0;
+      this.events.push({ type: 'notice', id: h.id, text: 'Arcane Surge!', tone: 'info' });
+    }
+    h.resource = h.resource! - cost;
     h.abilityCooldown = def.cooldown;
     return true;
   }
@@ -488,7 +711,7 @@ export class Battle {
     if (!u.effects?.length) return;
     for (const e of u.effects) {
       e.remaining -= dt;
-      if (e.kind === 'slow') continue;
+      if (e.kind !== 'hot' && e.kind !== 'dot') continue;
       e.tickTimer -= dt;
       if (e.tickTimer > 1e-6) continue;
       e.tickTimer += e.tickEvery;
@@ -521,8 +744,24 @@ export class Battle {
     }
   }
 
-  private damage(from: Unit, to: Unit, amount: number, opts: { threatScale?: number; ability?: AbilityId; tick?: boolean } = {}): void {
+  private damage(from: Unit, to: Unit, amount: number, opts: { threatScale?: number; ability?: AbilityId; tick?: boolean; aoe?: boolean } = {}): void {
     if (!to.alive) return;
+    if (this.isSheep(to)) {
+      if (opts.aoe) return; // sheep ignore AoE
+      to.effects = to.effects!.filter((e) => e.kind !== 'sheep');
+      this.events.push({ type: 'notice', id: to.id, text: 'Sheep broke!', tone: 'bad' });
+    }
+    // Warrior trait: more rage, more damage.
+    if (from.resourceKind === 'rage' && !opts.tick) {
+      amount = Math.round(amount * (1 + TRAIT_TUNING.rageDamageAtMax * (from.resource! / from.maxResource!)));
+    }
+    // Guardian Spirit: the killing blow leaves them at 30% instead.
+    if (to.hp - amount <= 0 && this.hasEffect(to, 'guardian')) {
+      to.effects = to.effects!.filter((e) => e.kind !== 'guardian');
+      to.hp = Math.round(to.maxHp * SIGNATURE_TUNING.guardianSpirit.saveTo);
+      amount = 0;
+      this.events.push({ type: 'notice', id: to.id, text: 'Saved!', tone: 'good' });
+    }
     to.hp -= amount;
     if (from.side === 'hero' && to.side === 'enemy') {
       to.threat ??= {};

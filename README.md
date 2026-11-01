@@ -9,7 +9,7 @@ against waves of enemies. Built to play on a phone.
 
 ## Status
 
-Steps 1–3 of the first playable version are done:
+Steps 1–4 of the first playable version are done:
 
 1. **Battlefield** — heroes hold positions, goblins march down, auto attacks,
    gate HP, victory or the gate falling.
@@ -20,6 +20,12 @@ Steps 1–3 of the first playable version are done:
    can also tap allies); one ability button per class (Thunderclap, Renew,
    Fireball, Sinister Strike) using rage / mana / energy; AUTO toggle; pause.
    Orange/red `!` aggro warnings show on your hero.
+
+4. **Class kits (part 1)** — each class has a signature ability button
+   (Taunt, Guardian Spirit, Polymorph, Kick) and a class trait (Rage, Inner
+   Focus, Arcane Surge, Combo Points). The Goblin Shaman casts Mend (with a
+   cast bar) for Kick to interrupt. The class select screen shows each
+   signature and trait.
 
 Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**
 (ON = AI damage dealers hold back before pulling aggro; OFF = they don't).

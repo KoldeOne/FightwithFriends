@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING, HERO_KIT, RESOURCES, WAVE_1, WORLD } from '../sim/content';
+import { ABILITIES, ABILITY_TUNING, HERO_KIT, RESOURCES, SIGNATURES, TRAITS, WAVE_1, WORLD } from '../sim/content';
 import type { AbilityId, BattleEvent, HeroClass, ResourceKind, Unit } from '../sim/types';
 import { GATE_ID } from '../sim/types';
 
@@ -12,6 +12,7 @@ const COLORS: Record<string, number> = {
   grunt: 0x6b8e23,
   archer: 0x8fbc4f,
   runner: 0xb5d33d,
+  shaman: 0x8e6bbf,
 };
 
 const LETTERS: Record<string, string> = {
@@ -22,6 +23,7 @@ const LETTERS: Record<string, string> = {
   grunt: 'G',
   archer: 'A',
   runner: '»',
+  shaman: 'S',
 };
 
 const DARK_LETTER = ['priest', 'rogue', 'archer', 'runner'];
@@ -47,6 +49,9 @@ interface UnitView {
   body: Phaser.GameObjects.Arc;
   hpBar: Phaser.GameObjects.Graphics;
   name?: Phaser.GameObjects.Text;
+  letter: Phaser.GameObjects.Text;
+  /** Cast bar label (enemies that cast). */
+  castLabel?: Phaser.GameObjects.Text;
   /** Aggro warning badge (shown on the player's hero only). */
   aggroIcon?: { container: Phaser.GameObjects.Container; disc: Phaser.GameObjects.Arc };
   dead: boolean;
@@ -58,7 +63,7 @@ const DPR = Math.min(window.devicePixelRatio || 1, 3);
 const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 
 /** Size and position of the ability button and AUTO button. */
-const ABILITY_BTN = { x: 16, size: 82 };
+const ABILITY_BTN = { x: 16, size: 72, gap: 8 };
 const AUTO_BTN = { w: 120 };
 
 export class BattleScene extends Phaser.Scene {
@@ -79,6 +84,11 @@ export class BattleScene extends Phaser.Scene {
   private speedButton!: Phaser.GameObjects.Text;
   private carefulButton!: Phaser.GameObjects.Text;
   private pauseButton!: Phaser.GameObjects.Text;
+  private sigBg!: Phaser.GameObjects.Rectangle;
+  private sigName!: Phaser.GameObjects.Text;
+  private sigTag!: Phaser.GameObjects.Text;
+  private sigCooldown!: Phaser.GameObjects.Graphics;
+  private sigCooldownText!: Phaser.GameObjects.Text;
   private abilityBg!: Phaser.GameObjects.Rectangle;
   private abilityName!: Phaser.GameObjects.Text;
   private abilityCost!: Phaser.GameObjects.Text;
@@ -141,25 +151,38 @@ export class BattleScene extends Phaser.Scene {
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 150, 'Choose your hero', 34, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
-      this.text(cx, 196, 'The other three are played by AI.', 16, '#c9d1e0').setOrigin(0.5),
+      this.text(cx, 160, 'Choose your hero', 34, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 202, 'The other three are played by AI.', 16, '#c9d1e0').setOrigin(0.5),
     ];
     const classes: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
+    const cardH = 132;
     classes.forEach((cls, i) => {
-      const y = 270 + i * 104;
-      const bg = this.add.rectangle(cx, y, 440, 88, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
-      const disc = this.add.circle(cx - 170, y, 26, COLORS[cls]).setStrokeStyle(2, 0x111111);
-      const letter = this.text(cx - 170, y, LETTERS[cls], 24, DARK_LETTER.includes(cls) ? '#222' : '#fff')
+      const y = 232 + cardH / 2 + i * (cardH + 10);
+      const left = cx - 225;
+      const bg = this.add.rectangle(cx, y, 470, cardH, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
+      const disc = this.add.circle(left + 34, y - 30, 24, COLORS[cls]).setStrokeStyle(2, 0x111111);
+      const letter = this.text(left + 34, y - 30, LETTERS[cls], 22, DARK_LETTER.includes(cls) ? '#222' : '#fff')
         .setOrigin(0.5)
         .setFontStyle('bold');
       const kit = HERO_KIT[cls];
-      const name = this.text(cx - 128, y - 30, cls[0].toUpperCase() + cls.slice(1), 22, '#ffffff').setFontStyle('bold');
-      const role = this.text(cx - 128, y - 2, kit.role, 14, '#c9d1e0');
-      const ability = this.text(cx - 128, y + 18, `Ability: ${ABILITIES[kit.ability].name} · ${RESOURCES[kit.resource].label}`, 13, '#8f9bb3');
+      const tx = left + 72;
+      const top = y - cardH / 2 + 10;
+      const name = this.text(tx, top, cls[0].toUpperCase() + cls.slice(1), 20, '#ffffff').setFontStyle('bold');
+      const role = this.text(tx + 104, top + 4, kit.role, 13, '#c9d1e0');
+      const sig = this.text(tx, top + 30, `★ Signature: ${SIGNATURES[kit.signature].name}`, 14, '#ffd166').setFontStyle('bold');
+      const sigDesc = this.text(tx + 14, top + 49, SIGNATURES[kit.signature].description, 12, '#c9d1e0').setWordWrapWidth(370);
+      const trait = this.text(tx, top + 70, `◆ Trait: ${TRAITS[cls].name}`, 13, '#9ad1ff').setFontStyle('bold');
+      const ability = this.text(
+        tx,
+        top + 90,
+        `Ability: ${ABILITIES[kit.ability].name} · ${RESOURCES[kit.resource].label}`,
+        12,
+        '#8f9bb3',
+      );
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
       bg.on('pointerdown', () => this.startAs(cls));
-      items.push(bg, disc, letter, name, role, ability);
+      items.push(bg, disc, letter, name, role, sig, sigDesc, trait, ability);
     });
     this.overlay = this.add.container(0, 0, items).setDepth(100);
   }
@@ -210,6 +233,24 @@ export class BattleScene extends Phaser.Scene {
       this.handleEvents(this.battle.drainEvents());
     } else {
       this.showToast(this.abilityMessage(result));
+    }
+  }
+
+  private onSignatureTap(): void {
+    if (this.state !== 'playing') return;
+    const result = this.battle.useSignature();
+    if (result === 'ok') {
+      this.tweens.add({ targets: this.sigBg, scale: 0.92, duration: 70, yoyo: true });
+      this.handleEvents(this.battle.drainEvents());
+    } else {
+      const p = this.battle.player;
+      const msg =
+        result === 'target' && p?.signature === 'kick'
+          ? 'No enemy in range to kick'
+          : result === 'target' && p?.signature === 'polymorph'
+            ? 'No enemy that can be polymorphed'
+            : this.abilityMessage(result);
+      this.showToast(msg);
     }
   }
 
@@ -299,26 +340,43 @@ export class BattleScene extends Phaser.Scene {
     this.gateBar = this.add.graphics();
     this.hudText = this.text(WORLD.width - 16, top + 8, '', 14, '#ffffff').setOrigin(1, 0);
 
-    // Ability button.
+    // Signature button, then ability button.
     const by = top + 36;
     const s = ABILITY_BTN.size;
-    this.abilityBg = this.add
-      .rectangle(ABILITY_BTN.x + s / 2, by + s / 2, s, s, 0x2b3445)
-      .setStrokeStyle(2, 0x3a4660)
+    const sx = ABILITY_BTN.x;
+    const ax0 = sx + s + ABILITY_BTN.gap;
+    this.sigBg = this.add
+      .rectangle(sx + s / 2, by + s / 2, s, s, 0x2b3445)
+      .setStrokeStyle(3, GOLD)
       .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => this.onAbilityTap());
-    this.abilityName = this.text(ABILITY_BTN.x + s / 2, by + s / 2 - 8, '', 14, '#ffffff')
+      .on('pointerdown', () => this.onSignatureTap());
+    this.sigTag = this.text(sx + s / 2, by + 9, '★', 12, '#ffd166').setOrigin(0.5);
+    this.sigName = this.text(sx + s / 2, by + s / 2 + 4, '', 13, '#ffffff')
       .setOrigin(0.5)
       .setAlign('center')
       .setFontStyle('bold')
-      .setWordWrapWidth(s - 8);
-    this.abilityCost = this.text(ABILITY_BTN.x + s / 2, by + s - 16, '', 11, '#c9d1e0').setOrigin(0.5);
+      .setWordWrapWidth(s - 6);
+    this.sigCooldown = this.add.graphics();
+    this.sigCooldownText = this.text(sx + s / 2, by + s / 2, '', 24, '#ffffff').setOrigin(0.5).setFontStyle('bold');
+    this.sigCooldownText.setStroke('#000000', 4);
+
+    this.abilityBg = this.add
+      .rectangle(ax0 + s / 2, by + s / 2, s, s, 0x2b3445)
+      .setStrokeStyle(2, 0x3a4660)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.onAbilityTap());
+    this.abilityName = this.text(ax0 + s / 2, by + s / 2 - 8, '', 13, '#ffffff')
+      .setOrigin(0.5)
+      .setAlign('center')
+      .setFontStyle('bold')
+      .setWordWrapWidth(s - 6);
+    this.abilityCost = this.text(ax0 + s / 2, by + s - 13, '', 11, '#c9d1e0').setOrigin(0.5);
     this.abilityCooldown = this.add.graphics();
-    this.abilityCooldownText = this.text(ABILITY_BTN.x + s / 2, by + s / 2, '', 26, '#ffffff').setOrigin(0.5).setFontStyle('bold');
+    this.abilityCooldownText = this.text(ax0 + s / 2, by + s / 2, '', 24, '#ffffff').setOrigin(0.5).setFontStyle('bold');
     this.abilityCooldownText.setStroke('#000000', 4);
 
     // Resource bar, focus info and messages.
-    const rx = ABILITY_BTN.x + s + 14;
+    const rx = ax0 + s + 12;
     this.resourceBar = this.add.graphics();
     this.resourceText = this.text(rx + 8, by + 3, '', 13, '#ffffff').setFontStyle('bold');
     this.resourceText.setStroke('#000000', 3);
@@ -371,12 +429,16 @@ export class BattleScene extends Phaser.Scene {
     const p = this.battle.player;
     const by = WORLD.hudTop + 36;
     const s = ABILITY_BTN.size;
-    const rx = ABILITY_BTN.x + s + 14;
+    const ax0 = ABILITY_BTN.x + s + ABILITY_BTN.gap;
+    const rx = ax0 + s + 12;
     const rw = WORLD.width - rx - AUTO_BTN.w - 28;
 
     this.abilityCooldown.clear();
+    this.sigCooldown.clear();
     this.resourceBar.clear();
-    if (!p?.ability || !p.resourceKind) {
+    if (!p?.ability || !p.resourceKind || !p.signature) {
+      this.sigName.setText('');
+      this.sigCooldownText.setText('');
       this.abilityName.setText('');
       this.abilityCost.setText('');
       this.abilityCooldownText.setText('');
@@ -386,11 +448,25 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    // Signature button.
+    const sig = SIGNATURES[p.signature];
+    const sigReady = this.battle.signatureState(p) === 'ok';
+    this.sigName.setText(sig.name);
+    this.sigBg.setFillStyle(sigReady ? 0x5a4a1c : 0x2b3445);
+    const scd = p.signatureCooldown ?? 0;
+    if (scd > 0) {
+      this.sigCooldown.fillStyle(0x000000, 0.55).fillRect(ABILITY_BTN.x, by, s, s * (scd / sig.cooldown));
+      this.sigCooldownText.setText(scd >= 1 ? `${Math.ceil(scd)}` : scd.toFixed(1));
+    } else {
+      this.sigCooldownText.setText('');
+    }
+
     const def = ABILITIES[p.ability];
     const res = RESOURCES[p.resourceKind];
     const state = this.battle.abilityState(p);
+    const cost = this.battle.abilityCost(p);
     this.abilityName.setText(def.name);
-    this.abilityCost.setText(`${def.cost} ${res.label.toLowerCase()}`);
+    this.abilityCost.setText(`${cost} ${res.label.toLowerCase()}`);
     this.abilityBg.setFillStyle(state === 'ok' ? COLORS[p.kind] : 0x2b3445);
     this.abilityName.setColor(state === 'ok' && DARK_LETTER.includes(p.kind) ? '#111' : '#ffffff');
     this.abilityCost.setColor(state === 'ok' && DARK_LETTER.includes(p.kind) ? '#333' : '#c9d1e0');
@@ -398,7 +474,7 @@ export class BattleScene extends Phaser.Scene {
     const cd = p.abilityCooldown ?? 0;
     if (cd > 0) {
       const frac = cd / def.cooldown;
-      this.abilityCooldown.fillStyle(0x000000, 0.55).fillRect(ABILITY_BTN.x, by, s, s * frac);
+      this.abilityCooldown.fillStyle(0x000000, 0.55).fillRect(ax0, by, s, s * frac);
       this.abilityCooldownText.setText(cd >= 1 ? `${Math.ceil(cd)}` : cd.toFixed(1));
     } else {
       this.abilityCooldownText.setText('');
@@ -409,8 +485,9 @@ export class BattleScene extends Phaser.Scene {
     this.resourceBar.fillStyle(0x2b3445).fillRect(rx, by, rw, 22);
     this.resourceBar.fillStyle(RESOURCE_COLORS[p.resourceKind]).fillRect(rx, by, rw * frac, 22);
     // Tick showing the ability cost.
-    this.resourceBar.fillStyle(0xffffff, 0.7).fillRect(rx + rw * (def.cost / (p.maxResource ?? 100)) - 1, by, 2, 22);
-    this.resourceText.setText(`${res.label} ${Math.floor(p.resource ?? 0)} / ${p.maxResource}`);
+    this.resourceBar.fillStyle(0xffffff, 0.7).fillRect(rx + rw * (cost / (p.maxResource ?? 100)) - 1, by, 2, 22);
+    const combo = p.comboPoints !== undefined && p.kind === 'rogue' ? `  ${'●'.repeat(p.comboPoints)}${'○'.repeat(5 - p.comboPoints)}` : '';
+    this.resourceText.setText(`${res.label} ${Math.floor(p.resource ?? 0)}${combo}`);
 
     // Focus info.
     const focus = this.battle.focusId !== null ? this.battle.unit(this.battle.focusId) : undefined;
@@ -476,7 +553,13 @@ export class BattleScene extends Phaser.Scene {
       container.add(iconContainer);
       aggroIcon = { container: iconContainer, disc };
     }
-    this.views.set(u.id, { container, body, hpBar, name, aggroIcon, dead: false });
+    let castLabel: Phaser.GameObjects.Text | undefined;
+    if (u.kind === 'shaman') {
+      castLabel = this.text(0, -u.radius - 34, '', 11, '#e0c3ff').setOrigin(0.5).setFontStyle('bold');
+      castLabel.setStroke('#000000', 3);
+      container.add(castLabel);
+    }
+    this.views.set(u.id, { container, body, hpBar, name, letter, aggroIcon, castLabel, dead: false });
   }
 
   private syncViews(): void {
@@ -496,7 +579,25 @@ export class BattleScene extends Phaser.Scene {
       let pip = 0;
       if (this.battle.hasEffect(u, 'hot')) v.hpBar.fillStyle(0x7dff9b).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
       if (this.battle.hasEffect(u, 'dot')) v.hpBar.fillStyle(0xff8c1a).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
-      if (u.side === 'enemy') v.body.setStrokeStyle(3, this.battle.hasEffect(u, 'slow') ? SLOW_STROKE : ENEMY_STROKE);
+      if (this.battle.hasEffect(u, 'guardian')) v.hpBar.fillStyle(GOLD).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
+      if (u.side === 'enemy') {
+        const sheep = this.battle.isSheep(u);
+        v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind]);
+        v.body.setStrokeStyle(3, sheep ? 0xbdb7a6 : this.battle.hasEffect(u, 'slow') ? SLOW_STROKE : ENEMY_STROKE);
+        v.letter.setText(sheep ? 'baa' : LETTERS[u.kind]).setFontSize(sheep ? 11 : u.radius);
+        if (sheep) v.letter.setColor('#555');
+        else v.letter.setColor(DARK_LETTER.includes(u.kind) ? '#222' : '#fff');
+      }
+      // Cast bar above casting enemies.
+      if (u.casting) {
+        const cy = y - 9;
+        const pct = 1 - u.casting.remaining / u.casting.total;
+        v.hpBar.fillStyle(0x000000, 0.8).fillRect(-w / 2 - 1, cy - 1, w + 2, 7);
+        v.hpBar.fillStyle(0xb57bff).fillRect(-w / 2, cy, w * pct, 5);
+        v.castLabel?.setText(u.casting.spell).setY(cy - 10);
+      } else {
+        v.castLabel?.setText('');
+      }
 
       if (v.aggroIcon) {
         const level = u.id === this.battle.playerId ? this.battle.aggroLevel(u.id) : 'none';
@@ -553,6 +654,21 @@ export class BattleScene extends Phaser.Scene {
         case 'taunt':
           this.showTaunt(e.from, e.to);
           break;
+        case 'signature':
+          this.showSignature(e.from, e.signature, e.to);
+          break;
+        case 'castEnd':
+          if (e.interrupted) {
+            const u = this.battle.unit(e.from);
+            if (u) this.views.get(u.id)?.castLabel?.setText('');
+          }
+          break;
+        case 'notice': {
+          const u = this.battle.unit(e.id);
+          const color = e.tone === 'good' ? '#7dff9b' : e.tone === 'bad' ? '#ff6b6b' : '#9ad1ff';
+          if (u) this.floatText(u.x, u.y - u.radius - 30, e.text, color, 16);
+          break;
+        }
         case 'death':
           this.showDeath(e.id);
           break;
@@ -627,6 +743,23 @@ export class BattleScene extends Phaser.Scene {
     } else {
       this.floatText(from.x, from.y - from.radius - 22, name, '#ffd166', 14);
     }
+  }
+
+  private showSignature(fromId: number, sig: string, toId?: number): void {
+    const from = this.battle.unit(fromId);
+    if (!from) return;
+    const to = toId !== undefined ? this.battle.unit(toId) : undefined;
+    if (sig === 'taunt') return; // the taunt event draws it
+    const name = SIGNATURES[sig as keyof typeof SIGNATURES].name;
+    if (to) {
+      const color = sig === 'guardianSpirit' ? GOLD : sig === 'polymorph' ? 0xf4f1e8 : 0xffe066;
+      const line = this.add.graphics().setDepth(30);
+      line.lineStyle(3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
+      this.tweens.add({ targets: line, alpha: 0, duration: 400, onComplete: () => line.destroy() });
+      const ring = this.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, color).setDepth(30);
+      this.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
+    }
+    this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffd166', 15);
   }
 
   private showHeal(fromId: number, toId: number, amount: number): void {

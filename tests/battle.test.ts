@@ -230,3 +230,190 @@ describe('Player controls and abilities', () => {
     }
   });
 });
+
+describe('Signatures and traits', () => {
+  const wave = (kinds: ('grunt' | 'shaman' | 'archer')[]) => ({
+    number: 1,
+    spawns: kinds.map((kind, i) => ({ time: 0, kind, x: 200 + i * 50 })),
+  });
+  const hero = (b: Battle, kind: string) => b.heroes.find((h) => h.kind === kind)!;
+  const run = (b: Battle, seconds: number) => {
+    for (let i = 0; i < seconds / STEP; i++) b.step(STEP);
+  };
+
+  it('Taunt (player) forces the focused enemy onto the warrior', () => {
+    const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'warrior' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const e = b.enemies[0];
+    const mage = hero(b, 'mage');
+    e.y = 450;
+    e.threat = { [mage.id]: 500 };
+    b.setFocus(e.id);
+    expect(b.useSignature()).toBe('ok');
+    expect(e.targetId).toBe(b.player!.id);
+    expect(b.useSignature()).toBe('cooldown');
+  });
+
+  it('Guardian Spirit prevents one death', () => {
+    const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'priest' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const rogue = hero(b, 'rogue');
+    b.setFocus(rogue.id);
+    expect(b.useSignature()).toBe('ok');
+    rogue.hp = 5;
+    const e = b.enemies[0];
+    e.damage = 500; // one hit is lethal
+    e.x = rogue.x;
+    e.y = rogue.y - 40;
+    e.threat = { [rogue.id]: 999 };
+    run(b, 3);
+    expect(rogue.alive).toBe(true);
+    expect(b.hasEffect(rogue, 'guardian')).toBe(false);
+  });
+
+  it('Polymorph: sheep do not attack, ignore AoE, and break on a direct hit', () => {
+    const b = new Battle({ seed: 1, wave: wave(['grunt', 'grunt']), playerClass: 'mage' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const [sheep, other] = b.enemies;
+    sheep.y = 400;
+    b.setFocus(sheep.id);
+    expect(b.useSignature()).toBe('ok');
+    expect(b.isSheep(sheep)).toBe(true);
+
+    // Heroes leave the sheep alone while another enemy lives.
+    const before = sheep.hp;
+    run(b, 4);
+    expect(sheep.hp).toBe(before);
+    expect(sheep.targetId).toBeNull();
+
+    // AoE (Thunderclap) doesn't hurt it.
+    const w = hero(b, 'warrior');
+    w.resource = 100;
+    sheep.x = w.x;
+    sheep.y = w.y - 50;
+    other.x = w.x + 30;
+    other.y = w.y - 50;
+    w.abilityCooldown = 0;
+    b.step(STEP);
+    expect(sheep.hp).toBe(before);
+    expect(b.isSheep(sheep)).toBe(true);
+  });
+
+  it('a direct hit breaks Polymorph', () => {
+    const b = new Battle({ seed: 1, wave: wave(['grunt', 'grunt']), playerClass: 'mage' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const sheep = b.enemies[0];
+    sheep.y = 400;
+    b.setFocus(sheep.id);
+    b.useSignature();
+    expect(b.focusId).toBeNull(); // casting Polymorph clears your focus
+    b.setFocus(sheep.id); // deliberately re-target the sheep
+    expect(b.useAbility()).toBe('ok'); // Fireball it
+    expect(b.isSheep(sheep)).toBe(false);
+  });
+
+  it('the shaman heals goblins unless kicked', () => {
+    const setup = () => {
+      const b = new Battle({ seed: 1, wave: wave(['shaman', 'grunt']), playerClass: 'rogue', heroes: ['rogue', 'priest'] });
+      b.playerAuto = false;
+      b.step(STEP);
+      const [shaman, grunt] = b.enemies;
+      grunt.hp = 100;
+      shaman.y = 200;
+      grunt.y = 150;
+      b.step(STEP);
+      return { b, shaman, grunt };
+    };
+    const healed = setup();
+    expect(healed.shaman.casting).toBeDefined();
+    run(healed.b, 3);
+    expect(healed.grunt.hp).toBeGreaterThan(100);
+
+    const kicked = setup();
+    const rogue = kicked.b.player!;
+    kicked.shaman.x = rogue.x;
+    kicked.shaman.y = rogue.y - 60;
+    expect(kicked.b.useSignature()).toBe('ok');
+    expect(kicked.shaman.casting).toBeUndefined();
+    expect(kicked.b.hasEffect(kicked.shaman, 'silence')).toBe(true);
+    run(kicked.b, 2);
+    expect(kicked.grunt.hp).toBe(100);
+  });
+
+  it('AI rogue kicks shaman casts on its own', () => {
+    const b = new Battle({ seed: 1, wave: wave(['shaman', 'grunt']), heroes: ['rogue'] });
+    b.step(STEP);
+    const [shaman, grunt] = b.enemies;
+    const rogue = hero(b, 'rogue');
+    grunt.hp = 100;
+    shaman.x = rogue.x;
+    shaman.y = rogue.y - 200;
+    grunt.x = rogue.x + 40;
+    grunt.y = rogue.y - 200;
+    let interrupted = false;
+    for (let i = 0; i < 40 && !interrupted; i++) {
+      b.step(STEP);
+      interrupted = b.drainEvents().some((e) => e.type === 'castEnd' && e.interrupted);
+    }
+    expect(interrupted).toBe(true);
+  });
+
+  it('Rogue builds combo points and Sinister Strike spends them', () => {
+    const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'rogue', heroes: ['rogue'] });
+    b.playerAuto = false;
+    b.step(STEP);
+    const r = b.player!;
+    const e = b.enemies[0];
+    e.x = r.x;
+    e.y = r.y - 60;
+    e.hp = e.maxHp = 5000;
+    run(b, 3);
+    expect(r.comboPoints).toBeGreaterThan(0);
+    expect(b.useAbility()).toBe('ok');
+    expect(r.comboPoints).toBe(0);
+  });
+
+  it('Renew costs half while the party is healthy (Inner Focus)', () => {
+    const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'priest' });
+    const p = b.player!;
+    expect(b.abilityCost(p)).toBe(10);
+    hero(b, 'warrior').hp = 100;
+    expect(b.abilityCost(p)).toBe(20);
+  });
+
+  it('Arcane Surge sometimes makes Fireball free', () => {
+    let free = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const b = new Battle({ seed, wave: wave(['grunt']), playerClass: 'mage', heroes: ['mage'] });
+      b.playerAuto = false;
+      b.step(STEP);
+      b.enemies[0].y = 400;
+      b.useAbility();
+      if (b.player!.resource! >= 99) free++;
+    }
+    expect(free).toBeGreaterThan(3);
+    expect(free).toBeLessThan(20);
+  });
+
+  it('Rage makes the warrior hit harder', () => {
+    const hit = (rage: number) => {
+      const b = new Battle({ seed: 9, wave: wave(['grunt']), playerClass: 'warrior', heroes: ['warrior'] });
+      b.step(STEP);
+      const w = b.player!;
+      const e = b.enemies[0];
+      e.x = w.x;
+      e.y = w.y - 45;
+      w.resource = rage;
+      w.cooldown = 0;
+      b.drainEvents();
+      b.step(STEP);
+      const ev = b.drainEvents().find((x) => x.type === 'attack' && x.from === w.id);
+      return ev && ev.type === 'attack' ? ev.amount : 0;
+    };
+    expect(hit(100)).toBeGreaterThan(hit(0));
+  });
+});

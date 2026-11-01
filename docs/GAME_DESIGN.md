@@ -127,7 +127,7 @@ Every hero has:
 
 ### Warrior — Tank / DPS
 - **Signature:** Taunt — forces an enemy to attack you.
-- **Trait:** Rage — builds from dealing and taking damage; stronger as the fight heats up.
+- **Trait:** Rage — builds from dealing and taking damage; up to +20% damage at full rage.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
@@ -158,8 +158,8 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Beacon of Light | Passive | Healer | Your heals also partly heal the tank |
 
 ### Priest — Healer / DPS
-- **Signature:** Guardian Spirit — prevents an ally's death once.
-- **Trait:** Inner Focus — spells cost less mana while the party is healthy.
+- **Signature:** Guardian Spirit — the next killing blow on an ally leaves them at 30% instead.
+- **Trait:** Inner Focus — Renew costs half while the whole party is above 80% health.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
@@ -173,8 +173,8 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Fade | Passive (proc) | Shared | Automatically drops threat when you pull aggro |
 
 ### Mage — DPS (ranged AoE and control)
-- **Signature:** Polymorph — turns an enemy (not a boss) into a sheep.
-- **Trait:** Arcane Surge — occasional free (no-mana) casts.
+- **Signature:** Polymorph — turns an enemy (not a boss) into a sheep for 10s.
+- **Trait:** Arcane Surge — Fireball has a 25% chance to cost no mana.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
@@ -188,8 +188,10 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Arcane Intellect | Passive (aura) | Shared | Party gains resource capacity |
 
 ### Rogue — DPS (melee single-target burst, self threat management)
-- **Signature:** Kick — interrupts an enemy cast.
-- **Trait:** Combo Points — attacks build points that power up finishers.
+- **Signature:** Kick — interrupts an enemy cast and locks it out of casting. Kick has its
+  own range (same as Taunt), separate from the Rogue's short melee reach.
+- **Trait:** Combo Points — auto attacks build points (max 5); Sinister Strike spends them
+  for +15% damage each.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
