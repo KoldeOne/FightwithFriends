@@ -213,7 +213,11 @@ export interface PartyFrame {
 }
 
 /** "Heroic Strike" -> "HS", "Fireball" -> "Fi". */
+/** Icon letters that would otherwise clash within a class (Shield Block / Shield Bash). */
+const ICON_LETTERS: Record<string, string> = { 'Shield Bash': 'Ba', Eviscerate: 'Vi', 'Fan of Knives': 'FK', 'Curse of Ruin': 'CR', 'Hammer of Justice': 'HJ', 'Chain of Light': 'CL' };
+
 export function initials(name: string): string {
+  if (ICON_LETTERS[name]) return ICON_LETTERS[name];
   const words = name.replace(/[^A-Za-z ]/g, ' ').split(/\s+/).filter(Boolean);
   return words.length > 1 ? (words[0][0] + words[1][0]).toUpperCase() : name.slice(0, 2);
 }

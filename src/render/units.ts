@@ -205,9 +205,10 @@ export class UnitLayer {
         case 'spawn': {
           const u = this.s.battle.unit(e.id);
           if (u) this.createView(u);
-          if (u?.side === 'enemy' && this.s.battle.time > 5 && this.s.battle.time - this.lastReinforcementCall > 4) {
+          // Mid-fight arrivals (only raised dead, now): the boss's own callout says it.
+          if (u?.side === 'enemy' && !u.summoned && this.s.battle.time > 5 && this.s.battle.time - this.lastReinforcementCall > 4) {
             this.lastReinforcementCall = this.s.battle.time;
-            this.s.showBanner(u.y > 0 ? 'Flankers incoming!' : 'Reinforcements!', true);
+            this.s.showBanner('Reinforcements!', true);
             sound.play('wave');
           }
           break;
