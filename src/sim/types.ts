@@ -76,6 +76,7 @@ export interface Zone {
   tickTimer: number;
   damage: number;
   sourceId: number;
+  ability?: AbilityId;
 }
 /** Passive traits: not part of the starting kit — saved as future reward options. */
 export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints';
@@ -90,6 +91,8 @@ export interface Effect {
   tickTimer: number;
   amount: number;
   sourceId: number;
+  /** The ability that applied it (for stats), if any. */
+  ability?: AbilityId;
 }
 
 export interface Unit {
@@ -183,7 +186,8 @@ export type BattleEvent =
   | { type: 'ability'; from: number; ability: AbilityId; to?: number }
   /** A projectile was fired; its damage lands `duration` seconds later (as an 'attack' event). */
   | { type: 'shoot'; from: number; to: number; duration: number; ability?: AbilityId }
-  | { type: 'tick'; to: number; amount: number; kind: 'hot' | 'dot' }
+  /** A heal- or damage-over-time tick; `from` is the unit that applied it. */
+  | { type: 'tick'; to: number; amount: number; kind: 'hot' | 'dot'; from?: number; ability?: AbilityId }
   | { type: 'heal'; from: number; to: number; amount: number }
   | { type: 'taunt'; from: number; to: number }
   | { type: 'castStart'; from: number; spell: string; to: number; duration: number }

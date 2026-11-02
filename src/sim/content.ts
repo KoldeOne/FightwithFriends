@@ -214,6 +214,17 @@ export const CLASS_POOL: Record<HeroClass, AbilityId[]> = {
   rogue: ['eviscerate', 'kick', 'evasion'],
 };
 
+/**
+ * AI mana discipline: a cheap "filler" ability is only cast if it leaves enough
+ * resource for the hero's bigger abilities listed here (if the hero has them).
+ * Without this, Renew and Power Shield spam starves Prayer of Healing.
+ */
+export const AI_RESERVE: Partial<Record<AbilityId, AbilityId[]>> = {
+  renew: ['heal', 'prayerOfHealing'],
+  powerShield: ['heal', 'prayerOfHealing'],
+  iceLance: ['fireball'],
+};
+
 /** Max ability slots per hero: the starting ability + 4 earned during a run. */
 export const MAX_ABILITY_SLOTS = 5;
 

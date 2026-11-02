@@ -17,6 +17,19 @@ describe('Battle', () => {
     }
   });
 
+  it('pushes never shove a hero off the arena', () => {
+    // Two teammates crowding each other against the left wall.
+    const battle = new Battle({ seed: 3, wave: ROUND_1, heroes: ['mage', 'mage'] });
+    const [a, b] = battle.heroes;
+    a.x = a.radius;
+    b.x = a.x + 4;
+    a.y = b.y = 600;
+    for (let i = 0; i < 40; i++) {
+      battle.step(STEP);
+      for (const h of battle.heroes) expect(h.x).toBeGreaterThanOrEqual(h.radius - 1e-9);
+    }
+  });
+
   it('is deterministic for the same seed', () => {
     const a = new Battle({ seed: 7, wave: ROUND_1 });
     const b = new Battle({ seed: 7, wave: ROUND_1 });

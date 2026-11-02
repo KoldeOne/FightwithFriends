@@ -2,6 +2,7 @@ import {
   ABILITIES,
   ABILITY_TUNING,
   AGGRO,
+  AI_RESERVE,
   ARENA,
   ENEMY_STATS,
   ONE_OF_EACH,
@@ -530,7 +531,7 @@ export class Battle {
       this.damage(p.from, p.to, p.amount, p.opts);
       if (p.opts.burn && p.to.alive) {
         const f = ABILITY_TUNING.fireball;
-        this.addEffect(p.to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: p.opts.burn, sourceId: p.from.id });
+        this.addEffect(p.to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: p.opts.burn, sourceId: p.from.id, ability: p.opts.ability });
       }
     }
     this.projectiles = this.projectiles.filter((p) => p.remaining > 1e-6 && p.to.alive);
@@ -947,8 +948,17 @@ export class Battle {
   private aiAbilities(h: Unit): void {
     (h.abilities ?? []).forEach((a, slot) => {
       if (this.abilityState(slot, h) !== 'ok') return;
+      if (!this.leavesReserve(h, a.id)) return;
       if (this.aiWants(h, a.id)) this.cast(h, slot, false);
     });
+  }
+
+  /** Would casting this filler ability still leave enough for the hero's big spells? */
+  private leavesReserve(h: Unit, id: AbilityId): boolean {
+    const big = AI_RESERVE[id];
+    if (!big) return true;
+    const reserve = Math.max(0, ...big.filter((b) => h.abilities?.some((a) => a.id === b)).map((b) => this.abilityCost(h, b)));
+    return (h.resource ?? 0) - this.abilityCost(h, id) >= reserve;
   }
 
   private aiWants(h: Unit, id: AbilityId): boolean {
@@ -959,6 +969,8 @@ export class Battle {
       case 'thunderclap':
         return this.enemiesNear(h, t.thunderclap.radius).length > 0;
       case 'heal':
+        // Several allies hurt and the group heal is ready: let that go first.
+        if (this.groupHealReady(h)) return false;
         return this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.7);
       case 'renew':
         // Proactive: keep Renew rolling on anyone being attacked or hurt.
@@ -986,7 +998,7 @@ export class Battle {
       case 'powerShield':
         return this.units.some((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'shield') && this.attackersOf(u) > 0);
       case 'prayerOfHealing':
-        return this.units.filter((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.8).length >= 2;
+        return this.groupHealWanted();
       case 'iceLance':
         return !!this.pickEnemyTarget(h, t.iceLance.damage);
       case 'blizzard':
@@ -996,6 +1008,17 @@ export class Battle {
       case 'evasion':
         return !this.hasEffect(h, 'evasion') && this.attackersOf(h) >= 1;
     }
+  }
+
+  /** Two or more allies have taken a real hit. */
+  private groupHealWanted(): boolean {
+    return this.units.filter((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.85).length >= 2;
+  }
+
+  /** This hero has Prayer of Healing ready (cooldown and mana) and it's wanted. */
+  private groupHealReady(h: Unit): boolean {
+    const slot = h.abilities?.findIndex((a) => a.id === 'prayerOfHealing') ?? -1;
+    return slot >= 0 && this.abilityState(slot, h) === 'ok' && this.groupHealWanted();
   }
 
   private attackersOf(u: Unit): number {
@@ -1024,7 +1047,7 @@ export class Battle {
       if (!source) continue;
       for (const e of this.units) {
         if (e.side !== 'enemy' || !e.alive || Math.hypot(e.x - z.x, e.y - z.y) > z.radius) continue;
-        this.damage(source, e, Math.round(z.damage), { aoe: true, tick: true });
+        this.damage(source, e, Math.round(z.damage), { aoe: true, tick: true, ability: z.ability });
         this.addEffect(e, { kind: 'slow', remaining: 1.5, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: source.id });
       }
     }
@@ -1238,7 +1261,7 @@ export class Battle {
       }
       case 'blizzard': {
         const b = t.blizzard;
-        this.zones.push({ id: this.nextId++, x: to.x, y: to.y, radius: b.radius, remaining: b.duration, tickTimer: 0.5, damage: b.damagePerSecond * k, sourceId: h.id });
+        this.zones.push({ id: this.nextId++, x: to.x, y: to.y, radius: b.radius, remaining: b.duration, tickTimer: 0.5, damage: b.damagePerSecond * k, sourceId: h.id, ability: id });
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
         break;
       }
@@ -1274,13 +1297,13 @@ export class Battle {
         const healed = Math.min(u.maxHp - u.hp, amount);
         u.hp += healed;
         if (healed > 0) {
-          this.events.push({ type: 'tick', to: u.id, amount: healed, kind: 'hot' });
+          this.events.push({ type: 'tick', to: u.id, amount: healed, kind: 'hot', from: e.sourceId });
           const source = this.unit(e.sourceId);
           if (source) this.addHealThreat(source, healed);
         }
       } else {
         const source = this.unit(e.sourceId);
-        if (source) this.damage(source, u, amount, { tick: true });
+        if (source) this.damage(source, u, amount, { tick: true, ability: e.ability });
       }
       if (!u.alive) break;
     }
@@ -1357,7 +1380,7 @@ export class Battle {
     }
     if (from.resourceKind === 'rage') from.resource = Math.min(from.maxResource!, from.resource! + amount * RAGE.perDealt);
     if (to.resourceKind === 'rage') to.resource = Math.min(to.maxResource!, to.resource! + amount * RAGE.perTaken);
-    if (opts.tick) this.events.push({ type: 'tick', to: to.id, amount, kind: 'dot' });
+    if (opts.tick) this.events.push({ type: 'tick', to: to.id, amount, kind: 'dot', from: from.id, ability: opts.ability });
     else this.events.push({ type: 'attack', from: from.id, to: to.id, style: from.attackStyle, amount, ability: opts.ability, big: opts.big });
     if (to.hp <= 0 && to.alive) {
       to.hp = 0;
@@ -1391,6 +1414,11 @@ export class Battle {
       for (const h of heroes) push(a, h, 1, 0.7);
       a.x = Math.min(WORLD.width - a.radius, Math.max(a.radius, a.x));
       a.y = Math.min(ARENA.bottom - a.radius, a.y);
+    }
+    // Pushes must not shove heroes off the arena either.
+    for (const h of heroes) {
+      h.x = Math.min(WORLD.width - h.radius, Math.max(h.radius, h.x));
+      h.y = Math.min(ARENA.bottom - h.radius, Math.max(ARENA.top + h.radius, h.y));
     }
   }
 
