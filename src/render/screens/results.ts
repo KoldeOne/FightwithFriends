@@ -53,7 +53,8 @@ export class Results {
         this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.65).setOrigin(0, 0).setInteractive(),
         this.s.text(cx, 360, title, 36, win ? '#ffd166' : '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
         this.s.text(cx, 418, sub, 18, '#c9d1e0').setOrigin(0.5),
-        this.s.button(cx, 500, 'New run', 22, '#2e86de', () => this.s.scene.restart()),
+        // Pass {} — restart() with no data would reuse the finished run's data.
+        this.s.button(cx, 500, 'New run', 22, '#2e86de', () => this.s.scene.restart({})),
       ])
       .setDepth(100);
   }

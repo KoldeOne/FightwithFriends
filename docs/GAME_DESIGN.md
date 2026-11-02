@@ -336,6 +336,15 @@ placement changes) usually end **between rounds 26 and 36**.
 - TypeScript, Phaser 3.90 (Scale.FIT), Vite and Vitest.
 - `src/sim` holds the pure, deterministic simulation: a seeded RNG and no
   Phaser. `src/render` draws it.
+- `src/render/BattleScene.ts` owns the battle and run state and the update
+  loop, and hands the rest to one module per area:
+  - `theme.ts`: colours and layout constants
+  - `hud.ts`: top bar, party panels and tooltips
+  - `inspect.ts`: the inspect window
+  - `units.ts`: unit sprites and combat effects
+  - `screens/`: team builder, recruit, placement, results and rewards
+
+  New screens (for example story scenes) go in `screens/`.
 - GitHub Actions deploys to GitHub Pages.
 - A debug handle (`window.__game`) is used for automated browser checks.
 
