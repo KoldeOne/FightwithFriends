@@ -19,6 +19,20 @@ import {
 } from '../sim/run';
 import type { AbilityId, BattleEvent, Effect, HeroClass, ResourceKind, Unit } from '../sim/types';
 import { GATE_ID } from '../sim/types';
+import warriorSprite from '../../art/heroes/hero_warrior.png';
+import priestSprite from '../../art/heroes/hero_priest.png';
+import mageSprite from '../../art/heroes/hero_mage.png';
+import rogueSprite from '../../art/heroes/hero_rogue.png';
+
+/** 32x32 pixel-art hero sprites (source: art/heroes/make-sprites.ps1). */
+const HERO_SPRITES: Record<string, string> = {
+  warrior: warriorSprite,
+  priest: priestSprite,
+  mage: mageSprite,
+  rogue: rogueSprite,
+};
+/** Hero sprites are drawn at 2x, standing on their unit disc. */
+const SPRITE_SCALE = 2;
 
 const COLORS: Record<string, number> = {
   warrior: 0xc0392b,
@@ -103,6 +117,10 @@ interface UnitView {
   letter: Phaser.GameObjects.Text;
   /** White overlay for hit flashes. */
   flash: Phaser.GameObjects.Arc;
+  /** Pixel-art figure (heroes); the circle under it becomes its base. */
+  sprite?: Phaser.GameObjects.Image;
+  /** Top of the drawn unit, relative to its centre; bars sit above this. */
+  top: number;
   /** Cast bar label (enemies that cast). */
   castLabel?: Phaser.GameObjects.Text;
   /** Aggro warning badge (shown on the player's hero only). */
@@ -195,6 +213,10 @@ export class BattleScene extends Phaser.Scene {
 
   constructor() {
     super('battle');
+  }
+
+  preload(): void {
+    for (const [cls, url] of Object.entries(HERO_SPRITES)) this.load.image(`hero-${cls}`, url);
   }
 
   create(data?: { run?: RunState; teamPicks?: string }): void {
@@ -739,6 +761,18 @@ export class BattleScene extends Phaser.Scene {
     const hpBar = this.add.graphics();
     const flash = this.add.circle(0, 0, u.radius, 0xffffff).setAlpha(0);
     const container = this.add.container(u.x, u.y, [body, flash, letter, hpBar]);
+    let sprite: Phaser.GameObjects.Image | undefined;
+    let top = -u.radius;
+    const key = `hero-${u.kind}`;
+    if (u.side === 'hero' && this.textures.exists(key)) {
+      // Keep pixels crisp when scaled up.
+      this.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      body.setFillStyle(COLORS[u.kind] ?? 0xffffff, 0.35);
+      letter.setVisible(false);
+      sprite = this.add.image(0, u.radius * 0.6, key).setOrigin(0.5, 1).setScale(SPRITE_SCALE);
+      container.addAt(sprite, 2);
+      top = u.radius * 0.6 - sprite.displayHeight + 8;
+    }
     container.setDepth(u.side === 'hero' ? 10 : 20);
     let name: Phaser.GameObjects.Text | undefined;
     if (u.side === 'hero') {
@@ -753,7 +787,7 @@ export class BattleScene extends Phaser.Scene {
     if (u.side === 'hero' && !u.isTank) {
       const disc = this.add.circle(0, 0, 10, 0xf39c12).setStrokeStyle(2, 0x000000);
       const mark = this.text(0, 0, '!', 15, '#000').setOrigin(0.5).setFontStyle('bold');
-      const iconContainer = this.add.container(u.radius + 12, -u.radius - 6, [disc, mark]).setVisible(false);
+      const iconContainer = this.add.container(u.radius + 12, top - 6, [disc, mark]).setVisible(false);
       container.add(iconContainer);
       aggroIcon = { container: iconContainer, disc };
     }
@@ -763,7 +797,13 @@ export class BattleScene extends Phaser.Scene {
       castLabel.setStroke('#000000', 3);
       container.add(castLabel);
     }
-    this.views.set(u.id, { container, body, hpBar, name, letter, flash, aggroIcon, castLabel, dead: false });
+    this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, dead: false });
+  }
+
+  /** Brief push of a unit's figure (lunges and knockback); returns to rest. */
+  private nudge(v: UnitView, dx: number, dy: number, duration: number): void {
+    this.tweens.add({ targets: v.body, x: dx, y: dy, duration, yoyo: true });
+    if (v.sprite) this.tweens.add({ targets: v.sprite, x: `+=${dx}`, y: `+=${dy}`, duration, yoyo: true });
   }
 
   private syncViews(): void {
@@ -776,7 +816,7 @@ export class BattleScene extends Phaser.Scene {
       if (prev && this.battle.outcome === 'running') v.container.setPosition(prev.x + (u.x - prev.x) * a, prev.y + (u.y - prev.y) * a);
       else v.container.setPosition(u.x, u.y);
       const w = u.radius * 2 + 6;
-      const y = -u.radius - 10;
+      const y = v.top - 10;
       v.hpBar.clear();
       v.hpBar.fillStyle(0x000000, 0.7).fillRect(-w / 2 - 1, y - 1, w + 2, 7);
       const pct = u.hp / u.maxHp;
@@ -982,8 +1022,8 @@ export class BattleScene extends Phaser.Scene {
       const dx = tx - fx;
       const dy = ty - fy;
       const len = Math.hypot(dx, dy) || 1;
-      const body = this.views.get(fromId)?.body;
-      if (body) this.tweens.add({ targets: body, x: (dx / len) * 7, y: (dy / len) * 7, duration: 70, yoyo: true });
+      const lunger = this.views.get(fromId);
+      if (lunger) this.nudge(lunger, (dx / len) * 7, (dy / len) * 7, 70);
       const slash = this.add.graphics().setDepth(30);
       const w = ability === 'eviscerate' ? 9 : ability === 'heroicStrike' ? 8 : ability === 'sinisterStrike' ? 7 : 3;
       const c = ability === 'eviscerate' ? 0xe74c3c : ability === 'heroicStrike' ? 0xff7043 : ability === 'sinisterStrike' ? 0xffe066 : 0xffffff;
@@ -995,11 +1035,18 @@ export class BattleScene extends Phaser.Scene {
     if (toView && !toView.dead) {
       toView.flash.setAlpha(0.85);
       this.tweens.add({ targets: toView.flash, alpha: 0, duration: 130 });
+      const hitSprite = toView.sprite;
+      if (hitSprite) {
+        hitSprite.setTintFill(0xffffff);
+        this.time.delayedCall(80, () => {
+          if (!toView.dead) hitSprite.clearTint();
+        });
+      }
       const dx = tx - fx;
       const dy = ty - fy;
       const len = Math.hypot(dx, dy) || 1;
       const kb = heavy ? 7 : 3;
-      this.tweens.add({ targets: toView.body, x: (dx / len) * kb, y: (dy / len) * kb, duration: 60, yoyo: true });
+      this.nudge(toView, (dx / len) * kb, (dy / len) * kb, 60);
       this.spark(tx, ty, hitHero ? 0xff6b6b : 0xfff2c4, heavy ? 8 : 3, heavy ? 26 : 16);
     }
     if (heavy) {
@@ -1153,6 +1200,7 @@ export class BattleScene extends Phaser.Scene {
     }
     if (u?.side === 'hero') {
       v.body.setFillStyle(0x444444);
+      v.sprite?.setTint(0x555555);
       v.container.setAlpha(0.5);
     } else {
       this.tweens.add({
