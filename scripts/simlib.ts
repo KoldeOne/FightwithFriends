@@ -34,6 +34,8 @@ export interface RoundRecord {
   owned: Record<string, number>;
   /** Ability -> damage it dealt. */
   abilityDamage: Record<string, number>;
+  /** Enemy kind -> how many were fielded this round. */
+  enemyCount: Record<string, number>;
 }
 
 export interface RunRecord {
@@ -66,7 +68,7 @@ export function playRound(run: RunState, violations: string[]): RoundRecord {
   const battle = new Battle({
     seed: run.seed * 100 + run.wave + run.lives * 7,
     wave: makeRound(run.wave),
-    carefulAI: true,
+    carefulAI: process.env.CAREFUL !== '0',
     team: run.team,
     builds: run.builds,
     placement: run.placement,
@@ -78,6 +80,8 @@ export function playRound(run: RunState, violations: string[]): RoundRecord {
   const owned: Record<string, number> = {};
   const abilityDamage: Record<string, number> = {};
   for (const h of heroes) for (const a of h.abilities ?? []) owned[a.id] = (owned[a.id] ?? 0) + 1;
+  const enemyCount: Record<string, number> = {};
+  for (const e of battle.enemies) enemyCount[e.kind] = (enemyCount[e.kind] ?? 0) + 1;
   const enemyDamage: Record<string, number> = {};
   const kindOf = new Map<number, string>();
   for (const u of battle.units) kindOf.set(u.id, u.kind);
@@ -160,6 +164,7 @@ export function playRound(run: RunState, violations: string[]): RoundRecord {
     enemyDamage,
     owned,
     abilityDamage,
+    enemyCount,
   };
 }
 

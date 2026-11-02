@@ -242,7 +242,7 @@ export class Battle {
       case 'powerShield':
         return `Shields an ally from ${r(t.powerShield.absorb)} damage for ${t.powerShield.duration}s.`;
       case 'prayerOfHealing':
-        return `Heals every ally for ${r(t.prayerOfHealing.amount)}.`;
+        return `Heals every ally for ${r(t.prayerOfHealing.amount)}, and the most injured for ${r(t.prayerOfHealing.bonus)} more.`;
       case 'fireball':
         return `Deals ${r(t.fireball.damage)} damage, then ${r(t.fireball.burnPerSecond * t.fireball.burnDuration)} burn damage over ${t.fireball.burnDuration}s.`;
       case 'iceLance':
@@ -653,7 +653,11 @@ export class Battle {
     if (!target || dist(e, target) - e.radius - target.radius > e.range + 4) return false;
     e.targetId = target.id;
     const spell = e.spell ?? 'Smash';
-    e.casting = { spell, kind: 'smasher', remaining: BRUTE_SMASH.castTime, total: BRUTE_SMASH.castTime, targetId: target.id };
+    // A boss that was interrupted comes back enraged: this one can't be stopped.
+    const unstoppable = !!e.isBoss && !!e.enraged;
+    e.enraged = false;
+    e.casting = { spell, kind: 'smasher', remaining: BRUTE_SMASH.castTime, total: BRUTE_SMASH.castTime, targetId: target.id, unstoppable };
+    if (unstoppable) this.events.push({ type: 'notice', id: e.id, text: 'Unstoppable!', tone: 'bad' });
     this.events.push({ type: 'castStart', from: e.id, spell, to: target.id, duration: BRUTE_SMASH.castTime });
     return true;
   }
@@ -686,6 +690,7 @@ export class Battle {
   private endCast(e: Unit, interrupted: boolean): void {
     if (!e.casting) return;
     const kind = e.casting.kind;
+    if (interrupted && e.isBoss) e.enraged = true;
     e.casting = undefined;
     e.castCooldown = kind === 'smasher' ? BRUTE_SMASH.cooldown : SHAMAN_MEND.cooldown;
     this.events.push({ type: 'castEnd', from: e.id, interrupted });
@@ -778,6 +783,11 @@ export class Battle {
   /** Enemies within an interrupt's range. */
   private interruptTargets(h: Unit, range: number): Unit[] {
     return this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) - h.radius - u.radius <= range);
+  }
+
+  /** Casting something that an interrupt can stop (not an enraged boss's slam). */
+  private interruptible(u: Unit): boolean {
+    return !!u.casting && !u.casting.unstoppable;
   }
 
   private interruptRange(id: AbilityId): number {
@@ -953,7 +963,12 @@ export class Battle {
     if (!inRange.length) return null;
     const current = inRange.find((u) => u.id === h.targetId);
     if (current) return current;
-    return h.attackStyle === 'melee' ? nearest(h, inRange) : inRange.reduce((a, b) => (b.y > a.y ? b : a));
+    if (h.attackStyle === 'melee') return nearest(h, inRange);
+    // Ranged heroes deal with the back line first: shooters and casters can't
+    // be held by the tank. Otherwise, the most advanced enemy.
+    const backLine = inRange.filter((u) => u.attackStyle === 'ranged');
+    const pool = backLine.length ? backLine : inRange;
+    return pool.reduce((a, b) => (b.y > a.y ? b : a));
   }
 
   /** Enemies this hero may hit for `hitSize` right now (in reach, not a sheep, won't pull aggro). */
@@ -1013,7 +1028,7 @@ export class Battle {
         return !!this.polymorphCandidate(h);
       case 'kick':
       case 'counterspell':
-        return this.interruptTargets(h, this.interruptRange(id)).some((u) => u.casting);
+        return this.interruptTargets(h, this.interruptRange(id)).some((u) => this.interruptible(u));
       case 'whirlwind':
         return this.enemiesNear(h, t.whirlwind.radius).length >= 2 || (this.enemiesNear(h, t.whirlwind.radius).length >= 1 && h.isTank === true);
       case 'shieldBlock':
@@ -1098,9 +1113,10 @@ export class Battle {
     return amount;
   }
 
-  /** Two or more allies have taken a real hit. */
+  /** Two or more allies have taken a real hit, or one is in real trouble. */
   private groupHealWanted(): boolean {
-    return this.units.filter((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.85).length >= 2;
+    const hurt = this.units.filter((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.85);
+    return hurt.length >= 2 || hurt.some((u) => u.hp < u.maxHp * 0.6);
   }
 
   /** This hero has Prayer of Healing ready (cooldown and mana) and it's wanted. */
@@ -1206,7 +1222,7 @@ export class Battle {
       case 'counterspell': {
         const targets = this.interruptTargets(h, this.interruptRange(id));
         if (focusEnemy) return targets.includes(focusEnemy) ? focusEnemy : null;
-        return targets.find((u) => u.casting) ?? (targets.length ? nearest(h, targets) : null);
+        return targets.find((u) => this.interruptible(u)) ?? (targets.length ? nearest(h, targets) : null);
       }
       case 'whirlwind':
         return this.enemiesNear(h, t.whirlwind.radius).length ? h : null;
@@ -1319,7 +1335,7 @@ export class Battle {
       case 'kick':
       case 'counterspell': {
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        if (to.casting) {
+        if (this.interruptible(to)) {
           this.endCast(to, true);
           const silence = id === 'kick' ? t.kick.silence : t.counterspell.silence;
           this.addEffect(to, { kind: 'silence', remaining: silence, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
@@ -1344,17 +1360,16 @@ export class Battle {
         this.addEffect(to, { kind: 'shield', remaining: t.powerShield.duration, tickEvery: 0, tickTimer: 0, amount: Math.round(t.powerShield.absorb * k), sourceId: h.id });
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
         break;
-      case 'prayerOfHealing':
+      case 'prayerOfHealing': {
         this.events.push({ type: 'ability', from: h.id, ability: id });
+        const worst = this.lowestAlly();
         for (const ally of this.units) {
           if (ally.side !== 'hero' || !ally.alive) continue;
-          const amount = Math.min(ally.maxHp - ally.hp, this.roll(t.prayerOfHealing.amount * k));
-          if (amount <= 0) continue;
-          ally.hp += amount;
-          this.events.push({ type: 'heal', from: h.id, to: ally.id, amount });
-          this.addHealThreat(h, amount);
+          const extra = ally === worst ? t.prayerOfHealing.bonus : 0;
+          this.healUnit(h, ally, this.roll((t.prayerOfHealing.amount + extra) * k));
         }
         break;
+      }
       case 'iceLance':
       case 'eviscerate': {
         let size = (id === 'iceLance' ? t.iceLance.damage : t.eviscerate.damage) * k;
@@ -1520,6 +1535,8 @@ export class Battle {
         }
       }
     }
+    // Armor (tanks' plate) stops part of every hit.
+    if (to.armor) amount = Math.round(amount * (1 - to.armor));
     // Enfeeble: a weakened attacker hits softer.
     const weak = from.effects?.find((e) => e.kind === 'weaken');
     if (weak) amount = Math.round(amount * (1 - weak.amount));

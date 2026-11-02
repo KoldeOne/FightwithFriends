@@ -42,7 +42,7 @@ function runAll(seeds: number, shard: number, shards: number): RunRecord[] {
   const out: RunRecord[] = [];
   const t0 = Date.now();
   for (const [i, j] of mine.entries()) {
-    out.push(playRun(j.team, j.seed, sensibleRecruit(TANK, HEALER, DPS), 60));
+    out.push(playRun(j.team, j.seed, sensibleRecruit(TANK, HEALER, DPS), 80));
     if ((i + 1) % 20 === 0) console.error(`  ${i + 1}/${mine.length} runs (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
   }
   return out;
@@ -59,12 +59,14 @@ const median = (xs: number[]) => {
 
 export interface Summary {
   runs: number;
+  /** Headline numbers for comparing tuning passes. */
+  kpi: { classicMean: number; classicMin: number; classSpread: number; earlyLoss: number; lateSudden: number };
   overall: { meanReached: number; medianReached: number; p10: number; p90: number };
   teams: { team: string; runs: number; mean: number; median: number; min: number; max: number }[];
   classes: { cls: string; runsWith: number; meanReached: number; dmgShare: number; healShare: number; takenShare: number; deathsPerRound: number; dmgPerSecond: number }[];
   rounds: { round: number; attempts: number; lossRate: number; meanSeconds: number; suddenDeathRate: number; stalls: number }[];
   abilities: { id: string; owners: number; usesPerOwnerRound: number; damagePerUse: number }[];
-  enemies: { kind: string; damage: number }[];
+  enemies: { kind: string; damage: number; fielded: number; perEnemy: number }[];
   violations: string[];
 }
 
@@ -137,22 +139,42 @@ export function summarise(runs: RunRecord[]): Summary {
   const uses: Record<string, number> = {};
   const dmg: Record<string, number> = {};
   const enemyDmg: Record<string, number> = {};
+  const fielded: Record<string, number> = {};
   for (const r of runs)
     for (const rd of r.rounds) {
       for (const [k, v] of Object.entries(rd.owned)) owned[k] = (owned[k] ?? 0) + v;
       for (const [k, v] of Object.entries(rd.abilities)) uses[k] = (uses[k] ?? 0) + v;
       for (const [k, v] of Object.entries(rd.abilityDamage)) dmg[k] = (dmg[k] ?? 0) + v;
       for (const [k, v] of Object.entries(rd.enemyDamage)) enemyDmg[k] = (enemyDmg[k] ?? 0) + v;
+      for (const [k, v] of Object.entries(rd.enemyCount ?? {})) fielded[k] = (fielded[k] ?? 0) + v;
     }
   const abilities = Object.keys({ ...owned, ...uses })
     .map((id) => ({ id, owners: owned[id] ?? 0, usesPerOwnerRound: owned[id] ? (uses[id] ?? 0) / owned[id] : uses[id] ?? 0, damagePerUse: uses[id] ? (dmg[id] ?? 0) / uses[id] : 0 }))
     .sort((a, b) => a.id.localeCompare(b.id));
   const enemies = Object.entries(enemyDmg)
-    .map(([kind, damage]) => ({ kind, damage }))
-    .sort((a, b) => b.damage - a.damage);
+    .filter(([kind]) => kind !== '?')
+    .map(([kind, damage]) => ({ kind, damage, fielded: fielded[kind] ?? 0, perEnemy: damage / Math.max(1, fielded[kind] ?? 0) }))
+    .sort((a, b) => b.perEnemy - a.perEnemy);
+
+  const isRole = (c: HeroClass, r: string) => role(c).startsWith(r);
+  const classic = runs.filter((r) => {
+    const t = r.team.slice(0, 3);
+    return t.filter((c) => isRole(c, 'tank')).length === 1 && t.filter((c) => isRole(c, 'heal')).length === 1;
+  });
+  const reachByClass = classes.map((c) => c.meanReached);
+  const early = runs.flatMap((r) => r.rounds.filter((x) => x.round <= 10));
+  const late = runs.flatMap((r) => r.rounds.filter((x) => x.round > 20));
+  const kpi = {
+    classicMean: mean(classic.map((r) => r.reached)),
+    classicMin: classic.length ? Math.min(...classic.map((r) => r.reached)) : 0,
+    classSpread: Math.max(...reachByClass) - Math.min(...reachByClass),
+    earlyLoss: early.filter((x) => !x.won).length / Math.max(1, early.length),
+    lateSudden: late.filter((x) => x.suddenDeath).length / Math.max(1, late.length),
+  };
 
   return {
     runs: runs.length,
+    kpi,
     overall: { meanReached: mean(reached), medianReached: median(reached), p10: pct(0.1), p90: pct(0.9) },
     teams,
     classes,
@@ -166,6 +188,10 @@ export function summarise(runs: RunRecord[]): Summary {
 function print(s: Summary): void {
   const f = (n: number, d = 1) => n.toFixed(d);
   console.log(`\n${s.runs} runs. Round reached: mean ${f(s.overall.meanReached)}, median ${s.overall.medianReached}, 10th-90th pct ${s.overall.p10}-${s.overall.p90}\n`);
+  console.log(
+    `KPI: classic teams (1 tank + 1 healer + 1 dps) mean ${f(s.kpi.classicMean)} (worst ${s.kpi.classicMin}); class spread ${f(s.kpi.classSpread)} rounds; ` +
+      `loss rate in rounds 1-10 ${f(s.kpi.earlyLoss * 100)}%; sudden death after round 20 ${f(s.kpi.lateSudden * 100)}%\n`,
+  );
   console.log('Starting teams (best first):');
   for (const t of s.teams) console.log(`  ${t.team.padEnd(24)} mean ${f(t.mean).padStart(5)}  median ${String(t.median).padStart(4)}  range ${t.min}-${t.max}`);
   console.log('\nClasses (shares: 1.0 = an equal share of the party total):');
@@ -179,8 +205,8 @@ function print(s: Summary): void {
       console.log(`  ${String(r.round).padStart(3)}  attempts ${String(r.attempts).padStart(4)}  loss ${f(r.lossRate * 100, 0).padStart(3)}%  ${f(r.meanSeconds, 0)}s  sudden ${f(r.suddenDeathRate * 100, 0)}%${r.stalls ? `  STALLS ${r.stalls}` : ''}`);
   console.log('\nAbilities (uses per owner per round; damage per use):');
   for (const a of s.abilities) console.log(`  ${a.id.padEnd(16)} owners ${String(a.owners).padStart(6)}  uses ${f(a.usesPerOwnerRound, 2).padStart(6)}  dmg/use ${f(a.damagePerUse, 0)}`);
-  console.log('\nDamage to heroes by enemy kind:');
-  for (const e of s.enemies.slice(0, 12)) console.log(`  ${e.kind.padEnd(14)} ${Math.round(e.damage)}`);
+  console.log('\nDamage to heroes per enemy fielded (all rounds):');
+  for (const e of s.enemies) console.log(`  ${e.kind.padEnd(14)} ${String(Math.round(e.perEnemy)).padStart(6)} per enemy  (${e.fielded} fielded)`);
   console.log(`\nInvariant violations: ${s.violations.length}`);
   for (const v of s.violations.slice(0, 20)) console.log('  ' + v);
 }

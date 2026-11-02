@@ -78,7 +78,8 @@ export class Inspect {
     } else {
       const notes = [u.isElite ? 'Elite' : '', u.isCaster ? 'Caster (can be interrupted)' : ''].filter(Boolean);
       if (notes.length) lines.push(notes.join(' · '));
-      if (u.casting) lines.push(`Casting: ${u.casting.spell} (${u.casting.remaining.toFixed(1)}s)`);
+      if (u.casting) lines.push(`Casting: ${u.casting.spell} (${u.casting.remaining.toFixed(1)}s)${u.casting.unstoppable ? ' — unstoppable' : ''}`);
+      if (u.isBoss) lines.push('Boss: after an interrupt, its next heavy cast is unstoppable.');
     }
     const effects = (u.effects ?? []).filter((e) => e.remaining > 0);
     if (effects.length) {

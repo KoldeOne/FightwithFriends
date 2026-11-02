@@ -134,6 +134,8 @@ export interface Unit {
   threatMultiplier?: number;
   /** Hero: true for the party's tank (ignores threat caution, taunts). */
   isTank?: boolean;
+  /** Fraction of incoming damage armor stops (tanks' plate). */
+  armor?: number;
   /** Enemy: threat per hero id. */
   threat?: Record<number, number>;
   /** Enemy: hero id forced as target by a taunt, and seconds remaining. */
@@ -175,7 +177,9 @@ export interface Unit {
   /** Rogue: combo points (0-5), only used with the Combo Points trait. */
   comboPoints?: number;
   /** Enemy: spell being cast, if any. */
-  casting?: { spell: string; kind: EnemyAI; remaining: number; total: number; targetId: number };
+  casting?: { spell: string; kind: EnemyAI; remaining: number; total: number; targetId: number; unstoppable?: boolean };
+  /** Boss: its next heavy cast can't be interrupted (set when one was). */
+  enraged?: boolean;
   /** Enemy: seconds until it may start another cast. */
   castCooldown?: number;
   /** Enemy: special behaviour (heal or smash), and that spell's name. */

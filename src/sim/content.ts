@@ -57,15 +57,15 @@ export const SUDDEN_DEATH = { after: 60, perSecond: 0.05 };
 
 type UnitStats = Pick<
   Unit,
-  'label' | 'radius' | 'maxHp' | 'damage' | 'attackInterval' | 'range' | 'attackStyle' | 'speed' | 'heal' | 'threatMultiplier' | 'isTank' | 'isCaster' | 'isElite' | 'isBoss' | 'ai' | 'spell'
+  'label' | 'radius' | 'maxHp' | 'damage' | 'attackInterval' | 'range' | 'attackStyle' | 'speed' | 'heal' | 'threatMultiplier' | 'isTank' | 'armor' | 'isCaster' | 'isElite' | 'isBoss' | 'ai' | 'spell'
 >;
 
 export const HERO_STATS: Record<HeroClass, UnitStats> = {
-  warrior: { label: 'Warrior', radius: 22, maxHp: 340, damage: 9, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true },
-  rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 10, attackInterval: 0.6, range: 120, attackStyle: 'melee', speed: 0, threatMultiplier: 0.7 },
+  warrior: { label: 'Warrior', radius: 22, maxHp: 420, damage: 12, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true, armor: 0.25 },
+  rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 10, attackInterval: 0.6, range: 30, attackStyle: 'melee', speed: 0, threatMultiplier: 0.7 },
   mage: { label: 'Mage', radius: 18, maxHp: 170, damage: 20, attackInterval: 1.8, range: 380, attackStyle: 'ranged', speed: 0 },
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
-  paladin: { label: 'Paladin', radius: 21, maxHp: 300, damage: 11, attackInterval: 1.2, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.3, isTank: true },
+  paladin: { label: 'Paladin', radius: 21, maxHp: 380, damage: 13, attackInterval: 1.2, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.3, isTank: true, armor: 0.2 },
   warlock: { label: 'Warlock', radius: 18, maxHp: 180, damage: 14, attackInterval: 1.6, range: 360, attackStyle: 'ranged', speed: 0 },
 };
 
@@ -148,17 +148,17 @@ export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
   grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 22, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
   archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 16, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
   shaman: { label: 'Goblin Shaman', radius: 16, maxHp: 150, damage: 8, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true, ai: 'healer', spell: 'Mend' },
-  brute: { label: 'Goblin Brute', radius: 24, maxHp: 620, damage: 24, attackInterval: 1.6, range: 10, attackStyle: 'melee', speed: 30, isElite: true, ai: 'smasher', spell: 'Smash' },
+  brute: { label: 'Goblin Brute', radius: 24, maxHp: 570, damage: 24, attackInterval: 1.6, range: 10, attackStyle: 'melee', speed: 30, isElite: true, ai: 'smasher', spell: 'Smash' },
   warchief: { label: 'Goblin Warchief', radius: 28, maxHp: 1100, damage: 22, attackInterval: 1.4, range: 10, attackStyle: 'melee', speed: 34, isElite: true, isBoss: true, ai: 'smasher', spell: 'Skull Crack' },
   // Undead
   skeleton: { label: 'Skeleton', radius: 17, maxHp: 260, damage: 24, attackInterval: 1.2, range: 8, attackStyle: 'melee', speed: 36 },
   boneArcher: { label: 'Bone Archer', radius: 15, maxHp: 150, damage: 18, attackInterval: 1.7, range: 270, attackStyle: 'ranged', speed: 32 },
   cultist: { label: 'Death Cultist', radius: 16, maxHp: 170, damage: 9, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true, ai: 'healer', spell: 'Dark Mend' },
   ghoul: { label: 'Ghoul', radius: 15, maxHp: 180, damage: 18, attackInterval: 0.8, range: 6, attackStyle: 'melee', speed: 60 },
-  abomination: { label: 'Abomination', radius: 26, maxHp: 760, damage: 28, attackInterval: 1.7, range: 10, attackStyle: 'melee', speed: 28, isElite: true, ai: 'smasher', spell: 'Slam' },
+  abomination: { label: 'Abomination', radius: 26, maxHp: 680, damage: 25, attackInterval: 1.7, range: 10, attackStyle: 'melee', speed: 28, isElite: true, ai: 'smasher', spell: 'Slam' },
   boneKing: { label: 'The Bone King', radius: 30, maxHp: 1700, damage: 28, attackInterval: 1.4, range: 10, attackStyle: 'melee', speed: 32, isElite: true, isBoss: true, ai: 'smasher', spell: 'Grave Cleave' },
   // Demons
-  imp: { label: 'Fire Imp', radius: 14, maxHp: 160, damage: 20, attackInterval: 1.5, range: 280, attackStyle: 'ranged', speed: 40 },
+  imp: { label: 'Fire Imp', radius: 14, maxHp: 160, damage: 13, attackInterval: 1.6, range: 280, attackStyle: 'ranged', speed: 40 },
   hellhound: { label: 'Hellhound', radius: 16, maxHp: 220, damage: 22, attackInterval: 0.9, range: 6, attackStyle: 'melee', speed: 65 },
   fiend: { label: 'Fiend', radius: 19, maxHp: 320, damage: 28, attackInterval: 1.2, range: 8, attackStyle: 'melee', speed: 38 },
   shadowCaller: { label: 'Shadow Caller', radius: 16, maxHp: 200, damage: 10, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true, ai: 'healer', spell: 'Shadow Mend' },
@@ -201,16 +201,16 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   whirlwind: { id: 'whirlwind', name: 'Whirlwind', cls: 'warrior', cost: 25, cooldown: 6, description: 'Hits every nearby enemy.' },
   shieldBlock: { id: 'shieldBlock', name: 'Shield Block', cls: 'warrior', cost: 15, cooldown: 12, description: 'Take 50% less damage for 5s.' },
   powerShield: { id: 'powerShield', name: 'Power Shield', cls: 'priest', cost: 20, cooldown: 6, description: 'Shields an ally from 60 damage.' },
-  prayerOfHealing: { id: 'prayerOfHealing', name: 'Prayer of Healing', cls: 'priest', cost: 40, cooldown: 10, description: 'Heals the whole party.' },
+  prayerOfHealing: { id: 'prayerOfHealing', name: 'Prayer of Healing', cls: 'priest', cost: 30, cooldown: 10, description: 'Heals the whole party, and the most injured ally most of all.' },
   iceLance: { id: 'iceLance', name: 'Ice Lance', cls: 'mage', cost: 12, cooldown: 2, description: 'A quick, cheap ranged hit.' },
   blizzard: { id: 'blizzard', name: 'Blizzard', cls: 'mage', cost: 35, cooldown: 12, description: 'Ice storm on the biggest group of enemies: damage over time and slow.' },
   eviscerate: { id: 'eviscerate', name: 'Eviscerate', cls: 'rogue', cost: 35, cooldown: 6, description: 'A big finishing strike.' },
   evasion: { id: 'evasion', name: 'Evasion', cls: 'rogue', cost: 0, cooldown: 20, description: 'Dodge 75% of attacks for 6s.' },
-  judgement: { id: 'judgement', name: 'Judgement', cls: 'paladin', cost: 20, cooldown: 5, description: 'Holy strike at range; the most injured ally is healed for half the damage.' },
+  judgement: { id: 'judgement', name: 'Judgement', cls: 'paladin', cost: 15, cooldown: 4, description: 'Holy strike at range; the most injured ally is healed for half the damage.' },
   radiantLight: { id: 'radiantLight', name: 'Radiant Light', cls: 'paladin', cost: 30, cooldown: 4, description: 'A solid heal on one ally.' },
   hallowedGround: { id: 'hallowedGround', name: 'Hallowed Ground', cls: 'paladin', cost: 25, cooldown: 10, description: 'Blesses the ground underfoot: damage and high threat to enemies standing in it.' },
   mercy: { id: 'mercy', name: 'Mercy', cls: 'paladin', cost: 0, cooldown: 30, description: 'A huge heal on an ally about to fall.' },
-  hexBolt: { id: 'hexBolt', name: 'Hex Bolt', cls: 'warlock', cost: 25, cooldown: 3, description: 'A bolt of dark magic.' },
+  hexBolt: { id: 'hexBolt', name: 'Hex Bolt', cls: 'warlock', cost: 20, cooldown: 3, description: 'A bolt of dark magic.' },
   wither: { id: 'wither', name: 'Wither', cls: 'warlock', cost: 15, cooldown: 2, description: 'A curse that eats away at an enemy over 12 seconds.' },
   soulDrain: { id: 'soulDrain', name: 'Soul Drain', cls: 'warlock', cost: 25, cooldown: 6, description: "Tears at an enemy's soul; the most injured ally is healed for the damage." },
   enfeeble: { id: 'enfeeble', name: 'Enfeeble', cls: 'warlock', cost: 15, cooldown: 12, description: 'The strongest enemy deals 30% less damage for 8s.' },
@@ -254,24 +254,25 @@ export const ABILITY_TUNING = {
   counterspell: { silence: 4, range: 380 },
   sinisterStrike: { damage: 32 },
   /** Kick has its own range, separate from the Rogue's melee reach. */
-  kick: { damage: 8, silence: 4, range: 420 },
+  kick: { damage: 8, silence: 4, range: 300 },
   whirlwind: { radius: 110, damage: 20 },
   shieldBlock: { duration: 5, reduction: 0.5 },
   powerShield: { absorb: 60, duration: 15 },
-  prayerOfHealing: { amount: 35 },
+  /** Everyone is healed for `amount`; the most injured ally for `bonus` more. */
+  prayerOfHealing: { amount: 35, bonus: 50 },
   iceLance: { damage: 28 },
   blizzard: { radius: 85, duration: 6, damagePerSecond: 9 },
   eviscerate: { damage: 55 },
   evasion: { duration: 6, dodge: 0.75 },
   /** Paladin: Judgement reaches further than the Paladin's melee swing. */
-  judgement: { damage: 34, range: 220, healShare: 0.5 },
+  judgement: { damage: 40, range: 220, healShare: 0.5 },
   radiantLight: { amount: 70 },
   hallowedGround: { radius: 95, duration: 6, damagePerSecond: 8, threatBonus: 2 },
   /** Mercy: only for an ally below `below` of their health. */
   mercy: { amount: 160, below: 0.35 },
-  hexBolt: { damage: 38 },
-  wither: { total: 60, duration: 12, tick: 1 },
-  soulDrain: { damage: 32 },
+  hexBolt: { damage: 46 },
+  wither: { total: 78, duration: 12, tick: 1 },
+  soulDrain: { damage: 40 },
   enfeeble: { reduction: 0.3, duration: 8 },
   /** Slowed units attack this much slower. */
   slowFactor: 1.3,
@@ -380,8 +381,11 @@ export const AGGRO = {
   healThreat: 0.3,
   /** Hero icon turns orange at this fraction of the top threat on any enemy. */
   warningAt: 0.8,
-  /** Careful AI DPS won't attack if it would push them past this fraction. */
-  cautionAt: 0.9,
+  /**
+   * Careful AI DPS won't attack if it would push them past this fraction of
+   * the tank's threat (pulling takes 110%; this leaves room for shots in flight).
+   */
+  cautionAt: 0.95,
   tauntCooldown: 8,
   tauntDuration: 3,
   tauntRange: 420,
@@ -436,7 +440,9 @@ const DEMON_BOSS: Slot[] = [['demonLord', 1, 1], ['fiend', 0, 0], ['fiend', 3, 0
 export function roundStrength(n: number): number {
   if (n <= 10) return 1.6 + (n - 1) * 0.08;
   if (n <= 20) return 3.2 + (n - 11) * 0.14;
-  return 4.9 + (n - 21) * 0.25;
+  if (n <= 30) return 5.2 + (n - 21) * 0.3;
+  // Past round 30 it compounds (+6% a round), so even the sturdiest team's run ends.
+  return roundStrength(30) * Math.pow(1.06, n - 30);
 }
 
 /**

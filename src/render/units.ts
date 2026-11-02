@@ -133,8 +133,9 @@ export class UnitLayer {
         const cy = y - 9;
         const pct = 1 - u.casting.remaining / u.casting.total;
         v.hpBar.fillStyle(0x000000, 0.8).fillRect(-w / 2 - 1, cy - 1, w + 2, 7);
-        v.hpBar.fillStyle(0xb57bff).fillRect(-w / 2, cy, w * pct, 5);
-        v.castLabel?.setText(u.casting.spell).setY(cy - 10);
+        // Unstoppable casts (an enraged boss) show in orange: interrupts won't work.
+        v.hpBar.fillStyle(u.casting.unstoppable ? 0xff8c1a : 0xb57bff).fillRect(-w / 2, cy, w * pct, 5);
+        v.castLabel?.setText(u.casting.unstoppable ? `${u.casting.spell} (unstoppable)` : u.casting.spell).setY(cy - 10);
       } else {
         v.castLabel?.setText('');
       }
