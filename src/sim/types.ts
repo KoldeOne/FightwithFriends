@@ -3,8 +3,24 @@ export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue';
 export type EnemyKind = 'grunt' | 'archer' | 'runner' | 'shaman';
 export type AttackStyle = 'melee' | 'ranged';
 export type ResourceKind = 'rage' | 'mana' | 'energy';
-export type AbilityId = 'thunderclap' | 'renew' | 'fireball' | 'sinisterStrike';
-export type SignatureId = 'taunt' | 'fortitude' | 'polymorph' | 'kick';
+export type AbilityId =
+  | 'taunt'
+  | 'thunderclap'
+  | 'heal'
+  | 'renew'
+  | 'fortitude'
+  | 'fireball'
+  | 'polymorph'
+  | 'counterspell'
+  | 'sinisterStrike'
+  | 'kick';
+
+/** One of a hero's ability slots (max 5: the starting ability + 4 earned). */
+export interface AbilitySlot {
+  id: AbilityId;
+  /** Seconds until it's ready again. */
+  cooldown: number;
+}
 /** Passive traits: not part of the starting kit — saved as future reward options. */
 export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints';
 
@@ -63,14 +79,10 @@ export interface Unit {
   resourceKind?: ResourceKind;
   resource?: number;
   maxResource?: number;
-  /** Hero: the one active ability for now, and seconds until it's ready. */
-  ability?: AbilityId;
-  abilityCooldown?: number;
+  /** Hero: ability slots. Slot 0 is the class's starting ability. */
+  abilities?: AbilitySlot[];
   /** Active buffs/debuffs. */
   effects?: Effect[];
-  /** Hero: fixed class signature ability and its cooldown. */
-  signature?: SignatureId;
-  signatureCooldown?: number;
   /** Hero: passive traits earned so far (none at the start). */
   traits?: TraitId[];
   /** Rogue: combo points (0-5), only used with the Combo Points trait. */
@@ -93,7 +105,6 @@ export type BattleEvent =
   | { type: 'tick'; to: number; amount: number; kind: 'hot' | 'dot' }
   | { type: 'heal'; from: number; to: number; amount: number }
   | { type: 'taunt'; from: number; to: number }
-  | { type: 'signature'; from: number; signature: SignatureId; to?: number }
   | { type: 'castStart'; from: number; spell: string; to: number; duration: number }
   | { type: 'castEnd'; from: number; interrupted: boolean }
   | { type: 'notice'; id: number; text: string; tone: 'good' | 'bad' | 'info' }

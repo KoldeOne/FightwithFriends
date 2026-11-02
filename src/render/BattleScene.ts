@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING, HERO_KIT, RESOURCES, SIGNATURES, WAVE_1, WORLD } from '../sim/content';
+import { ABILITIES, ABILITY_TUNING, HERO_KIT, MAX_ABILITY_SLOTS, RESOURCES, WAVE_1, WORLD } from '../sim/content';
 import type { AbilityId, BattleEvent, Effect, HeroClass, ResourceKind, Unit } from '../sim/types';
 import { GATE_ID } from '../sim/types';
 
@@ -54,8 +54,8 @@ const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string; color:
   sheep: { name: 'Polymorphed', letter: '~', color: 0xf4f1e8, debuff: true, text: () => 'Turned into a sheep. Breaks when hit directly.' },
   silence: { name: 'Silenced', letter: 'X', color: 0xb57bff, debuff: true, text: () => 'Cannot cast spells.' },
 };
-const MAX_BUFF_ICONS = 6;
-const BUFF_ICON = 26;
+const MAX_BUFF_ICONS = 12;
+const BUFF_ICON = 22;
 const TARGET_BAR_X = 200;
 
 interface UnitView {
@@ -77,8 +77,28 @@ const DPR = Math.min(window.devicePixelRatio || 1, 3);
 const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 
 /** Size and position of the ability button and AUTO button. */
-const ABILITY_BTN = { x: 16, size: 72, gap: 8 };
+/** HUD layout (offsets from WORLD.hudTop). */
+const HUD = {
+  barX: 16,
+  barW: 300,
+  healthY: 24,
+  resourceY: 43,
+  barH: 16,
+  buffX: 330,
+  slotY: 65,
+  slotSize: 54,
+  slotGap: 6,
+  targetY: 126,
+};
 const AUTO_BTN = { w: 120 };
+
+interface SlotView {
+  bg: Phaser.GameObjects.Rectangle;
+  name: Phaser.GameObjects.Text;
+  sub: Phaser.GameObjects.Text;
+  plus: Phaser.GameObjects.Text;
+  cdText: Phaser.GameObjects.Text;
+}
 
 export class BattleScene extends Phaser.Scene {
   private battle!: Battle;
@@ -98,16 +118,8 @@ export class BattleScene extends Phaser.Scene {
   private speedButton!: Phaser.GameObjects.Text;
   private carefulButton!: Phaser.GameObjects.Text;
   private pauseButton!: Phaser.GameObjects.Text;
-  private sigBg!: Phaser.GameObjects.Rectangle;
-  private sigName!: Phaser.GameObjects.Text;
-  private sigTag!: Phaser.GameObjects.Text;
-  private sigCooldown!: Phaser.GameObjects.Graphics;
-  private sigCooldownText!: Phaser.GameObjects.Text;
-  private abilityBg!: Phaser.GameObjects.Rectangle;
-  private abilityName!: Phaser.GameObjects.Text;
-  private abilityCost!: Phaser.GameObjects.Text;
-  private abilityCooldown!: Phaser.GameObjects.Graphics;
-  private abilityCooldownText!: Phaser.GameObjects.Text;
+  private slotViews: SlotView[] = [];
+  private slotCooldowns!: Phaser.GameObjects.Graphics;
   private resourceBar!: Phaser.GameObjects.Graphics;
   private resourceText!: Phaser.GameObjects.Text;
   private focusText!: Phaser.GameObjects.Text;
@@ -189,9 +201,8 @@ export class BattleScene extends Phaser.Scene {
       const top = y - cardH / 2 + 12;
       const name = this.text(tx, top, cls[0].toUpperCase() + cls.slice(1), 20, '#ffffff').setFontStyle('bold');
       const role = this.text(tx + 104, top + 4, kit.role, 13, '#c9d1e0');
-      // Five ability slots: the starting ability, the class's default ability,
-      // then three empty slots earned during the run.
-      const slotNames = [SIGNATURES[kit.signature].name, ABILITIES[kit.ability].name, null, null, null];
+      // Five ability slots: the starting ability, then four earned during the run.
+      const slotNames: (string | null)[] = [ABILITIES[kit.starting].name, null, null, null, null];
       const slotW = 68;
       const slotH = 60;
       const slots: Phaser.GameObjects.GameObject[] = [];
@@ -257,34 +268,19 @@ export class BattleScene extends Phaser.Scene {
     else this.battle.setFocus(best.id);
   }
 
-  private onAbilityTap(): void {
+  private onSlotTap(slot: number): void {
     if (this.state !== 'playing') return;
-    const result = this.battle.useAbility();
+    const p = this.battle.player;
+    if (!p?.abilities?.[slot]) {
+      this.showToast('Earn more abilities during the run');
+      return;
+    }
+    const result = this.battle.useAbility(slot);
     if (result === 'ok') {
-      this.tweens.add({ targets: this.abilityBg, scale: 0.92, duration: 70, yoyo: true });
+      this.tweens.add({ targets: this.slotViews[slot].bg, scale: 0.92, duration: 70, yoyo: true });
       this.handleEvents(this.battle.drainEvents());
     } else {
       this.showToast(this.abilityMessage(result));
-    }
-  }
-
-  private onSignatureTap(): void {
-    if (this.state !== 'playing') return;
-    const result = this.battle.useSignature();
-    if (result === 'ok') {
-      this.tweens.add({ targets: this.sigBg, scale: 0.92, duration: 70, yoyo: true });
-      this.handleEvents(this.battle.drainEvents());
-    } else {
-      const p = this.battle.player;
-      const msg =
-        result === 'target' && this.battle.focusId !== null && p?.signature !== 'fortitude'
-          ? 'Target out of range'
-          : result === 'target' && p?.signature === 'kick'
-          ? 'No enemy in range to kick'
-          : result === 'target' && p?.signature === 'polymorph'
-            ? 'No enemy that can be polymorphed'
-            : this.abilityMessage(result);
-      this.showToast(msg);
     }
   }
 
@@ -370,99 +366,86 @@ export class BattleScene extends Phaser.Scene {
     this.add.rectangle(0, top, WORLD.width, 2, 0x2b3445).setOrigin(0, 0);
 
     // Row 1: gate health + wave info.
-    this.text(16, top + 8, 'Gate', 14, '#c9d1e0');
+    this.text(16, top + 4, 'Gate', 13, '#c9d1e0');
     this.gateBar = this.add.graphics();
-    this.hudText = this.text(WORLD.width - 16, top + 8, '', 14, '#ffffff').setOrigin(1, 0);
+    this.hudText = this.text(WORLD.width - 16, top + 4, '', 13, '#ffffff').setOrigin(1, 0);
 
-    // Signature button, then ability button.
-    const by = top + 36;
-    const s = ABILITY_BTN.size;
-    const sx = ABILITY_BTN.x;
-    const ax0 = sx + s + ABILITY_BTN.gap;
-    this.sigBg = this.add
-      .rectangle(sx + s / 2, by + s / 2, s, s, 0x2b3445)
-      .setStrokeStyle(2, 0x3a4660)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => this.onSignatureTap());
-    this.sigTag = this.text(sx + s / 2, by + s - 13, '', 11, '#c9d1e0').setOrigin(0.5);
-    this.sigName = this.text(sx + s / 2, by + s / 2 - 8, '', 13, '#ffffff')
-      .setOrigin(0.5)
-      .setAlign('center')
-      .setFontStyle('bold')
-      .setWordWrapWidth(s - 6);
-    this.sigCooldown = this.add.graphics();
-    this.sigCooldownText = this.text(sx + s / 2, by + s / 2, '', 24, '#ffffff').setOrigin(0.5).setFontStyle('bold');
-    this.sigCooldownText.setStroke('#000000', 4);
-
-    this.abilityBg = this.add
-      .rectangle(ax0 + s / 2, by + s / 2, s, s, 0x2b3445)
-      .setStrokeStyle(2, 0x3a4660)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => this.onAbilityTap());
-    this.abilityName = this.text(ax0 + s / 2, by + s / 2 - 8, '', 13, '#ffffff')
-      .setOrigin(0.5)
-      .setAlign('center')
-      .setFontStyle('bold')
-      .setWordWrapWidth(s - 6);
-    this.abilityCost = this.text(ax0 + s / 2, by + s - 13, '', 11, '#c9d1e0').setOrigin(0.5);
-    this.abilityCooldown = this.add.graphics();
-    this.abilityCooldownText = this.text(ax0 + s / 2, by + s / 2, '', 24, '#ffffff').setOrigin(0.5).setFontStyle('bold');
-    this.abilityCooldownText.setStroke('#000000', 4);
-
-    // Right column: health bar, resource bar, buff icons.
-    const rx = ax0 + s + 12;
+    // Health and resource bars.
     this.healthBar = this.add.graphics();
-    this.healthText = this.text(rx + 8, by + 1, '', 13, '#ffffff').setFontStyle('bold');
+    this.healthText = this.text(HUD.barX + 8, top + HUD.healthY, '', 12, '#ffffff').setFontStyle('bold');
     this.healthText.setStroke('#000000', 3);
     this.resourceBar = this.add.graphics();
-    this.resourceText = this.text(rx + 8, by + 23, '', 13, '#ffffff').setFontStyle('bold');
+    this.resourceText = this.text(HUD.barX + 8, top + HUD.resourceY, '', 12, '#ffffff').setFontStyle('bold');
     this.resourceText.setStroke('#000000', 3);
+
+    // Buff icons: a grid to the right of the bars.
     this.buffIcons = [];
+    const perRow = MAX_BUFF_ICONS / 2;
     for (let i = 0; i < MAX_BUFF_ICONS; i++) {
-      const x = rx + i * (BUFF_ICON + 6) + BUFF_ICON / 2;
-      const y = by + 46 + BUFF_ICON / 2;
+      const x = HUD.buffX + (i % perRow) * (BUFF_ICON + 4) + BUFF_ICON / 2;
+      const y = top + HUD.healthY + Math.floor(i / perRow) * (BUFF_ICON - 3) + BUFF_ICON / 2 - 3;
       const bg = this.add
-        .rectangle(x, y, BUFF_ICON, BUFF_ICON, 0x2b3445)
+        .rectangle(x, y, BUFF_ICON, BUFF_ICON - 4, 0x2b3445)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => this.showEffectTooltip(i))
         .setVisible(false);
-      const letter = this.text(x, y - 1, '', 14, '#111').setOrigin(0.5).setFontStyle('bold').setVisible(false);
-      const time = this.text(x + BUFF_ICON / 2 - 1, y + BUFF_ICON / 2 - 1, '', 10, '#ffffff').setOrigin(1, 1).setFontStyle('bold').setVisible(false);
+      const letter = this.text(x, y - 1, '', 12, '#111').setOrigin(0.5).setFontStyle('bold').setVisible(false);
+      const time = this.text(x + BUFF_ICON / 2 - 1, y + BUFF_ICON / 2 - 3, '', 9, '#ffffff').setOrigin(1, 1).setFontStyle('bold').setVisible(false);
       time.setStroke('#000000', 3);
       this.buffIcons.push({ bg, letter, time });
     }
 
+    // Five ability slots.
+    this.slotViews = [];
+    const s = HUD.slotSize;
+    const sy = top + HUD.slotY;
+    for (let i = 0; i < MAX_ABILITY_SLOTS; i++) {
+      const cx = HUD.barX + i * (s + HUD.slotGap) + s / 2;
+      const bg = this.add
+        .rectangle(cx, sy + s / 2, s, s, 0x151b27)
+        .setStrokeStyle(2, 0x3a4660)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this.onSlotTap(i));
+      const name = this.text(cx, sy + s / 2 - 6, '', 11, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold').setWordWrapWidth(s - 4);
+      const sub = this.text(cx, sy + s - 9, '', 9, '#c9d1e0').setOrigin(0.5);
+      const plus = this.text(cx, sy + s / 2, '+', 20, '#3f4b63').setOrigin(0.5).setFontStyle('bold');
+      const cdText = this.text(cx, sy + s / 2, '', 20, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
+      cdText.setStroke('#000000', 4);
+      this.slotViews.push({ bg, name, sub, plus, cdText });
+    }
+    this.slotCooldowns = this.add.graphics().setDepth(4);
+
     // Bottom row (full width): target frame, or a hint.
-    const ty = top + 122;
-    this.focusText = this.text(16, ty + 2, '', 13, '#8f9bb3');
-    this.targetName = this.text(16, ty + 1, '', 14, '#ffffff').setFontStyle('bold');
+    const ty = top + HUD.targetY;
+    this.focusText = this.text(16, ty + 1, '', 12, '#8f9bb3');
+    this.targetName = this.text(16, ty, '', 13, '#ffffff').setFontStyle('bold');
     this.targetBar = this.add.graphics();
-    this.targetHp = this.text(TARGET_BAR_X + 8, ty + 3, '', 12, '#ffffff').setFontStyle('bold');
+    this.targetHp = this.text(TARGET_BAR_X + 8, ty + 2, '', 11, '#ffffff').setFontStyle('bold');
     this.targetHp.setStroke('#000000', 3);
     this.toast = this.text(WORLD.width / 2, WORLD.hudTop - 30, '', 16, '#ff9f1a').setOrigin(0.5).setFontStyle('bold').setDepth(60);
     this.toast.setStroke('#000000', 4);
 
-    // AUTO toggle.
+    // AUTO toggle, next to the ability slots.
     const ax = WORLD.width - 16 - AUTO_BTN.w / 2;
     this.autoBg = this.add
-      .rectangle(ax, by + s / 2, AUTO_BTN.w, s, 0x2b3445)
+      .rectangle(ax, sy + s / 2, AUTO_BTN.w, s, 0x2b3445)
       .setStrokeStyle(2, 0x3a4660)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => {
         this.auto = !this.auto;
         this.battle.playerAuto = this.auto;
       });
-    this.autoText = this.text(ax, by + s / 2, '', 18, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold');
+    this.autoText = this.text(ax, sy + s / 2, '', 16, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold');
   }
 
   private updateHud(): void {
     const top = WORLD.hudTop;
     const { hp, maxHp } = this.battle.gate;
-    const gx = 58;
-    const gw = 250;
+    const gx = 56;
+    const gw = 260;
     this.gateBar.clear();
-    this.gateBar.fillStyle(0x2b3445).fillRect(gx, top + 11, gw, 12);
-    this.gateBar.fillStyle(hp / maxHp > 0.3 ? 0xd4a24c : 0xe74c3c).fillRect(gx, top + 11, (gw * hp) / maxHp, 12);
+    this.gateBar.fillStyle(0x2b3445).fillRect(gx, top + 7, gw, 10);
+    this.gateBar.fillStyle(hp / maxHp > 0.3 ? 0xd4a24c : 0xe74c3c).fillRect(gx, top + 7, (gw * hp) / maxHp, 10);
 
     const t = Math.floor(this.battle.time);
     const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
@@ -476,28 +459,50 @@ export class BattleScene extends Phaser.Scene {
     this.autoText.setText(`AUTO\n${this.auto ? 'ON' : 'OFF'}`);
     this.autoBg.setFillStyle(this.auto ? 0x1e6f50 : 0x2b3445);
 
-    this.updateAbilityHud();
+    this.updatePlayerHud();
   }
 
-  private updateAbilityHud(): void {
+  private updatePlayerHud(): void {
     const p = this.battle.player;
-    const by = WORLD.hudTop + 36;
-    const s = ABILITY_BTN.size;
-    const ax0 = ABILITY_BTN.x + s + ABILITY_BTN.gap;
-    const rx = ax0 + s + 12;
-    const rw = WORLD.width - rx - AUTO_BTN.w - 28;
-
-    this.abilityCooldown.clear();
-    this.sigCooldown.clear();
-    this.resourceBar.clear();
+    const top = WORLD.hudTop;
     this.healthBar.clear();
-    if (!p?.ability || !p.resourceKind || !p.signature) {
-      this.sigName.setText('');
-      this.sigTag.setText('');
-      this.sigCooldownText.setText('');
-      this.abilityName.setText('');
-      this.abilityCost.setText('');
-      this.abilityCooldownText.setText('');
+    this.resourceBar.clear();
+    this.slotCooldowns.clear();
+
+    // Ability slots (empty ones show a "+").
+    const s = HUD.slotSize;
+    const sy = top + HUD.slotY;
+    this.slotViews.forEach((v, i) => {
+      const a = p?.abilities?.[i];
+      v.plus.setVisible(!!p && !a);
+      if (!p || !a) {
+        v.bg.setFillStyle(0x151b27).setStrokeStyle(2, 0x2b3445);
+        v.name.setText('');
+        v.sub.setText('');
+        v.cdText.setText('');
+        return;
+      }
+      const def = ABILITIES[a.id];
+      const state = this.battle.abilityState(i, p);
+      const ready = state === 'ok';
+      const dark = ready && DARK_LETTER.includes(p.kind);
+      const cost = this.battle.abilityCost(p, a.id);
+      v.name.setText(def.name).setColor(dark ? '#111' : '#ffffff');
+      v.sub.setText(cost ? `${cost} ${RESOURCES[p.resourceKind!].label.toLowerCase()}` : 'no cost').setColor(dark ? '#333' : '#c9d1e0');
+      v.bg.setFillStyle(ready ? COLORS[p.kind] : 0x2b3445);
+      // Red outline = nothing it could hit is in range right now.
+      if (p.alive && !this.battle.abilityInRange(i, p)) v.bg.setStrokeStyle(3, OUT_OF_RANGE);
+      else v.bg.setStrokeStyle(2, 0x3a4660);
+      if (a.cooldown > 0) {
+        const x = HUD.barX + i * (s + HUD.slotGap);
+        this.slotCooldowns.fillStyle(0x000000, 0.55).fillRect(x, sy, s, s * (a.cooldown / def.cooldown));
+        v.cdText.setText(a.cooldown >= 1 ? `${Math.ceil(a.cooldown)}` : a.cooldown.toFixed(1));
+      } else {
+        v.cdText.setText('');
+      }
+    });
+
+    if (!p?.resourceKind) {
       this.resourceText.setText('');
       this.healthText.setText('');
       this.focusText.setText('');
@@ -506,68 +511,26 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    // Signature button.
-    const sig = SIGNATURES[p.signature];
-    const sigReady = this.battle.signatureState(p) === 'ok';
-    this.sigName.setText(sig.name);
-    this.sigTag.setText('no cost');
-    this.sigBg.setFillStyle(sigReady ? COLORS[p.kind] : 0x2b3445);
-    this.sigName.setColor(sigReady && DARK_LETTER.includes(p.kind) ? '#111' : '#ffffff');
-    this.sigTag.setColor(sigReady && DARK_LETTER.includes(p.kind) ? '#333' : '#c9d1e0');
-    // Red outline = nothing it could hit is in range right now.
-    if (p.alive && !this.battle.signatureInRange(p)) this.sigBg.setStrokeStyle(4, OUT_OF_RANGE);
-    else this.sigBg.setStrokeStyle(2, 0x3a4660);
-    const scd = p.signatureCooldown ?? 0;
-    if (scd > 0) {
-      this.sigCooldown.fillStyle(0x000000, 0.55).fillRect(ABILITY_BTN.x, by, s, s * (scd / sig.cooldown));
-      this.sigCooldownText.setText(scd >= 1 ? `${Math.ceil(scd)}` : scd.toFixed(1));
-    } else {
-      this.sigCooldownText.setText('');
-    }
-
-    const def = ABILITIES[p.ability];
-    const res = RESOURCES[p.resourceKind];
-    const state = this.battle.abilityState(p);
-    const cost = this.battle.abilityCost(p);
-    this.abilityName.setText(def.name);
-    this.abilityCost.setText(`${cost} ${res.label.toLowerCase()}`);
-    this.abilityBg.setFillStyle(state === 'ok' ? COLORS[p.kind] : 0x2b3445);
-    if (p.alive && !this.battle.abilityInRange(p)) this.abilityBg.setStrokeStyle(4, OUT_OF_RANGE);
-    else this.abilityBg.setStrokeStyle(2, 0x3a4660);
-    this.abilityName.setColor(state === 'ok' && DARK_LETTER.includes(p.kind) ? '#111' : '#ffffff');
-    this.abilityCost.setColor(state === 'ok' && DARK_LETTER.includes(p.kind) ? '#333' : '#c9d1e0');
-
-    const cd = p.abilityCooldown ?? 0;
-    if (cd > 0) {
-      const frac = cd / def.cooldown;
-      this.abilityCooldown.fillStyle(0x000000, 0.55).fillRect(ax0, by, s, s * frac);
-      this.abilityCooldownText.setText(cd >= 1 ? `${Math.ceil(cd)}` : cd.toFixed(1));
-    } else {
-      this.abilityCooldownText.setText('');
-    }
-
     // Health bar (red), with numbers.
-    const hpFrac = Math.max(0, p.hp / p.maxHp);
-    this.healthBar.fillStyle(0x2b3445).fillRect(rx, by, rw, 19);
-    this.healthBar.fillStyle(0xc0392b).fillRect(rx, by, rw * hpFrac, 19);
+    const hy = top + HUD.healthY;
+    this.healthBar.fillStyle(0x2b3445).fillRect(HUD.barX, hy, HUD.barW, HUD.barH);
+    this.healthBar.fillStyle(0xc0392b).fillRect(HUD.barX, hy, HUD.barW * Math.max(0, p.hp / p.maxHp), HUD.barH);
     this.healthText.setText(`Health ${Math.ceil(p.hp)} / ${p.maxHp}`);
 
     // Resource bar.
-    const ry = by + 22;
-    const frac = (p.resource ?? 0) / (p.maxResource ?? 1);
-    this.resourceBar.fillStyle(0x2b3445).fillRect(rx, ry, rw, 19);
-    this.resourceBar.fillStyle(RESOURCE_COLORS[p.resourceKind]).fillRect(rx, ry, rw * frac, 19);
-    // Tick showing the ability cost.
-    this.resourceBar.fillStyle(0xffffff, 0.7).fillRect(rx + rw * (cost / (p.maxResource ?? 100)) - 1, ry, 2, 19);
+    const ry = top + HUD.resourceY;
+    const res = RESOURCES[p.resourceKind];
+    this.resourceBar.fillStyle(0x2b3445).fillRect(HUD.barX, ry, HUD.barW, HUD.barH);
+    this.resourceBar.fillStyle(RESOURCE_COLORS[p.resourceKind]).fillRect(HUD.barX, ry, HUD.barW * ((p.resource ?? 0) / (p.maxResource ?? 1)), HUD.barH);
     const cp = p.comboPoints ?? 0;
     const combo = this.battle.hasTrait(p, 'comboPoints') ? `  ${'●'.repeat(cp)}${'○'.repeat(5 - cp)}` : '';
-    this.resourceText.setText(`${res.label} ${Math.floor(p.resource ?? 0)}${combo}`);
+    this.resourceText.setText(`${res.label} ${Math.floor(p.resource ?? 0)} / ${p.maxResource}${combo}`);
 
     this.updateBuffIcons(p);
 
     // Bottom row: target frame or hint.
     const focus = this.battle.focusId !== null ? this.battle.unit(this.battle.focusId) : undefined;
-    const ty = WORLD.hudTop + 122;
+    const ty = top + HUD.targetY;
     if (focus?.alive) {
       this.focusText.setText('');
       this.drawTargetFrame(focus, TARGET_BAR_X, ty, WORLD.width - 16 - TARGET_BAR_X);
@@ -625,9 +588,9 @@ export class BattleScene extends Phaser.Scene {
     this.targetName.setText(`${enemy ? '◎' : '✚'} ${u.label}`).setColor(enemy ? '#ffd166' : '#7dff9b');
     const pct = Math.max(0, u.hp / u.maxHp);
     this.targetBar.clear();
-    this.targetBar.fillStyle(0x2b3445).fillRect(x, y, w, 20);
-    this.targetBar.fillStyle(enemy ? 0xe74c3c : 0x2ecc71).fillRect(x, y, w * pct, 20);
-    this.targetBar.lineStyle(1, enemy ? 0xffd166 : 0x7dff9b, 0.8).strokeRect(x, y, w, 20);
+    this.targetBar.fillStyle(0x2b3445).fillRect(x, y, w, 17);
+    this.targetBar.fillStyle(enemy ? 0xe74c3c : 0x2ecc71).fillRect(x, y, w * pct, 17);
+    this.targetBar.lineStyle(1, enemy ? 0xffd166 : 0x7dff9b, 0.8).strokeRect(x, y, w, 17);
     this.targetHp.setText(`${Math.ceil(u.hp)} / ${u.maxHp}`);
   }
 
@@ -772,9 +735,6 @@ export class BattleScene extends Phaser.Scene {
         case 'taunt':
           this.showTaunt(e.from, e.to);
           break;
-        case 'signature':
-          this.showSignature(e.from, e.signature, e.to);
-          break;
         case 'castEnd':
           if (e.interrupted) {
             const u = this.battle.unit(e.from);
@@ -855,42 +815,48 @@ export class BattleScene extends Phaser.Scene {
     if (!from) return;
     const to = toId !== undefined ? this.battle.unit(toId) : undefined;
     const name = ABILITIES[ability].name;
-    if (ability === 'thunderclap') {
-      const ring = this.add.circle(from.x, from.y, from.radius).setStrokeStyle(6, 0xd4a24c).setDepth(30);
-      const scale = ABILITY_TUNING.thunderclap.radius / from.radius;
-      this.tweens.add({ targets: ring, scale, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
-      this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#f5c26b', 15);
-    } else if (ability === 'renew' && to) {
-      const ring = this.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, 0x7dff9b).setDepth(30);
-      this.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
-      this.floatText(to.x, to.y - to.radius - 22, name, '#7dff9b', 15);
-    } else {
-      this.floatText(from.x, from.y - from.radius - 22, name, '#ffd166', 14);
-    }
-  }
-
-  private showSignature(fromId: number, sig: string, toId?: number): void {
-    const from = this.battle.unit(fromId);
-    if (!from) return;
-    const to = toId !== undefined ? this.battle.unit(toId) : undefined;
-    if (sig === 'taunt') return; // the taunt event draws it
-    const name = SIGNATURES[sig as keyof typeof SIGNATURES].name;
-    if (sig === 'fortitude') {
-      for (const ally of this.battle.heroes) {
-        if (!ally.alive) continue;
-        const ring = this.add.circle(ally.x, ally.y, ally.radius + 4).setStrokeStyle(4, 0xfff3b0).setDepth(30);
-        this.tweens.add({ targets: ring, scale: 1.7, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
+    switch (ability) {
+      case 'taunt':
+        return; // the taunt event draws it
+      case 'thunderclap': {
+        const ring = this.add.circle(from.x, from.y, from.radius).setStrokeStyle(6, 0xd4a24c).setDepth(30);
+        const scale = ABILITY_TUNING.thunderclap.radius / from.radius;
+        this.tweens.add({ targets: ring, scale, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#f5c26b', 15);
+        return;
       }
+      case 'fortitude':
+        for (const ally of this.battle.heroes) {
+          if (!ally.alive) continue;
+          const ring = this.add.circle(ally.x, ally.y, ally.radius + 4).setStrokeStyle(4, 0xfff3b0).setDepth(30);
+          this.tweens.add({ targets: ring, scale: 1.7, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
+        }
+        this.floatText(from.x, from.y - from.radius - 22, name, '#fff3b0', 14);
+        return;
+      case 'renew':
+      case 'heal':
+        if (to) {
+          const ring = this.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, 0x7dff9b).setDepth(30);
+          this.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
+          this.floatText(to.x, to.y - to.radius - 22, name, '#7dff9b', 15);
+        }
+        return;
+      case 'polymorph':
+      case 'kick':
+      case 'counterspell':
+        if (to) {
+          const color = ability === 'polymorph' ? 0xf4f1e8 : ability === 'counterspell' ? 0x9ad1ff : 0xffe066;
+          const line = this.add.graphics().setDepth(30);
+          line.lineStyle(3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
+          this.tweens.add({ targets: line, alpha: 0, duration: 400, onComplete: () => line.destroy() });
+          const ring = this.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, color).setDepth(30);
+          this.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
+        }
+        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffd166', 14);
+        return;
+      default:
+        this.floatText(from.x, from.y - from.radius - 22, name, '#ffd166', 14);
     }
-    if (to) {
-      const color = sig === 'polymorph' ? 0xf4f1e8 : 0xffe066;
-      const line = this.add.graphics().setDepth(30);
-      line.lineStyle(3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
-      this.tweens.add({ targets: line, alpha: 0, duration: 400, onComplete: () => line.destroy() });
-      const ring = this.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, color).setDepth(30);
-      this.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
-    }
-    this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffd166', 15);
   }
 
   private showHeal(fromId: number, toId: number, amount: number): void {

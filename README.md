@@ -21,13 +21,12 @@ Steps 1–4 of the first playable version are done:
    Fireball, Sinister Strike) using rage / mana / energy; AUTO toggle; pause.
    Orange/red `!` aggro warnings show on your hero.
 
-4. **Class kits (part 1)** — each class has a starting ability (Taunt,
-   Power Word: Fortitude, Polymorph, Kick) plus its default ability, shown
-   as two matching buttons. The class select screen shows all five ability
-   slots (two filled, three earned during the run). The Goblin Shaman casts Mend (with a cast bar) for Kick to
-   interrupt. Buttons get a red outline when nothing is in range. Class
-   traits exist in code but start switched off — they become reward
-   options in step 5.
+4. **Class kits (part 1)** — each class starts with one ability (Warrior
+   Taunt, Priest Heal, Mage Fireball, Rogue Sinister Strike) and has five
+   ability slots; the other four are earned in step 5. Earnable abilities
+   already work in the simulation: Thunderclap, Renew, Power Word:
+   Fortitude, Polymorph, Counterspell, Kick. Buttons get a red outline when
+   nothing is in range.
 
 Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**
 (ON = AI damage dealers hold back before pulling aggro; OFF = they don't).

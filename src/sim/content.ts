@@ -1,4 +1,4 @@
-import type { AbilityId, EnemyKind, HeroClass, ResourceKind, SignatureId, TraitId, Unit, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroClass, ResourceKind, TraitId, Unit, WaveDef } from './types';
 
 /** World is a fixed portrait canvas; the renderer scales it to the screen. */
 export const WORLD = {
@@ -53,47 +53,44 @@ export const RAGE = { perDealt: 0.6, perTaken: 0.5 };
 export interface AbilityDef {
   id: AbilityId;
   name: string;
+  cls: HeroClass;
+  /** Resource cost (0 = free). */
   cost: number;
   cooldown: number;
   description: string;
 }
 
+/** Every ability in the game. Each class starts with one; the rest are earned. */
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
-  thunderclap: { id: 'thunderclap', name: 'Thunderclap', cost: 20, cooldown: 6, description: 'Damage and high threat to nearby enemies; slows their attacks.' },
-  renew: { id: 'renew', name: 'Renew', cost: 20, cooldown: 3, description: 'Heals an ally over 9 seconds.' },
-  fireball: { id: 'fireball', name: 'Fireball', cost: 30, cooldown: 4, description: 'Big hit that leaves a burn.' },
-  sinisterStrike: { id: 'sinisterStrike', name: 'Sinister Strike', cost: 40, cooldown: 1.5, description: 'A fast, heavy strike.' },
+  taunt: { id: 'taunt', name: 'Taunt', cls: 'warrior', cost: 0, cooldown: 8, description: 'Forces an enemy to attack you.' },
+  thunderclap: { id: 'thunderclap', name: 'Thunderclap', cls: 'warrior', cost: 20, cooldown: 6, description: 'Damage and high threat to nearby enemies; slows their attacks.' },
+  heal: { id: 'heal', name: 'Heal', cls: 'priest', cost: 25, cooldown: 3, description: 'A strong heal on one ally.' },
+  renew: { id: 'renew', name: 'Renew', cls: 'priest', cost: 20, cooldown: 3, description: 'Heals an ally over 9 seconds.' },
+  fortitude: { id: 'fortitude', name: 'Power Word: Fortitude', cls: 'priest', cost: 0, cooldown: 30, description: "Raises the whole party's maximum health by 20% for 30s." },
+  fireball: { id: 'fireball', name: 'Fireball', cls: 'mage', cost: 30, cooldown: 4, description: 'Big hit that leaves a burn.' },
+  polymorph: { id: 'polymorph', name: 'Polymorph', cls: 'mage', cost: 0, cooldown: 15, description: 'Turns an enemy (not a boss) into a sheep for 10s.' },
+  counterspell: { id: 'counterspell', name: 'Counterspell', cls: 'mage', cost: 0, cooldown: 12, description: 'Interrupts an enemy cast and locks it out of casting.' },
+  sinisterStrike: { id: 'sinisterStrike', name: 'Sinister Strike', cls: 'rogue', cost: 40, cooldown: 1.5, description: 'A fast, heavy strike.' },
+  kick: { id: 'kick', name: 'Kick', cls: 'rogue', cost: 0, cooldown: 10, description: 'Interrupts an enemy cast and locks it out of casting.' },
 };
+
+/** Max ability slots per hero: the starting ability + 4 earned during a run. */
+export const MAX_ABILITY_SLOTS = 5;
 
 /** Ability tuning numbers. */
 export const ABILITY_TUNING = {
   thunderclap: { radius: 120, damage: 12, threatBonus: 2, slow: 6 },
+  heal: { amount: 80 },
   renew: { total: 60, duration: 9, tick: 1.5 },
-  fireball: { damage: 45, burnPerSecond: 5, burnDuration: 3 },
-  sinisterStrike: { damage: 32 },
-  /** Slowed units attack this much slower. */
-  slowFactor: 1.3,
-};
-
-export interface SignatureDef {
-  id: SignatureId;
-  name: string;
-  cooldown: number;
-  description: string;
-}
-
-export const SIGNATURES: Record<SignatureId, SignatureDef> = {
-  taunt: { id: 'taunt', name: 'Taunt', cooldown: 8, description: 'Forces an enemy to attack you.' },
-  fortitude: { id: 'fortitude', name: 'Power Word: Fortitude', cooldown: 30, description: 'Raises the whole party\'s maximum health by 20% for 30s.' },
-  polymorph: { id: 'polymorph', name: 'Polymorph', cooldown: 15, description: 'Turns an enemy (not a boss) into a sheep for 10s.' },
-  kick: { id: 'kick', name: 'Kick', cooldown: 10, description: 'Interrupts an enemy cast from range and locks it out of casting.' },
-};
-
-export const SIGNATURE_TUNING = {
   fortitude: { duration: 30, bonus: 0.2 },
+  fireball: { damage: 45, burnPerSecond: 5, burnDuration: 3 },
   polymorph: { duration: 10, range: 380 },
+  counterspell: { silence: 4, range: 380 },
+  sinisterStrike: { damage: 32 },
   /** Kick has its own range, separate from the Rogue's melee reach. */
   kick: { damage: 8, silence: 4, range: 420 },
+  /** Slowed units attack this much slower. */
+  slowFactor: 1.3,
 };
 
 export interface TraitDef {
@@ -127,12 +124,14 @@ export const TRAIT_TUNING = {
 /** Goblin Shaman's heal spell. It must walk within `range` of the goblin it heals. */
 export const SHAMAN_MEND = { name: 'Mend', castTime: 2.5, heal: 70, cooldown: 7, minMissing: 40, range: 90 };
 
-export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; ability: AbilityId; signature: SignatureId; role: string }> = {
-  warrior: { resource: 'rage', ability: 'thunderclap', signature: 'taunt', role: 'Tank — holds enemies with threat' },
-  priest: { resource: 'mana', ability: 'renew', signature: 'fortitude', role: 'Healer — keeps the party alive' },
-  mage: { resource: 'mana', ability: 'fireball', signature: 'polymorph', role: 'Ranged damage and control' },
-  rogue: { resource: 'energy', ability: 'sinisterStrike', signature: 'kick', role: 'Melee damage and interrupts' },
+/** Each class starts a run with one ability; the other 4 slots are earned. */
+export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; starting: AbilityId; role: string }> = {
+  warrior: { resource: 'rage', starting: 'taunt', role: 'Tank — holds enemies with threat' },
+  priest: { resource: 'mana', starting: 'heal', role: 'Healer — keeps the party alive' },
+  mage: { resource: 'mana', starting: 'fireball', role: 'Ranged damage and control' },
+  rogue: { resource: 'energy', starting: 'sinisterStrike', role: 'Melee damage' },
 };
+
 
 /** Aggro tuning. */
 export const AGGRO = {
@@ -158,6 +157,6 @@ export const WAVE_1: WaveDef = {
     { time: 0.6, kind: 'grunt', x: 330 },
     { time: 3, kind: 'archer', x: 270 },
     { time: 6, kind: 'runner', x: 110 },
-    { time: 9, kind: 'shaman', x: 420 },
+    { time: 9, kind: 'grunt', x: 420 },
   ],
 };

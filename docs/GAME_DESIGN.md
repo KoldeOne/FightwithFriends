@@ -96,23 +96,24 @@ original or properly licensed assets (see §12).
 
 ## 4. Hero kit
 
-Every hero has **5 abilities in total**:
+Every hero has up to **5 ability slots**:
 
 | Part | Count | Notes |
 |---|---|---|
-| **Auto attack** | 1 | Always on |
-| **Starting ability** | 1 | Fixed per class (e.g. Warrior: Taunt). The thing only that class does |
-| **Additional abilities** | 4 | Slot 1 is pre-filled with the class's default ability (e.g. Thunderclap); slots 2–4 are earned during the run |
-| **Class traits** | 0 at start | Passive traits are **not** part of the starting kit — they are reward options during a run |
+| **Auto attack** | 1 | Always on (the Priest's auto attack includes a small free heal) |
+| **Starting ability** | 1 | Fixed per class: Warrior **Taunt**, Priest **Heal**, Mage **Fireball**, Rogue **Sinister Strike** |
+| **Earned abilities** | 4 | Empty at the start; filled from the class's pool through level-up rewards during the run |
+| **Class traits** | 0 at start | Passive traits are reward options during a run, not part of the starting kit |
 
-- Additional abilities can be **any mix of active and passive** (e.g. 4 actives,
-  or 3 passives + 1 active). There is no requirement to have an active.
-- **Buttons on screen:** maximum 5 (starting ability + up to 4 actives), typically 3–4.
-  The starting ability and other ability buttons look the same.
+- Earned abilities can be **any mix of active and passive**.
+- **Buttons on screen:** 5 slots, shown even when empty (empty slots show "+").
 - All actives can **autocast** (auto mode).
-- Each class has a pool of **~8 choosable abilities** (may expand later).
+- Each class has a pool of **~8 earnable abilities** (may expand later).
 - The class select screen shows all **5 slots** per class: the starting ability
-  and default ability filled in, and 3 empty "Earn in run" slots.
+  filled in and 4 empty "Earn in run" slots.
+- **Interrupts are earned, not starting abilities.** Enemy casters (e.g. the
+  Goblin Shaman) appear a few waves in, by which time Kick (Rogue) or
+  Counterspell (Mage) can have been earned.
 
 ### Out-of-range indicator
 
@@ -120,17 +121,11 @@ An ability button gets a **red outline** when it has nothing in range to hit
 (e.g. the focused target is too far away). The outline clears as soon as a
 target is in range. With a focus target set, abilities only go to that target.
 
-### Default ability options
-
-- Each class has **3 options** for its pre-filled slot (the default ability).
-- The **first option is always an active** and is unlocked by default.
-- The other 2 options are **unlocked with tokens**.
-
 ---
 
 ## 5. Class ability pools (draft)
 
-⭐ = default ability (pre-filled slot). Pools are drafts and will be tuned in testing.
+Abilities below are the earnable pool (traits are listed as earnable passives). Pools are drafts and will be tuned in testing.
 
 ### Warrior — Tank / DPS
 - **Starting ability:** Taunt — forces an enemy to attack you.
@@ -138,7 +133,7 @@ target is in range. With a focus target set, abilities only go to that target.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
-| ⭐ Thunderclap | Active | Tank | AoE damage + threat; slows enemy attacks |
+| Thunderclap | Active | Tank | AoE damage + threat; slows enemy attacks |
 | Shield Block | Active | Tank | Big damage reduction for a few seconds |
 | Demoralizing Shout | Passive (aura) | Tank | Nearby enemies deal less damage |
 | Whirlwind | Active | DPS | AoE damage to nearby enemies |
@@ -147,7 +142,7 @@ target is in range. With a focus target set, abilities only go to that target.
 | Battle Shout | Passive (aura) | Shared | Nearby heroes deal more damage |
 | Sunder Armor | Passive (on hit) | Shared | Attacks reduce the target's armor |
 
-Default ability options: Thunderclap (default), Whirlwind, Battle Shout.
+
 
 ### Paladin — Tank / Healer / DPS
 - **Starting ability:** Hammer of Justice — stuns an enemy and interrupts its cast.
@@ -165,12 +160,13 @@ Default ability options: Thunderclap (default), Whirlwind, Battle Shout.
 | Beacon of Light | Passive | Healer | Your heals also partly heal the tank |
 
 ### Priest — Healer / DPS
-- **Starting ability:** Power Word: Fortitude — raises the whole party's maximum health by 20% for 30s.
+- **Starting ability:** Heal — a strong heal on one ally.
+- **Earnable:** Power Word: Fortitude — raises the whole party's maximum health by 20% for 30s.
 - **Trait:** Inner Focus — Renew costs half while the whole party is above 80% health.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
-| ⭐ Renew | Active | Healer | Heal over time on an ally |
+| Renew | Active | Healer | Heal over time on an ally |
 | Power Shield | Active | Healer | Absorbs damage on an ally |
 | Prayer of Healing | Active | Healer | Heals the whole party |
 | Holy Nova | Active | Shared | Small AoE heal for allies + small AoE damage |
@@ -180,12 +176,13 @@ Default ability options: Thunderclap (default), Whirlwind, Battle Shout.
 | Fade | Passive (proc) | Shared | Automatically drops threat when you pull aggro |
 
 ### Mage — DPS (ranged AoE and control)
-- **Starting ability:** Polymorph — turns an enemy (not a boss) into a sheep for 10s.
+- **Starting ability:** Fireball.
+- **Earnable:** Polymorph — turns an enemy (not a boss) into a sheep for 10s.
+- **Earnable:** Counterspell — interrupts an enemy cast and locks it out of casting.
 - **Trait:** Arcane Surge — Fireball has a 25% chance to cost no mana.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
-| ⭐ Fireball | Active | DPS | Big single-target hit with a burn |
 | Frostbolt | Active | DPS / Control | Single-target hit that slows |
 | Blizzard | Active (ground) | DPS | AoE zone that damages and slows; high threat risk |
 | Meteor | Active (ground) | DPS | Huge delayed AoE — the "big moment" tap |
@@ -195,14 +192,14 @@ Default ability options: Thunderclap (default), Whirlwind, Battle Shout.
 | Arcane Intellect | Passive (aura) | Shared | Party gains resource capacity |
 
 ### Rogue — DPS (melee single-target burst, self threat management)
-- **Starting ability:** Kick — interrupts an enemy cast and locks it out of casting. Kick has its
+- **Starting ability:** Sinister Strike.
+- **Earnable:** Kick — interrupts an enemy cast and locks it out of casting. Kick has its
   own range (same as Taunt), separate from the Rogue's short melee reach.
 - **Trait:** Combo Points — auto attacks build points (max 5); Sinister Strike spends them
   for +15% damage each.
 
 | Ability | Type | Leans | Effect |
 |---|---|---|---|
-| ⭐ Sinister Strike | Active | DPS | Fast, cheap energy attack |
 | Eviscerate | Active | DPS | Big finisher hit |
 | Blade Flurry | Active | DPS | Also hits a second nearby enemy |
 | Poisons | Passive | DPS | Attacks apply poison damage over time |
