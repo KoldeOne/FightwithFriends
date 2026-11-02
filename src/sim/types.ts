@@ -1,5 +1,5 @@
 export type Side = 'hero' | 'enemy';
-export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue';
+export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue' | 'paladin' | 'warlock';
 export type EnemyKind =
   // Goblins (rounds 1-10)
   | 'grunt'
@@ -51,10 +51,20 @@ export type AbilityId =
   | 'iceLance'
   | 'blizzard'
   | 'eviscerate'
-  | 'evasion';
+  | 'evasion'
+  // Paladin
+  | 'judgement'
+  | 'radiantLight'
+  | 'hallowedGround'
+  | 'mercy'
+  // Warlock
+  | 'hexBolt'
+  | 'wither'
+  | 'soulDrain'
+  | 'enfeeble';
 
 /** Each class's always-on starting passive. */
-export type PassiveId = 'autoTaunt' | 'fortitudeAura' | 'autoPolymorph' | 'stealth';
+export type PassiveId = 'autoTaunt' | 'fortitudeAura' | 'autoPolymorph' | 'stealth' | 'aegisAura' | 'soulHarvest';
 
 /** One of a hero's ability slots (max 5: the starting ability + 4 earned). */
 export interface AbilitySlot {
@@ -79,11 +89,11 @@ export interface Zone {
   ability?: AbilityId;
 }
 /** Passive traits: not part of the starting kit — saved as future reward options. */
-export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints';
+export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints' | 'zeal' | 'agony';
 
 /** A timed buff/debuff on a unit. */
 export interface Effect {
-  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence' | 'stealth' | 'block' | 'shield' | 'evasion';
+  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence' | 'stealth' | 'block' | 'shield' | 'evasion' | 'weaken';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */

@@ -65,6 +65,8 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
   rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 10, attackInterval: 0.6, range: 120, attackStyle: 'melee', speed: 0, threatMultiplier: 0.7 },
   mage: { label: 'Mage', radius: 18, maxHp: 170, damage: 20, attackInterval: 1.8, range: 380, attackStyle: 'ranged', speed: 0 },
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
+  paladin: { label: 'Paladin', radius: 21, maxHp: 300, damage: 11, attackInterval: 1.2, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.3, isTank: true },
+  warlock: { label: 'Warlock', radius: 18, maxHp: 180, damage: 14, attackInterval: 1.6, range: 360, attackStyle: 'ranged', speed: 0 },
 };
 
 /** Starting spots for a team with a player-controlled hero (tests only). */
@@ -83,7 +85,7 @@ export const SPOTS = {
 export const HERO_MOVE = { speed: 60, leash: 140 };
 
 /** Who goes up front first: tanks, then melee, then ranged, healers at the back. */
-const ROLE_ORDER: HeroClass[] = ['warrior', 'rogue', 'mage', 'priest'];
+const ROLE_ORDER: HeroClass[] = ['warrior', 'paladin', 'rogue', 'mage', 'warlock', 'priest'];
 
 /** The default starting team for a run (tank, healer, damage). */
 export const DEFAULT_TEAM: HeroClass[] = ['warrior', 'priest', 'mage'];
@@ -92,7 +94,7 @@ export const DEFAULT_TEAM: HeroClass[] = ['warrior', 'priest', 'mage'];
 export const ONE_OF_EACH: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
 
 /** Front-liners fill the front row; everyone else starts in the back row. */
-const FRONT_LINE: HeroClass[] = ['warrior', 'rogue'];
+export const FRONT_LINE: HeroClass[] = ['warrior', 'paladin', 'rogue'];
 /** Columns filled first: the middle, then the edges. */
 const COL_ORDER = [1, 2, 0, 3];
 
@@ -204,6 +206,14 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   blizzard: { id: 'blizzard', name: 'Blizzard', cls: 'mage', cost: 35, cooldown: 12, description: 'Ice storm on the biggest group of enemies: damage over time and slow.' },
   eviscerate: { id: 'eviscerate', name: 'Eviscerate', cls: 'rogue', cost: 35, cooldown: 6, description: 'A big finishing strike.' },
   evasion: { id: 'evasion', name: 'Evasion', cls: 'rogue', cost: 0, cooldown: 20, description: 'Dodge 75% of attacks for 6s.' },
+  judgement: { id: 'judgement', name: 'Judgement', cls: 'paladin', cost: 20, cooldown: 5, description: 'Holy strike at range; the most injured ally is healed for half the damage.' },
+  radiantLight: { id: 'radiantLight', name: 'Radiant Light', cls: 'paladin', cost: 30, cooldown: 4, description: 'A solid heal on one ally.' },
+  hallowedGround: { id: 'hallowedGround', name: 'Hallowed Ground', cls: 'paladin', cost: 25, cooldown: 10, description: 'Blesses the ground underfoot: damage and high threat to enemies standing in it.' },
+  mercy: { id: 'mercy', name: 'Mercy', cls: 'paladin', cost: 0, cooldown: 30, description: 'A huge heal on an ally about to fall.' },
+  hexBolt: { id: 'hexBolt', name: 'Hex Bolt', cls: 'warlock', cost: 25, cooldown: 3, description: 'A bolt of dark magic.' },
+  wither: { id: 'wither', name: 'Wither', cls: 'warlock', cost: 15, cooldown: 2, description: 'A curse that eats away at an enemy over 12 seconds.' },
+  soulDrain: { id: 'soulDrain', name: 'Soul Drain', cls: 'warlock', cost: 25, cooldown: 6, description: "Tears at an enemy's soul; the most injured ally is healed for the damage." },
+  enfeeble: { id: 'enfeeble', name: 'Enfeeble', cls: 'warlock', cost: 15, cooldown: 12, description: 'The strongest enemy deals 30% less damage for 8s.' },
 };
 
 /** Abilities each class can earn from level-up rewards (in AI preference order). */
@@ -212,6 +222,8 @@ export const CLASS_POOL: Record<HeroClass, AbilityId[]> = {
   priest: ['renew', 'powerShield', 'prayerOfHealing'],
   mage: ['iceLance', 'blizzard', 'counterspell'],
   rogue: ['eviscerate', 'kick', 'evasion'],
+  paladin: ['radiantLight', 'hallowedGround', 'mercy'],
+  warlock: ['wither', 'soulDrain', 'enfeeble'],
 };
 
 /**
@@ -223,6 +235,8 @@ export const AI_RESERVE: Partial<Record<AbilityId, AbilityId[]>> = {
   renew: ['heal', 'prayerOfHealing'],
   powerShield: ['heal', 'prayerOfHealing'],
   iceLance: ['fireball'],
+  judgement: ['radiantLight', 'mercy'],
+  hexBolt: ['soulDrain', 'enfeeble'],
 };
 
 /** Max ability slots per hero: the starting ability + 4 earned during a run. */
@@ -249,6 +263,16 @@ export const ABILITY_TUNING = {
   blizzard: { radius: 85, duration: 6, damagePerSecond: 9 },
   eviscerate: { damage: 55 },
   evasion: { duration: 6, dodge: 0.75 },
+  /** Paladin: Judgement reaches further than the Paladin's melee swing. */
+  judgement: { damage: 34, range: 220, healShare: 0.5 },
+  radiantLight: { amount: 70 },
+  hallowedGround: { radius: 95, duration: 6, damagePerSecond: 8, threatBonus: 2 },
+  /** Mercy: only for an ally below `below` of their health. */
+  mercy: { amount: 160, below: 0.35 },
+  hexBolt: { damage: 38 },
+  wither: { total: 60, duration: 12, tick: 1 },
+  soulDrain: { damage: 32 },
+  enfeeble: { reduction: 0.3, duration: 8 },
   /** Slowed units attack this much slower. */
   slowFactor: 1.3,
 };
@@ -284,6 +308,8 @@ export const TRAITS: Record<TraitId, TraitDef> = {
   innerFocus: { id: 'innerFocus', cls: 'priest', name: 'Inner Focus', description: 'Renew costs half while the whole party is above 80% health.' },
   arcaneSurge: { id: 'arcaneSurge', cls: 'mage', name: 'Arcane Surge', description: 'Fireball has a 25% chance to cost no mana.' },
   comboPoints: { id: 'comboPoints', cls: 'rogue', name: 'Combo Points', description: 'Auto attacks build combo points; Sinister Strike spends them for bonus damage.' },
+  zeal: { id: 'zeal', cls: 'paladin', name: 'Zeal', description: 'Judgement heals for the full damage dealt, not half.' },
+  agony: { id: 'agony', cls: 'warlock', name: 'Agony', description: 'Wither deals 50% more damage.' },
 };
 
 export const TRAIT_TUNING = {
@@ -294,6 +320,7 @@ export const TRAIT_TUNING = {
   maxComboPoints: 5,
   /** Sinister Strike: +15% damage per combo point. */
   comboBonusPerPoint: 0.15,
+  agonyBonus: 0.5,
 };
 
 /**
@@ -319,6 +346,8 @@ export const PASSIVES: Record<PassiveId, PassiveDef> = {
   autoTaunt: { id: 'autoTaunt', name: 'Taunt', short: 'Auto-taunts enemies attacking allies.', description: 'Automatically taunts an enemy attacking an ally (every 8s).' },
   fortitudeAura: { id: 'fortitudeAura', name: 'Power Word: Fortitude', short: 'Party has +20% max health.', description: "The whole party has +20% maximum health." },
   autoPolymorph: { id: 'autoPolymorph', name: 'Polymorph', short: 'Auto-sheeps an enemy (elites, casters first).', description: 'Every 15s, turns an enemy into a sheep — elites and casters first.' },
+  aegisAura: { id: 'aegisAura', name: 'Aegis Aura', short: 'Party takes 10% less damage.', description: 'While the Paladin stands, the whole party takes 10% less damage.' },
+  soulHarvest: { id: 'soulHarvest', name: 'Soul Harvest', short: 'Kills restore mana and heal an ally.', description: 'Whenever an enemy dies, the Warlock regains 20 mana and the most injured ally is healed for 30.' },
   stealth: { id: 'stealth', name: 'Stealth', short: 'Starts hidden; first hit deals double.', description: 'Starts hidden; the first hit out of stealth deals double damage. Re-stealths after 5s out of combat.' },
 };
 
@@ -326,6 +355,9 @@ export const PASSIVE_TUNING = {
   autoTaunt: { cooldown: 8 },
   autoPolymorph: { cooldown: 15 },
   stealth: { ambushMultiplier: 2, restealthAfter: 5 },
+  aegisAura: { reduction: 0.1 },
+  /** Healing scales with the Warlock's level. */
+  soulHarvest: { mana: 20, heal: 30 },
 };
 
 /** Each class starts a run with one active ability + one passive; 4 more slots are earned. */
@@ -334,6 +366,8 @@ export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; starting: Abi
   priest: { resource: 'mana', starting: 'heal', passive: 'fortitudeAura', role: 'Healer — keeps the party alive' },
   mage: { resource: 'mana', starting: 'fireball', passive: 'autoPolymorph', role: 'Ranged damage and control' },
   rogue: { resource: 'energy', starting: 'sinisterStrike', passive: 'stealth', role: 'Melee damage' },
+  paladin: { resource: 'mana', starting: 'judgement', passive: 'aegisAura', role: 'Tank — holy protector who also heals' },
+  warlock: { resource: 'mana', starting: 'hexBolt', passive: 'soulHarvest', role: 'Ranged damage — curses and life drain' },
 };
 
 

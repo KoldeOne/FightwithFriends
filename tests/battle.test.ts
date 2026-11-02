@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
 import { HERO_MOVE, makeRound, ROUND_1 } from '../src/sim/content';
+import type { EnemyKind, HeroClass } from '../src/sim/types';
 
 function runToEnd(battle: Battle, maxSeconds = 600): void {
   const steps = Math.ceil(maxSeconds / STEP);
@@ -619,5 +620,121 @@ describe('Traits (future rewards)', () => {
       return ev && ev.type === 'attack' ? ev.amount : 0;
     };
     expect(hit(100)).toBeGreaterThan(hit(0));
+  });
+});
+
+describe('Paladin and Warlock', () => {
+  const lineup = (kinds: EnemyKind[]) => ({
+    number: 1,
+    spawns: kinds.map((kind, i) => ({ time: 0, kind, x: 200 + i * 50 })),
+  });
+  const run = (b: Battle, seconds: number) => {
+    for (let i = 0; i < seconds / STEP; i++) b.step(STEP);
+  };
+
+  it('start with Judgement + Aegis Aura and Hex Bolt + Soul Harvest', () => {
+    const b = new Battle({ seed: 1, wave: ROUND_1, team: ['paladin', 'warlock'] });
+    const kit = Object.fromEntries(b.heroes.map((h) => [h.kind, [h.abilities!.map((a) => a.id), h.passive]]));
+    expect(kit).toEqual({ paladin: [['judgement'], 'aegisAura'], warlock: [['hexBolt'], 'soulHarvest'] });
+    expect(b.heroes.find((h) => h.kind === 'paladin')!.isTank).toBe(true);
+  });
+
+  it('Judgement hits at range and heals the most injured ally for half', () => {
+    const b = new Battle({ seed: 2, wave: lineup(['grunt']), playerClass: 'paladin', heroes: ['paladin', 'mage'] });
+    b.playerAuto = false;
+    b.step(STEP);
+    const p = b.player!;
+    const mage = b.heroes.find((h) => h.kind === 'mage')!;
+    const e = b.enemies[0];
+    e.x = p.x;
+    e.y = p.y - 150; // out of melee reach, inside Judgement's range
+    mage.hp = 60;
+    b.drainEvents();
+    expect(b.useAbility(0)).toBe('ok');
+    const events = b.drainEvents();
+    const hit = events.find((x) => x.type === 'attack' && x.from === p.id && x.ability === 'judgement');
+    const heal = events.find((x) => x.type === 'heal' && x.from === p.id && x.to === mage.id);
+    expect(hit && hit.type === 'attack' && hit.amount).toBeGreaterThan(25);
+    expect(heal && heal.type === 'heal' && hit && hit.type === 'attack' && Math.abs(heal.amount - hit.amount / 2)).toBeLessThanOrEqual(1);
+  });
+
+  it('Aegis Aura: the party takes 10% less damage while the Paladin stands', () => {
+    const hitOnMage = (team: HeroClass[]) => {
+      const b = new Battle({ seed: 5, wave: lineup(['grunt']), heroes: team });
+      const mage = b.heroes.find((h) => h.kind === 'mage')!;
+      const e = b.enemies[0];
+      e.damage = 100;
+      e.threat = { [mage.id]: 1000 };
+      e.targetId = mage.id;
+      e.x = mage.x;
+      e.y = mage.y - mage.radius - e.radius - 2;
+      e.cooldown = 0;
+      b.drainEvents();
+      for (let i = 0; i < 5; i++) b.step(STEP);
+      const ev = b.drainEvents().find((x) => x.type === 'attack' && x.from === e.id && x.to === mage.id);
+      return ev && ev.type === 'attack' ? ev.amount : 0;
+    };
+    const plain = hitOnMage(['mage']);
+    const aura = hitOnMage(['mage', 'paladin']);
+    expect(plain).toBeGreaterThan(80);
+    expect(aura).toBeLessThan(plain);
+    expect(aura).toBeGreaterThanOrEqual(Math.floor(plain * 0.85));
+  });
+
+  it('Wither eats away at an enemy over time', () => {
+    const b = new Battle({ seed: 3, wave: lineup(['brute']), playerClass: 'warlock', heroes: ['warlock'] });
+    b.playerAuto = false;
+    b.step(STEP);
+    const w = b.player!;
+    b.learnAbility(w, 'wither');
+    const e = b.enemies[0];
+    e.speed = 0;
+    e.x = w.x;
+    e.y = w.y - 200;
+    expect(b.useAbility(1)).toBe('ok');
+    expect(e.effects!.some((x) => x.kind === 'dot' && x.ability === 'wither')).toBe(true);
+    const before = e.hp;
+    w.cooldown = 99; // no auto attacks: only the curse
+    run(b, 6.05);
+    expect(before - e.hp).toBeGreaterThanOrEqual(25);
+  });
+
+  it('Enfeeble makes the strongest enemy hit softer', () => {
+    const b = new Battle({ seed: 4, wave: lineup(['brute', 'grunt']), playerClass: 'warlock', heroes: ['warlock'] });
+    b.playerAuto = false;
+    b.step(STEP);
+    const w = b.player!;
+    b.learnAbility(w, 'enfeeble');
+    for (const e of b.enemies) {
+      e.x = w.x;
+      e.y = w.y - 200;
+    }
+    expect(b.useAbility(1)).toBe('ok');
+    const brute = b.enemies.find((e) => e.kind === 'brute')!;
+    expect(b.hasEffect(brute, 'weaken')).toBe(true);
+  });
+
+  it('Soul Harvest: a kill restores mana and heals the most injured ally', () => {
+    const b = new Battle({ seed: 6, wave: lineup(['grunt', 'grunt']), heroes: ['warlock', 'mage'] });
+    const w = b.heroes.find((h) => h.kind === 'warlock')!;
+    const mage = b.heroes.find((h) => h.kind === 'mage')!;
+    w.resource = 10;
+    mage.hp = 50;
+    const victim = b.enemies[0];
+    victim.hp = 1;
+    victim.x = w.x;
+    victim.y = w.y - 150;
+    run(b, 1);
+    expect(victim.alive).toBe(false);
+    expect(w.resource!).toBeGreaterThanOrEqual(30);
+    expect(mage.hp).toBeGreaterThan(50);
+  });
+
+  it('a Paladin, Warlock and Priest party wins round 1', () => {
+    for (const seed of [1, 2, 3]) {
+      const b = new Battle({ seed, wave: ROUND_1, team: ['paladin', 'warlock', 'priest'] });
+      run(b, 300);
+      expect(b.outcome).toBe('victory');
+    }
   });
 });

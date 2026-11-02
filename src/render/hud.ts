@@ -4,7 +4,7 @@ import { ABILITIES, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, TRAITS, WORLD } from
 import { sound } from './sound';
 import { recruit } from '../sim/run';
 import { type Unit } from '../sim/types';
-import { COLORS, DARK_LETTER, RESOURCE_COLORS, EFFECT_INFO, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD } from './theme';
+import { COLORS, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD, effectInfo } from './theme';
 
 /** Top bar, party panels, target frame, tooltips and toasts. */
 export class Hud {
@@ -199,7 +199,7 @@ export class Hud {
         }
       });
       // Active buffs/debuffs as short names.
-      const effects = (h.effects ?? []).filter((e) => e.remaining > 0 && e.kind !== 'fortitude').map((e) => EFFECT_INFO[e.kind].name);
+      const effects = (h.effects ?? []).filter((e) => e.remaining > 0 && e.kind !== 'fortitude').map((e) => effectInfo(e).name);
       f.buffs.setText(effects.slice(0, 2).join(', '));
     });
 

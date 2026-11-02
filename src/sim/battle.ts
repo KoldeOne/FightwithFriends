@@ -261,6 +261,26 @@ export class Battle {
         return `Deals ${r(t.eviscerate.damage)} damage.`;
       case 'evasion':
         return `Dodges ${t.evasion.dodge * 100}% of attacks for ${t.evasion.duration}s.`;
+      case 'judgement': {
+        const share = this.hasTrait(h, 'zeal') ? 1 : t.judgement.healShare;
+        return `Deals ${r(t.judgement.damage)} damage (range ${t.judgement.range}); the most injured ally is healed for ${share === 1 ? 'all' : 'half'} of it.`;
+      }
+      case 'radiantLight':
+        return `Heals one ally for ${r(t.radiantLight.amount)}.`;
+      case 'hallowedGround':
+        return `Deals ${r(t.hallowedGround.damagePerSecond * t.hallowedGround.duration)} damage over ${t.hallowedGround.duration}s to enemies on the blessed ground, with high threat.`;
+      case 'mercy':
+        return `Heals an ally below ${t.mercy.below * 100}% health for ${r(t.mercy.amount)}.`;
+      case 'hexBolt':
+        return `Deals ${r(t.hexBolt.damage)} damage.`;
+      case 'wither': {
+        const bonus = this.hasTrait(h, 'agony') ? 1 + TRAIT_TUNING.agonyBonus : 1;
+        return `Deals ${r(t.wither.total * bonus)} damage over ${t.wither.duration}s.`;
+      }
+      case 'soulDrain':
+        return `Deals ${r(t.soulDrain.damage)} damage; the most injured ally is healed for the same amount.`;
+      case 'enfeeble':
+        return `The strongest enemy in range deals ${t.enfeeble.reduction * 100}% less damage for ${t.enfeeble.duration}s.`;
     }
   }
 
@@ -929,6 +949,15 @@ export class Battle {
       const f = this.unit(this.focusId);
       if (f?.side === 'enemy' && f.alive && this.inReach(h, f)) return f;
     }
+    const inRange = this.enemyCandidates(h, hitSize);
+    if (!inRange.length) return null;
+    const current = inRange.find((u) => u.id === h.targetId);
+    if (current) return current;
+    return h.attackStyle === 'melee' ? nearest(h, inRange) : inRange.reduce((a, b) => (b.y > a.y ? b : a));
+  }
+
+  /** Enemies this hero may hit for `hitSize` right now (in reach, not a sheep, won't pull aggro). */
+  private enemyCandidates(h: Unit, hitSize: number): Unit[] {
     // An ambush from stealth hits twice as hard — careful AI must account for that.
     if (this.hasEffect(h, 'stealth')) hitSize *= PASSIVE_TUNING.stealth.ambushMultiplier;
     let inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && this.inReach(h, u));
@@ -936,10 +965,7 @@ export class Battle {
     const othersAlive = this.units.some((u) => u.side === 'enemy' && u.alive && !this.isSheep(u));
     inRange = inRange.filter((u) => !this.isSheep(u) || !othersAlive);
     if (this.isCareful(h)) inRange = inRange.filter((u) => !this.wouldPull(h, u, hitSize));
-    if (!inRange.length) return null;
-    const current = inRange.find((u) => u.id === h.targetId);
-    if (current) return current;
-    return h.attackStyle === 'melee' ? nearest(h, inRange) : inRange.reduce((a, b) => (b.y > a.y ? b : a));
+    return inRange;
   }
 
   // --- abilities ----------------------------------------------------------
@@ -1007,7 +1033,69 @@ export class Battle {
         return !!this.pickEnemyTarget(h, t.eviscerate.damage);
       case 'evasion':
         return !this.hasEffect(h, 'evasion') && this.attackersOf(h) >= 1;
+      case 'judgement':
+        return !!this.judgementTarget(h);
+      case 'radiantLight':
+        return this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.7);
+      case 'hallowedGround':
+        return this.enemiesNear(h, t.hallowedGround.radius).length >= (h.isTank ? 1 : 2);
+      case 'mercy':
+        return this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * t.mercy.below);
+      case 'hexBolt':
+        return !!this.pickEnemyTarget(h, t.hexBolt.damage);
+      case 'wither':
+        return !!this.witherTarget(h);
+      case 'soulDrain':
+        return !!this.pickEnemyTarget(h, t.soulDrain.damage) && !!this.mostInjuredAlly(0.9);
+      case 'enfeeble':
+        return !!this.enfeebleTarget(h);
     }
+  }
+
+  /** An enemy within Judgement's range: the current target if possible, else the nearest. */
+  private judgementTarget(h: Unit): Unit | null {
+    const r = ABILITY_TUNING.judgement.range;
+    const inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) - h.radius - u.radius <= r);
+    if (!inRange.length) return null;
+    return inRange.find((u) => u.id === h.targetId) ?? nearest(h, inRange);
+  }
+
+  /** An enemy in reach that isn't already withering from this hero. */
+  private witherTarget(h: Unit): Unit | null {
+    const total = ABILITY_TUNING.wither.total;
+    const fresh = this.enemyCandidates(h, total * 0.5).filter((u) => !u.effects?.some((e) => e.kind === 'dot' && e.ability === 'wither' && e.sourceId === h.id));
+    if (!fresh.length) return null;
+    return fresh.find((u) => u.id === h.targetId) ?? fresh.reduce((a, b) => (b.maxHp > a.maxHp ? b : a));
+  }
+
+  /** The most dangerous enemy in range not already enfeebled: a winding-up smasher, a boss, an elite, then the hardest hitter. */
+  private enfeebleTarget(h: Unit): Unit | null {
+    const valid = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && !this.hasEffect(u, 'weaken') && this.inReach(h, u));
+    if (!valid.length) return null;
+    return (
+      valid.find((u) => u.casting?.kind === 'smasher') ??
+      valid.find((u) => u.isBoss) ??
+      valid.find((u) => u.isElite) ??
+      // Only worth it on something actually hitting the party.
+      valid.filter((u) => u.targetId !== null).sort((a, b) => b.damage / b.attackInterval - a.damage / a.attackInterval)[0] ??
+      null
+    );
+  }
+
+  /** Lowest-health ally (by fraction) below `under` of their max health. */
+  private mostInjuredAlly(under = 1): Unit | undefined {
+    const a = this.lowestAlly();
+    return a && a.hp < a.maxHp * under ? a : undefined;
+  }
+
+  /** Heal an ally (capped at missing health); emits events and heal threat. Returns the amount. */
+  private healUnit(from: Unit, to: Unit, raw: number): number {
+    const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(raw)));
+    if (amount <= 0) return 0;
+    to.hp += amount;
+    this.events.push({ type: 'heal', from: from.id, to: to.id, amount });
+    this.addHealThreat(from, amount);
+    return amount;
   }
 
   /** Two or more allies have taken a real hit. */
@@ -1047,8 +1135,9 @@ export class Battle {
       if (!source) continue;
       for (const e of this.units) {
         if (e.side !== 'enemy' || !e.alive || Math.hypot(e.x - z.x, e.y - z.y) > z.radius) continue;
-        this.damage(source, e, Math.round(z.damage), { aoe: true, tick: true, ability: z.ability });
-        this.addEffect(e, { kind: 'slow', remaining: 1.5, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: source.id });
+        const threatScale = z.ability === 'hallowedGround' ? ABILITY_TUNING.hallowedGround.threatBonus : 1;
+        this.damage(source, e, Math.round(z.damage), { aoe: true, tick: true, ability: z.ability, threatScale });
+        if (z.ability === 'blizzard') this.addEffect(e, { kind: 'slow', remaining: 1.5, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: source.id });
       }
     }
     this.zones = this.zones.filter((z) => z.remaining > 1e-6);
@@ -1142,6 +1231,26 @@ export class Battle {
         if (!spot.count) return null;
         return this.units.find((u) => u.side === 'enemy' && u.alive && u.x === spot.x && u.y === spot.y) ?? null;
       }
+      case 'judgement':
+        if (focusEnemy) return dist(h, focusEnemy) - h.radius - focusEnemy.radius <= t.judgement.range ? focusEnemy : null;
+        return this.judgementTarget(h);
+      case 'radiantLight':
+        return focusAlly ?? this.lowestAlly() ?? null;
+      case 'mercy':
+        return focusAlly ?? this.mostInjuredAlly(t.mercy.below) ?? null;
+      case 'hallowedGround':
+        return this.enemiesNear(h, t.hallowedGround.radius).length ? h : null;
+      case 'hexBolt':
+      case 'soulDrain': {
+        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
+        return this.pickEnemyTarget(h, byPlayer ? 0 : id === 'hexBolt' ? t.hexBolt.damage : t.soulDrain.damage);
+      }
+      case 'wither':
+        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
+        return this.witherTarget(h);
+      case 'enfeeble':
+        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
+        return this.enfeebleTarget(h);
     }
   }
 
@@ -1265,6 +1374,54 @@ export class Battle {
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
         break;
       }
+      case 'judgement': {
+        h.targetId = to.id;
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        const before = to.hp;
+        this.damage(h, to, this.roll(t.judgement.damage * k), { ability: id });
+        const dealt = Math.max(0, before - Math.max(0, to.hp));
+        const ally = this.mostInjuredAlly();
+        if (ally && dealt > 0) this.healUnit(h, ally, dealt * (this.hasTrait(h, 'zeal') ? 1 : t.judgement.healShare));
+        break;
+      }
+      case 'radiantLight':
+      case 'mercy':
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        this.healUnit(h, to, this.roll((id === 'mercy' ? t.mercy.amount : t.radiantLight.amount) * k));
+        break;
+      case 'hallowedGround': {
+        const g = t.hallowedGround;
+        this.zones.push({ id: this.nextId++, x: h.x, y: h.y, radius: g.radius, remaining: g.duration, tickTimer: 0.5, damage: g.damagePerSecond * k, sourceId: h.id, ability: id });
+        this.events.push({ type: 'ability', from: h.id, ability: id });
+        break;
+      }
+      case 'hexBolt':
+        h.targetId = to.id;
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        this.shoot(h, to, this.roll(t.hexBolt.damage * k), { ability: id });
+        break;
+      case 'wither': {
+        const w = t.wither;
+        const bonus = this.hasTrait(h, 'agony') ? 1 + TRAIT_TUNING.agonyBonus : 1;
+        const ticks = w.duration / w.tick;
+        this.addEffect(to, { kind: 'dot', remaining: w.duration, tickEvery: w.tick, tickTimer: w.tick, amount: (w.total * k * bonus) / ticks, sourceId: h.id, ability: id });
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        break;
+      }
+      case 'soulDrain': {
+        h.targetId = to.id;
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        const before = to.hp;
+        this.damage(h, to, this.roll(t.soulDrain.damage * k), { ability: id });
+        const dealt = Math.max(0, before - Math.max(0, to.hp));
+        const ally = this.mostInjuredAlly();
+        if (ally && dealt > 0) this.healUnit(h, ally, dealt);
+        break;
+      }
+      case 'enfeeble':
+        this.addEffect(to, { kind: 'weaken', remaining: t.enfeeble.duration, tickEvery: 0, tickTimer: 0, amount: t.enfeeble.reduction, sourceId: h.id, ability: id });
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        break;
     }
 
     let cost = this.abilityCost(h, id);
@@ -1363,6 +1520,13 @@ export class Battle {
         }
       }
     }
+    // Enfeeble: a weakened attacker hits softer.
+    const weak = from.effects?.find((e) => e.kind === 'weaken');
+    if (weak) amount = Math.round(amount * (1 - weak.amount));
+    // Aegis Aura: while a Paladin with it stands, the party takes less damage.
+    if (to.side === 'hero' && this.units.some((u) => u.side === 'hero' && u.alive && u.passive === 'aegisAura')) {
+      amount = Math.round(amount * (1 - PASSIVE_TUNING.aegisAura.reduction));
+    }
     if (from.side === 'hero') from.outOfCombat = 0;
     if (to.side === 'hero') {
       to.outOfCombat = 0;
@@ -1389,6 +1553,18 @@ export class Battle {
       to.effects = [];
       if (this.focusId === to.id) this.focusId = null;
       this.events.push({ type: 'death', id: to.id });
+      if (to.side === 'enemy') this.soulHarvest();
+    }
+  }
+
+  /** Warlock passive: every enemy death restores mana and heals the most injured ally. */
+  private soulHarvest(): void {
+    const p = PASSIVE_TUNING.soulHarvest;
+    for (const w of this.units) {
+      if (w.side !== 'hero' || !w.alive || w.passive !== 'soulHarvest') continue;
+      w.resource = Math.min(w.maxResource!, (w.resource ?? 0) + p.mana);
+      const ally = this.mostInjuredAlly();
+      if (ally) this.healUnit(w, ally, p.heal * (1 + LEVEL_SCALING * ((w.level ?? 1) - 1)) * (w.might ?? 1));
     }
   }
 

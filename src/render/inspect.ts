@@ -2,7 +2,7 @@ import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
 import { ABILITIES, HERO_MOVE, PASSIVES, RESOURCES, TRAITS, WORLD } from '../sim/content';
 import { type Unit } from '../sim/types';
-import { COLORS, EFFECT_INFO } from './theme';
+import { COLORS, effectInfo } from './theme';
 
 /** The inspect window: stats, abilities and effects of one unit. */
 export class Inspect {
@@ -84,7 +84,7 @@ export class Inspect {
     if (effects.length) {
       lines.push('', 'Effects:');
       for (const e of effects) {
-        const info = EFFECT_INFO[e.kind];
+        const info = effectInfo(e);
         lines.push(`• ${info.name}${Number.isFinite(e.remaining) ? ` (${Math.ceil(e.remaining)}s)` : ''} — ${info.text(e)}`);
       }
     }

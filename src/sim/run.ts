@@ -1,4 +1,4 @@
-import { ABILITIES, CHOICE_EVERY, CLASS_POOL, DEFAULT_TEAM, defaultPlacement, freeTile, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, partySize, START_LIVES, TRAITS, UPGRADE } from './content';
+import { ABILITIES, CHOICE_EVERY, FRONT_LINE, CLASS_POOL, DEFAULT_TEAM, defaultPlacement, freeTile, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, partySize, START_LIVES, TRAITS, UPGRADE } from './content';
 import { createRng } from './rng';
 import type { AbilityId, HeroBuild, HeroClass, Tile, TraitId } from './types';
 
@@ -26,7 +26,7 @@ export type Reward =
   | { kind: 'vitality' }
   | { kind: 'might' };
 
-export const ALL_CLASSES: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
+export const ALL_CLASSES: HeroClass[] = ['warrior', 'paladin', 'priest', 'mage', 'warlock', 'rogue'];
 
 function freshBuild(cls: HeroClass, level = 1): HeroBuild {
   return { level, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 };
@@ -57,7 +57,7 @@ export function recruit(run: RunState, cls: HeroClass): void {
   }
   run.wave = round;
   const used = new Set(run.placement.map((t) => `${t.col},${t.row}`));
-  run.placement.push(freeTile(used, ['warrior', 'rogue'].includes(cls) ? [0, 1, 2] : [2, 1, 0]));
+  run.placement.push(freeTile(used, FRONT_LINE.includes(cls) ? [0, 1, 2] : [2, 1, 0]));
 }
 
 /** A lost round: costs a life. Returns true if the run goes on (retry the same round). */

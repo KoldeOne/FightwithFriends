@@ -22,6 +22,8 @@ export const COLORS: Record<string, number> = {
   rogue: 0xf1c40f,
   mage: 0x3498db,
   priest: 0xecf0f1,
+  paladin: 0xf5d76e,
+  warlock: 0x7d3c98,
   // Goblins: greens
   grunt: 0x6b8e23,
   archer: 0x8fbc4f,
@@ -49,6 +51,8 @@ export const LETTERS: Record<string, string> = {
   rogue: 'R',
   mage: 'M',
   priest: 'P',
+  paladin: 'Pa',
+  warlock: 'Wl',
   grunt: 'G',
   archer: 'A',
   shaman: 'S',
@@ -72,6 +76,7 @@ export const DARK_LETTER = ['priest', 'rogue', 'archer', 'skeleton', 'boneArcher
 
 export const PROJECTILE_COLORS: Record<string, number> = {
   mage: 0xff8c1a,
+  warlock: 0x9b59ff,
   priest: 0xfff2a8,
   archer: 0xa0522d,
   boneArcher: 0xe8e0c8,
@@ -104,7 +109,17 @@ export const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string;
   block: { name: 'Shield Block', letter: 'B', color: 0xd4a24c, debuff: false, text: (e) => `Taking ${Math.round(e.amount * 100)}% less damage.` },
   shield: { name: 'Power Shield', letter: 'P', color: 0xfff7d6, debuff: false, text: (e) => `Absorbs the next ${Math.round(e.amount)} damage.` },
   evasion: { name: 'Evasion', letter: 'E', color: 0xf1c40f, debuff: false, text: (e) => `Dodging ${Math.round(e.amount * 100)}% of attacks.` },
+  weaken: { name: 'Enfeebled', letter: 'W', color: 0x8e44ad, debuff: true, text: (e) => `Deals ${Math.round(e.amount * 100)}% less damage.` },
 };
+
+/** How to show a particular effect: like EFFECT_INFO, but some abilities name their own (Wither vs. a Fireball burn). */
+export function effectInfo(e: Effect): (typeof EFFECT_INFO)[Effect['kind']] {
+  const base = EFFECT_INFO[e.kind];
+  if (e.kind === 'dot' && e.ability === 'wither') {
+    return { ...base, name: 'Withering', letter: 'W', color: 0x9b59ff, text: (x) => `Takes ${Math.round(x.amount)} damage every ${x.tickEvery}s.` };
+  }
+  return base;
+}
 export const MAX_BUFF_ICONS = 12;
 /** Buff icons on units: up to this many, this size (px). */
 export const UNIT_ICONS = 4;

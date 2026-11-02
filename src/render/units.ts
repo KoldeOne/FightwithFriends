@@ -4,7 +4,7 @@ import { STEP } from '../sim/battle';
 import { ABILITIES, ABILITY_TUNING } from '../sim/content';
 import { sound } from './sound';
 import { type AbilityId, type BattleEvent, type Unit } from '../sim/types';
-import { SPRITE_SCALE, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView } from './theme';
+import { SPRITE_SCALE, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectInfo } from './theme';
 
 /** Unit sprites and combat effects: views, projectiles, hits, numbers, deaths. */
 export class UnitLayer {
@@ -113,7 +113,7 @@ export class UnitLayer {
         icon.bg.setVisible(!!e);
         icon.letter.setVisible(!!e);
         if (!e) return;
-        const info = EFFECT_INFO[e.kind];
+        const info = effectInfo(e);
         const ix = startX + i * (UNIT_ICON + 2);
         const iy = y + 6 + UNIT_ICON / 2 + 1;
         icon.bg.setPosition(ix, iy).setFillStyle(info.color).setStrokeStyle(1, info.debuff ? 0xe74c3c : 0x000000);
@@ -152,8 +152,10 @@ export class UnitLayer {
     this.zoneLayer.clear();
     for (const z of this.s.battle.zones) {
       const pulse = 0.18 + Math.sin(time / 200) * 0.04;
-      this.zoneLayer.fillStyle(0x9ad1ff, pulse).fillCircle(z.x, z.y, z.radius);
-      this.zoneLayer.lineStyle(2, 0xd6ecff, 0.7).strokeCircle(z.x, z.y, z.radius);
+      // Blizzard: icy blue. Hallowed Ground: gold.
+      const holy = z.ability === 'hallowedGround';
+      this.zoneLayer.fillStyle(holy ? 0xffe28a : 0x9ad1ff, pulse).fillCircle(z.x, z.y, z.radius);
+      this.zoneLayer.lineStyle(2, holy ? 0xfff3c4 : 0xd6ecff, 0.7).strokeCircle(z.x, z.y, z.radius);
     }
   }
 
@@ -426,6 +428,32 @@ export class UnitLayer {
           const ring = this.s.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, 0x7dff9b).setDepth(30);
           this.s.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
           this.floatText(to.x, to.y - to.radius - 22, name, '#7dff9b', 15);
+        }
+        return;
+      case 'judgement':
+      case 'soulDrain':
+      case 'enfeeble':
+        if (to) {
+          const color = ability === 'judgement' ? 0xffe28a : 0x9b59ff;
+          const line = this.s.add.graphics().setDepth(30);
+          line.lineStyle(ability === 'judgement' ? 5 : 3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
+          this.s.tweens.add({ targets: line, alpha: 0, duration: 350, onComplete: () => line.destroy() });
+          const ring = this.s.add.circle(to.x, to.y, to.radius + 4).setStrokeStyle(4, color).setDepth(30);
+          this.s.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 450, onComplete: () => ring.destroy() });
+        }
+        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, ability === 'judgement' ? '#ffe28a' : '#c39bff', 14);
+        return;
+      case 'wither':
+        return; // cast every few seconds: the purple debuff icon is enough
+      case 'hallowedGround':
+        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffe28a', 14);
+        return;
+      case 'radiantLight':
+      case 'mercy':
+        if (to) {
+          const ring = this.s.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(ability === 'mercy' ? 6 : 4, 0xffe28a).setDepth(30);
+          this.s.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 650, onComplete: () => ring.destroy() });
+          this.floatText(to.x, to.y - to.radius - 22, name, '#ffe28a', 15);
         }
         return;
       case 'polymorph':
