@@ -362,8 +362,8 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   },
   curseOfRuin: {
     id: 'curseOfRuin', name: 'Curse of Ruin', cls: 'warlock', cost: 20, cooldown: 10, scales: false,
-    description: 'The party focus takes 20% more damage from everything for 8s.',
-    mastery: { name: 'Deep Ruin', text: '+35% damage taken instead.' },
+    description: 'The party focus takes 25% more damage from everything for 10s.',
+    mastery: { name: 'Deep Ruin', text: '+40% damage taken instead.' },
   },
 };
 
@@ -445,7 +445,7 @@ export const ABILITY_TUNING = {
   soulDrain: { damage: 40, mastery: 1.5 },
   enfeeble: { reduction: 0.3, duration: 8, masteryReduction: 0.4 },
   doom: { damage: 200, delay: 8, mastery: 1.5, masteryCooldown: 3 },
-  curseOfRuin: { bonus: 0.2, masteryBonus: 0.35, duration: 8 },
+  curseOfRuin: { bonus: 0.25, masteryBonus: 0.4, duration: 10 },
   /** Slowed units attack this much slower. */
   slowFactor: 1.3,
   /** Bosses shrug off stuns twice as fast. */
