@@ -151,17 +151,14 @@ export const ABILITY_TUNING = {
 /** Per-rank upgrade effects. */
 export const UPGRADE = { powerPerRank: 0.25, hastePerRank: 0.8, vitalityPerRank: 0.1, mightPerRank: 0.1 };
 
-/**
- * New abilities are only offered after these waves (so the second ability is
- * used from wave 5, the third from wave 10). Other waves offer upgrades.
- */
-export const NEW_ABILITY_AFTER_WAVES = [4, 8];
+/** Reward choices that offer new abilities (others offer upgrades). */
+export const NEW_ABILITY_AFTER_WAVES = [5, 10, 15, 20];
 
 /**
  * A reward choice screen only appears after these waves; every other wave just
  * levels everyone up automatically.
  */
-export const CHOICE_AFTER_WAVES = [2, 4, 6, 8];
+export const CHOICE_AFTER_WAVES = [5, 10, 15, 20, 25];
 
 /** Per level after 1: +6% max health, damage and healing. */
 export const LEVEL_SCALING = 0.06;

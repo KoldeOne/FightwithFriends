@@ -396,8 +396,8 @@ A **"Choose for me"** button makes all choices automatically.
 ### Auto controls (as built)
 
 - **AUTO** (top bar, next to Pause): the AI plays your hero.
-- **Choose for me** (button on the reward screen): picks one of the three
-  options shown and starts the next wave.
+- **Choose for me** (button on the reward screen): turns AUTO on and picks;
+  AUTO keeps picking future rewards until it's turned off.
 
 ### Auto controls (original plan)
 
@@ -421,11 +421,12 @@ Nothing about heroes carries over between runs.
 ### Leveling (as built)
 
 - 1 level per cleared wave: +6% health, damage and healing for everyone.
-- **Reward choices every other wave:** a choice screen only after waves 2, 4, 6
-  and 8. Odd waves show a quick "Level up!" and continue on their own (3s, or
-  tap Continue).
-- **New abilities only at milestones:** the choice after wave 4 and after wave 8
-  is a choice of new abilities (used from waves 5 and 9).
+- **A reward choice every 5 waves** (after waves 5, 10, 15, 20, 25), offering
+  new abilities. Other waves show a quick "Level up!" and continue on their own
+  (3s, or tap Continue). In the current 10-wave chapter that is one choice.
+- **AUTO also picks rewards.** "Choose for me" on the reward screen turns AUTO
+  on and picks; while AUTO is on, future reward screens pick automatically
+  (highlighted for a moment). Turn AUTO off in the top bar to choose yourself.
 - Other waves offer upgrades: Empowered (+25% effect) or Quick (−20% cooldown)
   versions of your abilities, the class's passive trait, Vitality (+10% max
   health) or Might (+10% damage & healing).

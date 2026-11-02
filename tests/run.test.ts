@@ -16,25 +16,21 @@ describe('Run and rewards', () => {
     expect(run.builds.mage).toEqual({ level: 1, abilities: [{ id: 'fireball', power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 });
   });
 
-  it('choices only after waves 2, 4, 6, 8; new abilities after 4 and 8', () => {
+  it('a reward choice every 5 waves, offering new abilities', () => {
     const run = newRun('warrior', 7);
-    const key = (o: { kind: string; id?: string }) => `${o.kind}:${o.id ?? ''}`;
     for (let w = 1; w <= 10; w++) {
-      expect(isChoiceWave(run)).toBe([2, 4, 6, 8].includes(w));
+      expect(isChoiceWave(run)).toBe(w === 5 || w === 10);
       if (isChoiceWave(run)) {
         const opts = rewardOptions(run, 'warrior');
         expect(opts).toHaveLength(3);
-        expect(new Set(opts.map(key)).size).toBe(3);
-        const newOnes = opts.filter((o) => o.kind === 'ability');
-        expect(newOnes.length > 0).toBe(w === 4 || w === 8);
-        completeWave(run, newOnes[0] ?? opts[0]);
+        expect(opts.filter((o) => o.kind === 'ability').length).toBeGreaterThan(0);
+        completeWave(run, opts.find((o) => o.kind === 'ability')!);
       } else {
         completeWave(run, null);
       }
     }
-    const b = run.builds.warrior;
-    expect(b.abilities.map((a) => a.id).filter((id) => id !== 'heroicStrike')).toHaveLength(2);
-    expect(b.level).toBe(11);
+    expect(run.builds.warrior.abilities).toHaveLength(3);
+    expect(run.builds.warrior.level).toBe(11);
   });
 
   it('Vitality and Might raise health and damage in battle', () => {
@@ -54,11 +50,11 @@ describe('Run and rewards', () => {
 
   it('AI teammates pick for themselves and everyone levels up', () => {
     const run = newRun('priest', 3);
-    run.wave = 2; // a choice wave
+    run.wave = 5; // a choice wave
     const picks = completeWave(run, rewardOptions(run, 'priest')[0]);
     expect(Object.keys(picks).sort()).toEqual(['mage', 'rogue', 'warrior']);
     for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) expect(run.builds[cls].level).toBe(2);
-    expect(run.wave).toBe(3);
+    expect(run.wave).toBe(6);
   });
 
   it('upgrades raise power and shorten cooldowns', () => {

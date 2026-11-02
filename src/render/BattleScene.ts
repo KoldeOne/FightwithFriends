@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING, HERO_KIT, makeWave, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, RUN_WAVES, TRAITS, WAVE_1, WORLD } from '../sim/content';
+import { ABILITIES, ABILITY_TUNING, CHOICE_AFTER_WAVES, HERO_KIT, makeWave, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, RUN_WAVES, TRAITS, WAVE_1, WORLD } from '../sim/content';
 import { sound } from './sound';
 import {
   autoChoose,
@@ -160,6 +160,7 @@ export class BattleScene extends Phaser.Scene {
   private gateBar!: Phaser.GameObjects.Graphics;
   private gateLabel!: Phaser.GameObjects.Text;
   private hudText!: Phaser.GameObjects.Text;
+  private waveText!: Phaser.GameObjects.Text;
   private speedButton!: Phaser.GameObjects.Text;
   private pauseButton!: Phaser.GameObjects.Text;
   private slotViews: SlotView[] = [];
@@ -261,6 +262,12 @@ export class BattleScene extends Phaser.Scene {
         this.showEnd();
       }
     }
+  }
+
+  /** AUTO: the AI plays your hero and picks your rewards. */
+  private setAuto(on: boolean): void {
+    this.auto = on;
+    this.battle.playerAuto = on;
   }
 
   /** "Wave 3 — Shamans": a short banner before the fight begins. */
@@ -505,10 +512,7 @@ export class BattleScene extends Phaser.Scene {
       sound.toggleMute();
     });
     this.pauseButton = small(WORLD.width - 8, 8, () => this.togglePause()).setOrigin(1, 0);
-    this.autoButton = small(WORLD.width - 104, 8, () => {
-      this.auto = !this.auto;
-      this.battle.playerAuto = this.auto;
-    }).setOrigin(1, 0);
+    this.autoButton = small(WORLD.width - 104, 8, () => this.setAuto(!this.auto)).setOrigin(1, 0);
 
   }
 
@@ -517,8 +521,10 @@ export class BattleScene extends Phaser.Scene {
     this.add.rectangle(0, top, WORLD.width, WORLD.height - top, 0x0b0e14).setOrigin(0, 0);
     this.add.rectangle(0, top, WORLD.width, 2, 0x2b3445).setOrigin(0, 0);
 
-    // Wave info lives in the top bar (row 2, right).
-    this.hudText = this.text(WORLD.width - 12, 50, '', 13, '#ffffff').setOrigin(1, 0).setDepth(50);
+    // Big wave number at the top center, with enemies left and time underneath.
+    this.waveText = this.text(WORLD.width / 2, 44, '', 30, '#ffd166').setOrigin(0.5, 0).setDepth(50).setFontStyle('bold');
+    this.waveText.setStroke('#000000', 5);
+    this.hudText = this.text(WORLD.width / 2, 80, '', 13, '#c9d1e0').setOrigin(0.5, 0).setDepth(50);
     this.hudText.setStroke('#000000', 3);
 
     // Health and resource bars.
@@ -598,7 +604,8 @@ export class BattleScene extends Phaser.Scene {
 
     const t = Math.floor(this.battle.time);
     const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-    this.hudText.setText(`Wave ${this.battle.wave.number}/${RUN_WAVES} · ${this.battle.enemiesRemaining} left · ${clock}`);
+    this.waveText.setText(`WAVE ${this.battle.wave.number}`);
+    this.hudText.setText(`of ${RUN_WAVES} · ${this.battle.enemiesRemaining} enemies left · ${clock}`);
 
     this.speedButton.setText(`Speed ${this.speed}x`);
     this.soundButton.setText(`Sound: ${sound.muted ? 'OFF' : 'ON'}`);
@@ -1273,6 +1280,7 @@ export class BattleScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setFontStyle(milestone ? 'bold' : 'normal'),
     ];
+    const cardBgs: Phaser.GameObjects.Rectangle[] = [];
     options.forEach((opt, i) => {
       const d = describeReward(opt);
       const y = 290 + i * 128;
@@ -1286,18 +1294,30 @@ export class BattleScene extends Phaser.Scene {
       bg.on('pointerdown', () => {
         if (this.rewardToken === token) this.takeReward(opt);
       });
+      cardBgs.push(bg);
       items.push(bg, tag, title, text);
     });
-    // "Choose for me": picks one of the three shown options and moves on.
+    // "Choose for me": turns AUTO on (AUTO plays your hero and picks future rewards) and picks now.
     items.push(
-      this.button(cx, 690, 'Choose for me', 20, '#5a4a1c', () => {
-        if (this.rewardToken === token) this.takeReward(autoChoose(cls, options));
+      this.button(cx, 690, this.auto ? 'AUTO is choosing…' : 'Choose for me (turns AUTO on)', 18, '#5a4a1c', () => {
+        if (this.rewardToken !== token) return;
+        this.setAuto(true);
+        this.takeReward(autoChoose(cls, options));
       }),
     );
-    const next = nextAbilityMilestone(run);
-    if (!milestone && next) {
-      items.push(this.text(cx, 744, `Next new ability: after wave ${next}`, 13, '#8f9bb3').setOrigin(0.5));
+    if (this.auto) {
+      // AUTO picks rewards too: show the pick for a moment, then continue.
+      const pick = autoChoose(cls, options);
+      const idx = options.indexOf(pick);
+      this.time.delayedCall(250, () => {
+        const card = cardBgs[idx];
+        if (this.rewardToken === token && card) card.setStrokeStyle(4, GOLD);
+      });
+      this.time.delayedCall(1800, () => {
+        if (this.rewardToken === token && this.auto) this.takeReward(pick);
+      });
     }
+    items.push(this.text(cx, 744, 'Turn AUTO off in the top bar to choose rewards yourself.', 12, '#8f9bb3').setOrigin(0.5));
     this.overlay = this.add.container(0, 0, items).setDepth(100);
   }
 
@@ -1308,13 +1328,13 @@ export class BattleScene extends Phaser.Scene {
     const token = ++this.rewardToken;
     const cx = WORLD.width / 2;
     const level = run.builds[run.playerClass].level + 1;
-    const next = nextAbilityMilestone(run);
+    const next = CHOICE_AFTER_WAVES.find((w) => w > run.wave);
     const countdown = this.text(cx, 470, '', 15, '#8f9bb3').setOrigin(0.5);
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.55).setOrigin(0, 0).setInteractive(),
       this.text(cx, 330, `Wave ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
       this.text(cx, 378, `Level up! Everyone is now level ${level}.`, 18, '#ffffff').setOrigin(0.5),
-      this.text(cx, 408, next ? `Next reward choice after wave ${run.wave + 1}` : '', 13, '#9ad1ff').setOrigin(0.5),
+      this.text(cx, 408, next && next <= RUN_WAVES ? `Next reward choice after wave ${next}` : '', 13, '#9ad1ff').setOrigin(0.5),
       countdown,
       this.button(cx, 530, 'Continue', 20, '#2e86de', () => {
         if (this.rewardToken === token) this.takeReward(null);

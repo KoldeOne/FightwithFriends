@@ -30,9 +30,9 @@ Steps 1–5 (part 1) of the first playable version are done:
 
 5. **Between waves (part 1)** — a 10-wave run with named wave patterns
    (rushes, flanks, casters, an elite Goblin Brute with a telegraphed Smash).
-   Everyone levels up each wave; a reward choice appears after waves 2, 4, 6
-   and 8 (new abilities at 4 and 8), other waves continue automatically.
-   "Choose for me" on the reward screen. Autosave between waves. Your hero
+   Everyone levels up each wave; a reward choice (new abilities) appears
+   every 5 waves, other waves continue automatically. "Choose for me" turns
+   AUTO on, and AUTO picks future rewards too. Autosave between waves. Your hero
    stands in the center; AI teammates move, staying close to the party.
 6. **Feel pass** — smooth interpolated motion and steering, projectiles that
    land on arrival, hit flashes/knockback/sparks/shake, merged damage
