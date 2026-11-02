@@ -1,42 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
-import { makeWave, RUN_WAVES } from '../src/sim/content';
+import { DEFAULT_TEAM, makeWave, RUN_WAVES, SPOTS } from '../src/sim/content';
 import { applyReward, autoChoose, completeWave, isChoiceWave, newRun, rewardOptions, type RunState } from '../src/sim/run';
 
 function playWave(run: RunState): Battle {
-  const b = new Battle({ seed: run.seed + run.wave, wave: makeWave(run.wave), playerClass: run.playerClass, builds: run.builds });
+  const b = new Battle({ seed: run.seed + run.wave, wave: makeWave(run.wave), team: run.team, builds: run.builds });
   while (b.outcome === 'running' && b.time < 900) b.step(STEP);
   return b;
 }
 
 describe('Run and rewards', () => {
   it('a new run starts everyone at level 1 with their starting ability', () => {
-    const run = newRun('mage', 1);
+    const run = newRun(DEFAULT_TEAM, 1);
     expect(run.wave).toBe(1);
-    expect(run.builds.mage).toEqual({ level: 1, abilities: [{ id: 'fireball', power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 });
+    expect(run.team).toEqual(DEFAULT_TEAM);
+    expect(run.builds[2]).toEqual({ level: 1, abilities: [{ id: 'fireball', power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 });
   });
 
   it('a reward choice every 5 waves, offering new abilities', () => {
-    const run = newRun('warrior', 7);
+    const run = newRun(DEFAULT_TEAM, 7);
     for (let w = 1; w <= 10; w++) {
       expect(isChoiceWave(run)).toBe(w === 5 || w === 10);
       if (isChoiceWave(run)) {
-        const opts = rewardOptions(run, 'warrior');
+        const opts = rewardOptions(run, 0);
         expect(opts).toHaveLength(3);
         expect(opts.filter((o) => o.kind === 'ability').length).toBeGreaterThan(0);
-        completeWave(run, opts.find((o) => o.kind === 'ability')!);
+        completeWave(run, [opts.find((o) => o.kind === 'ability')!]);
       } else {
-        completeWave(run, null);
+        completeWave(run);
       }
     }
-    expect(run.builds.warrior.abilities).toHaveLength(3);
-    expect(run.builds.warrior.level).toBe(11);
+    expect(run.builds[0].abilities).toHaveLength(3);
+    expect(run.builds[0].level).toBe(11);
   });
 
   it('Vitality and Might raise health and damage in battle', () => {
-    const run = newRun('mage', 1);
-    applyReward(run.builds.mage, { kind: 'vitality' });
-    applyReward(run.builds.mage, { kind: 'might' });
+    const run = newRun(DEFAULT_TEAM, 1);
+    applyReward(run.builds[2], { kind: 'vitality' });
+    applyReward(run.builds[2], { kind: 'might' });
     const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage', builds: run.builds });
     const fresh = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage' });
     expect(b.player!.maxHp).toBe(Math.round(fresh.player!.maxHp * 1.1));
@@ -44,23 +45,23 @@ describe('Run and rewards', () => {
   });
 
   it('options are the same for the same run and wave (no reroll by reloading)', () => {
-    const run = newRun('rogue', 42);
-    expect(rewardOptions(run, 'rogue')).toEqual(rewardOptions(run, 'rogue'));
+    const run = newRun(DEFAULT_TEAM, 42);
+    expect(rewardOptions(run, 3)).toEqual(rewardOptions(run, 3));
   });
 
   it('AI teammates pick for themselves and everyone levels up', () => {
-    const run = newRun('priest', 3);
+    const run = newRun(DEFAULT_TEAM, 3);
     run.wave = 5; // a choice wave
-    const picks = completeWave(run, rewardOptions(run, 'priest')[0]);
-    expect(Object.keys(picks).sort()).toEqual(['mage', 'rogue', 'warrior']);
-    for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) expect(run.builds[cls].level).toBe(2);
+    const picks = completeWave(run, [undefined, rewardOptions(run, 1)[0]]);
+    expect(picks.filter(Boolean)).toHaveLength(4); // the rest were chosen automatically
+    for (const b of run.builds) expect(b.level).toBe(2);
     expect(run.wave).toBe(6);
   });
 
   it('upgrades raise power and shorten cooldowns', () => {
-    const run = newRun('mage', 1);
-    applyReward(run.builds.mage, { kind: 'power', id: 'fireball' });
-    applyReward(run.builds.mage, { kind: 'haste', id: 'fireball' });
+    const run = newRun(DEFAULT_TEAM, 1);
+    applyReward(run.builds[2], { kind: 'power', id: 'fireball' });
+    applyReward(run.builds[2], { kind: 'haste', id: 'fireball' });
     const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage', builds: run.builds });
     const slot = b.player!.abilities![0];
     expect(b.abilityScale(b.player!, slot)).toBeCloseTo(1.25);
@@ -68,8 +69,8 @@ describe('Run and rewards', () => {
   });
 
   it('levels carry into battle as more health', () => {
-    const run = newRun('warrior', 1);
-    run.builds.warrior.level = 5;
+    const run = newRun(DEFAULT_TEAM, 1);
+    run.builds[0].level = 5;
     const b = new Battle({ seed: 1, wave: makeWave(1), builds: run.builds });
     const w = b.heroes.find((h) => h.kind === 'warrior')!;
     const fresh = new Battle({ seed: 1, wave: makeWave(1) }).heroes.find((h) => h.kind === 'warrior')!;
@@ -84,21 +85,32 @@ describe('Run and rewards', () => {
     expect(makeWave(5).spawns.some((s) => s.kind === 'brute')).toBe(true); // elite
     expect(makeWave(6).spawns.some((s) => s.time > 10)).toBe(true);
     expect(makeWave(10).spawns.length).toBeGreaterThan(makeWave(1).spawns.length);
-    for (let n = 1; n <= 10; n++) expect(makeWave(n).name).toBeTruthy();
+    for (let n = 1; n <= RUN_WAVES; n++) expect(makeWave(n).name).toBeTruthy();
   });
 
   it('a full AI-played run can be completed', () => {
     let finished = 0;
-    for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
-      const run = newRun(cls, 11);
+    for (const seed of [11, 12, 13, 14]) {
+      const run = newRun(DEFAULT_TEAM, seed);
       while (run.wave <= RUN_WAVES) {
         const b = playWave(run);
         if (b.outcome !== 'victory') break;
-        completeWave(run, isChoiceWave(run) ? autoChoose(cls, rewardOptions(run, cls)) : null);
+        completeWave(run);
       }
       if (run.wave > RUN_WAVES) finished++;
     }
     expect(finished).toBeGreaterThanOrEqual(3);
+  });
+
+  it('teams can repeat classes', () => {
+    const run = newRun(['mage', 'mage', 'priest', 'warrior'], 1);
+    const b = new Battle({ seed: 1, wave: makeWave(1), team: run.team, builds: run.builds });
+    expect(b.heroes.map((h) => h.label).sort()).toEqual(['Mage', 'Mage 2', 'Priest', 'Warrior']);
+    run.wave = 5;
+    const picks = completeWave(run);
+    expect(picks).toHaveLength(4);
+    expect(run.builds[0].abilities.length).toBe(2);
+    expect(run.builds[1].abilities.length).toBe(2);
   });
 });
 
@@ -176,10 +188,10 @@ describe('Formation', () => {
   it("the player's hero starts in the center; AI teammates front, left and right", () => {
     for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
       const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: cls });
-      expect([b.player!.x, b.player!.y]).toEqual([270, 630]);
+      expect([b.player!.x, b.player!.y]).toEqual([SPOTS.center.x, SPOTS.center.y]);
       const others = b.heroes.filter((h) => h.kind !== cls);
       expect(others).toHaveLength(3);
-      const front = others.find((h) => h.y === 552)!;
+      const front = others.find((h) => h.y === SPOTS.front.y)!;
       expect(front.kind).toBe(cls === 'warrior' ? 'rogue' : 'warrior');
     }
   });

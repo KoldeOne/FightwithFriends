@@ -1,15 +1,17 @@
-import { ABILITIES, CHOICE_AFTER_WAVES, CLASS_POOL, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, RUN_WAVES, TRAITS, UPGRADE } from './content';
+import { ABILITIES, CHOICE_AFTER_WAVES, CLASS_POOL, DEFAULT_TEAM, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, RUN_WAVES, TRAITS, UPGRADE } from './content';
 import { createRng } from './rng';
 import type { AbilityId, HeroBuild, HeroClass, TraitId } from './types';
 
 /** Everything that carries over between waves in a run. */
 export interface RunState {
-  version: 1;
+  version: 2;
   seed: number;
-  playerClass: HeroClass;
+  /** The chosen team: one class per slot (duplicates allowed). */
+  team: HeroClass[];
   /** The wave about to be fought (1-based). */
   wave: number;
-  builds: Record<HeroClass, HeroBuild>;
+  /** One build per team slot. */
+  builds: HeroBuild[];
 }
 
 export type Reward =
@@ -22,12 +24,9 @@ export type Reward =
 
 export const ALL_CLASSES: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
 
-export function newRun(playerClass: HeroClass, seed = Date.now() % 1_000_000): RunState {
-  const builds = {} as Record<HeroClass, HeroBuild>;
-  for (const cls of ALL_CLASSES) {
-    builds[cls] = { level: 1, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 };
-  }
-  return { version: 1, seed, playerClass, wave: 1, builds };
+export function newRun(team: HeroClass[] = DEFAULT_TEAM, seed = Date.now() % 1_000_000): RunState {
+  const builds = team.map((cls) => ({ level: 1, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 }));
+  return { version: 2, seed, team: [...team], wave: 1, builds };
 }
 
 export function isRunComplete(run: RunState): boolean {
@@ -78,9 +77,10 @@ function upgradeRewards(cls: HeroClass, b: HeroBuild): Reward[] {
  * Three reward options for a level-up. After milestone waves (4 and 9) they
  * are new abilities; otherwise upgrades, the class trait and general boosts.
  */
-export function rewardOptions(run: RunState, cls: HeroClass): Reward[] {
-  const b = run.builds[cls];
-  const rng = createRng(run.seed * 31 + run.wave * 977 + ALL_CLASSES.indexOf(cls));
+export function rewardOptions(run: RunState, slot: number): Reward[] {
+  const cls = run.team[slot];
+  const b = run.builds[slot];
+  const rng = createRng(run.seed * 31 + run.wave * 977 + slot * 131 + ALL_CLASSES.indexOf(cls));
   const shuffle = <T>(list: T[]): T[] => {
     const out = [...list];
     for (let i = out.length - 1; i > 0; i--) {
@@ -137,23 +137,23 @@ export function applyReward(b: HeroBuild, r: Reward): void {
 }
 
 /**
- * Finish a wave: every hero levels up. On choice waves the player takes
- * `playerPick` and the AI teammates choose their own rewards (returned).
+ * Finish a wave: every hero levels up. On choice waves each hero takes its
+ * pick from `picks` (by team slot); missing picks are chosen automatically.
  */
-export function completeWave(run: RunState, playerPick: Reward | null): Partial<Record<HeroClass, Reward>> {
-  const aiPicks: Partial<Record<HeroClass, Reward>> = {};
+export function completeWave(run: RunState, picks: (Reward | null | undefined)[] = []): Reward[] {
+  const taken: Reward[] = [];
   const choice = isChoiceWave(run);
-  for (const cls of ALL_CLASSES) {
-    const b = run.builds[cls];
+  run.team.forEach((cls, slot) => {
+    const b = run.builds[slot];
     if (choice) {
-      const pick = cls === run.playerClass ? (playerPick ?? autoChoose(cls, rewardOptions(run, cls))) : autoChoose(cls, rewardOptions(run, cls));
-      if (cls !== run.playerClass) aiPicks[cls] = pick;
+      const pick = picks[slot] ?? autoChoose(cls, rewardOptions(run, slot));
       applyReward(b, pick);
+      taken[slot] = pick;
     }
     b.level += 1;
-  }
+  });
   run.wave += 1;
-  return aiPicks;
+  return taken;
 }
 
 /** Human-readable text for a reward option. */
@@ -180,7 +180,7 @@ export function describeReward(r: Reward): { tag: string; title: string; text: s
 
 // --- saving -------------------------------------------------------------
 
-const SAVE_KEY = 'fightwithfriends.run.v1';
+const SAVE_KEY = 'fightwithfriends.run.v2';
 
 export function saveRun(run: RunState): void {
   try {
@@ -195,7 +195,7 @@ export function loadRun(): RunState | null {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const run = JSON.parse(raw) as RunState;
-    return run?.version === 1 && run.builds && run.playerClass ? run : null;
+    return run?.version === 2 && Array.isArray(run.team) && Array.isArray(run.builds) && run.team.length === run.builds.length ? run : null;
   } catch {
     return null;
   }

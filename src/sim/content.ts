@@ -26,41 +26,43 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
 };
 
-/**
- * Starting spots when a player hero is chosen: the player's hero stands in the
- * center (and stays there); the three AI teammates start front, left and right.
- */
+/** Starting spots for a team of four (front, left, right, back). */
 export const SPOTS = {
   center: { x: 270, y: 630 },
-  front: { x: 270, y: 552 },
-  left: { x: 198, y: 650 },
-  right: { x: 342, y: 650 },
+  front: { x: 270, y: 560 },
+  left: { x: 196, y: 628 },
+  right: { x: 344, y: 628 },
+  back: { x: 270, y: 694 },
 };
 
 /**
- * AI teammate movement. Your own hero never moves. Teammates stay within
- * `leash` of the party's anchor (your hero) and move at `speed` px/s
- * (goblin grunts: 38, runners: 75).
+ * Hero movement. Heroes stay within `leash` of the party's anchor and move at
+ * `speed` px/s (goblin grunts: 38, runners: 75).
  */
-export const HERO_MOVE = { speed: 60, leash: 130 };
+export const HERO_MOVE = { speed: 60, leash: 140 };
 
-/** Which AI teammate takes the front spot first (most melee / tanky first). */
-const FRONT_PRIORITY: HeroClass[] = ['warrior', 'rogue', 'priest', 'mage'];
+/** Who goes up front first: tanks, then melee, then ranged, healers at the back. */
+const ROLE_ORDER: HeroClass[] = ['warrior', 'rogue', 'mage', 'priest'];
 
-export function formationFor(player: HeroClass | undefined, classes: HeroClass[]): { cls: HeroClass; x: number; y: number }[] {
-  if (!player || !classes.includes(player)) return FORMATION.filter((f) => classes.includes(f.cls));
-  const others = FRONT_PRIORITY.filter((c) => c !== player && classes.includes(c));
-  const spots = [SPOTS.front, SPOTS.left, SPOTS.right];
-  return [{ cls: player, ...SPOTS.center }, ...others.map((cls, i) => ({ cls, ...spots[i] }))];
+/** The default team (one of each). */
+export const DEFAULT_TEAM: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
+
+/**
+ * Where each team member starts. `slot` is the index in `team`. With a
+ * player-controlled hero (used by tests and a possible future mode), that hero
+ * stands in the center; otherwise the team is laid out by role.
+ */
+export function formationFor(team: HeroClass[], player?: HeroClass): { slot: number; cls: HeroClass; x: number; y: number }[] {
+  const slots = team.map((cls, slot) => ({ slot, cls }));
+  const playerSlot = player ? slots.find((s) => s.cls === player) : undefined;
+  const rest = slots.filter((s) => s !== playerSlot).sort((a, b) => ROLE_ORDER.indexOf(a.cls) - ROLE_ORDER.indexOf(b.cls) || a.slot - b.slot);
+  if (playerSlot) {
+    const spots = [SPOTS.front, SPOTS.left, SPOTS.right, SPOTS.back];
+    return [{ ...playerSlot, ...SPOTS.center }, ...rest.map((s, i) => ({ ...s, ...spots[i] }))];
+  }
+  const spots = [SPOTS.front, SPOTS.left, SPOTS.right, SPOTS.back];
+  return rest.map((s, i) => ({ ...s, ...spots[i % spots.length], y: spots[i % spots.length].y + Math.floor(i / spots.length) * 40 }));
 }
-
-/** Default formation (no player chosen yet): tank front, DPS middle, healer back. */
-export const FORMATION: { cls: HeroClass; x: number; y: number }[] = [
-  { cls: 'warrior', x: 270, y: 580 },
-  { cls: 'rogue', x: 205, y: 628 },
-  { cls: 'mage', x: 335, y: 628 },
-  { cls: 'priest', x: 270, y: 680 },
-];
 
 export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
   grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 22, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
@@ -247,7 +249,7 @@ export const AGGRO = {
 };
 
 /** Waves in a run (the first playable is chapter 1: 10 waves). */
-export const RUN_WAVES = 10;
+export const RUN_WAVES = 15;
 
 /**
  * Wave N has a pattern: a main push from the top, runner rushes, shaman
@@ -283,12 +285,25 @@ export function makeWave(n: number): WaveDef {
     8: { name: 'Brute and casters', spawns: [...top(0, ['brute', 'grunt', 'shaman', 'archer']), ...top(18, ['grunt', 'shaman', 'grunt'])] },
     9: { name: 'Surrounded', spawns: [...top(0, ['grunt', 'grunt', 'archer', 'shaman']), ...side(12, 'left', ['runner', 'runner']), ...side(16, 'right', ['brute', 'grunt'])] },
     10: {
-      name: 'Final assault',
+      name: 'Warband',
       spawns: [...top(0, ['brute', 'grunt', 'grunt', 'archer', 'shaman']), ...side(16, 'left', ['grunt', 'shaman']), ...side(22, 'right', ['runner', 'runner', 'brute'])],
     },
+    11: { name: 'Shaman circle', spawns: [...top(0, ['grunt', 'shaman', 'shaman', 'grunt', 'archer']), ...side(14, 'left', ['shaman', 'grunt'])] },
+    12: { name: 'Twin Brutes', spawns: [...top(0, ['brute', 'grunt', 'archer']), ...top(10, ['brute', 'shaman', 'grunt'])] },
+    13: { name: 'Runner flood', spawns: [...top(0, ['grunt', 'grunt', 'archer']), ...side(5, 'left', ['runner', 'runner', 'runner']), ...side(9, 'right', ['runner', 'runner', 'runner'])] },
+    14: { name: 'Pincer', spawns: [...side(0, 'left', ['brute', 'grunt', 'shaman']), ...side(0.5, 'right', ['grunt', 'grunt', 'archer']), ...top(15, ['grunt', 'runner', 'archer'])] },
+    15: {
+      name: 'Final assault',
+      spawns: [
+        ...top(0, ['brute', 'grunt', 'grunt', 'archer', 'shaman']),
+        ...side(14, 'left', ['brute', 'shaman', 'runner']),
+        ...side(20, 'right', ['grunt', 'archer', 'runner', 'runner']),
+        ...top(28, ['grunt', 'grunt', 'shaman']),
+      ],
+    },
   };
-  const p = patterns[n] ?? patterns[10];
-  return { number: n, name: p.name, spawns: p.spawns, strength: 1 + (n - 1) * 0.15 };
+  const p = patterns[n] ?? patterns[15];
+  return { number: n, name: p.name, spawns: p.spawns, strength: 1 + (n - 1) * 0.11 };
 }
 
 export const WAVE_1: WaveDef = makeWave(1);

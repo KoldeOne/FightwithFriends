@@ -3,7 +3,7 @@ import {
   ABILITY_TUNING,
   AGGRO,
   ENEMY_STATS,
-  FORMATION,
+  DEFAULT_TEAM,
   formationFor,
   GATE_MAX_HP,
   HERO_KIT,
@@ -52,14 +52,16 @@ export const STEP = 0.05;
 export interface BattleOptions {
   seed: number;
   wave: WaveDef;
-  /** Defaults to the standard 4-hero formation. */
+  /** The team, one class per slot (duplicates allowed). Defaults to one of each. */
+  team?: HeroClass[];
+  /** Same as `team` (kept for tests). */
   heroes?: HeroClass[];
   /** AI DPS/healers hold back before pulling aggro (default true). */
   carefulAI?: boolean;
   /** The class the player controls (can also be set later with setPlayer). */
   playerClass?: HeroClass;
-  /** Levels, abilities and traits carried over from earlier waves. */
-  builds?: Partial<Record<HeroClass, HeroBuild>>;
+  /** Levels, abilities and traits carried over from earlier waves, per team slot. */
+  builds?: HeroBuild[];
 }
 
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
@@ -96,9 +98,9 @@ export class Battle {
     this.wave = opts.wave;
     this.carefulAI = opts.carefulAI ?? true;
     this.pending = [...opts.wave.spawns].sort((a, b) => a.time - b.time);
-    const classes = opts.heroes ?? FORMATION.map((f) => f.cls);
-    for (const slot of formationFor(opts.playerClass, classes)) {
-      this.addHero(slot.cls, slot.x, slot.y, opts.builds?.[slot.cls]);
+    const team = opts.team ?? opts.heroes ?? DEFAULT_TEAM;
+    for (const spot of formationFor(team, opts.playerClass)) {
+      this.addHero(spot.cls, spot.x, spot.y, opts.builds?.[spot.slot], spot.slot);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
     // Priest passive: Power Word: Fortitude is up on the whole party all wave.
@@ -288,7 +290,7 @@ export class Battle {
 
   // --- spawning -----------------------------------------------------------
 
-  private addHero(cls: HeroClass, x: number, y: number, build?: HeroBuild): void {
+  private addHero(cls: HeroClass, x: number, y: number, build?: HeroBuild, slot = 0): void {
     const s = HERO_STATS[cls];
     const kit = HERO_KIT[cls];
     const res = RESOURCES[kit.resource];
@@ -299,8 +301,11 @@ export class Battle {
     const abilities: AbilitySlot[] = build
       ? build.abilities.map((a) => ({ id: a.id, cooldown: 0, power: a.power, haste: a.haste }))
       : [{ id: kit.starting, cooldown: 0, power: 0, haste: 0 }];
+    // Duplicate classes get a number: "Mage", "Mage 2".
+    const same = this.units.filter((u) => u.side === 'hero' && u.kind === cls).length;
     this.addUnit({
       ...s,
+      label: same ? `${s.label} ${same + 1}` : s.label,
       maxHp: Math.round(s.maxHp * scale * vitality),
       damage: s.damage * scale * might,
       heal: s.heal ? s.heal * scale * might : undefined,
@@ -313,6 +318,7 @@ export class Battle {
       y,
       homeX: x,
       homeY: y,
+      slot,
       idleOffX: (this.rng() - 0.5) * 36,
       idleOffY: (this.rng() - 0.5) * 24,
       hp: Math.round(s.maxHp * scale * vitality),

@@ -124,6 +124,8 @@ export interface Unit {
   /** Hero: a small personal offset so the idle formation isn't rigid. */
   idleOffX?: number;
   idleOffY?: number;
+  /** Hero: index in the team (which build it uses). */
+  slot?: number;
   /** Hero: starting spot (AI teammates drift back here when it's quiet). */
   homeX?: number;
   homeY?: number;

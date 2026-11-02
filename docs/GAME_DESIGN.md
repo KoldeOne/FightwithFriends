@@ -40,26 +40,22 @@ tokens to permanently upgrade the castle's professions.
 
 ---
 
-## 2. Party
+## 2. Party (as built: full auto-battler)
 
-- Always **4 heroes**. The player picks the **class** of all 4 at the start of a run.
-- The player **controls 1 hero**; smart AI controls the other 3.
-- **AI heroes get a direction:** when building the party, the player sets each AI
-  hero's class *and* role (e.g. "Druid — healer", "Druid — tank"). The AI picks
-  abilities and gear that build toward that role.
-- **The player's own hero has no direction** — its role emerges from the
-  player's ability choices during the run.
-- Classes and directions are **locked for the run**.
-- **Role composition:** 1 tank / 1 healer / 2 DPS should be the safest setup,
-  but which *classes* fill those roles is flexible, and off-meta teams are viable.
+- **You build the team, the heroes fight on their own.** There are no ability
+  buttons; all four heroes are AI-controlled and all four move.
+- **Team builder:** fill 4 slots from the class list. **Classes can repeat**
+  (e.g. two Mages). A classic team (1 tank, 1 healer, 2 damage) is suggested,
+  not required. Duplicates are labeled "Mage", "Mage 2".
+- **Your decisions:** the team, and each hero's reward every 5 waves.
+- Tapping a unit only **inspects** it; tapping a hero's panel shows its
+  abilities and passive.
+- More classes will be added to the team builder later.
 
 ### Multiplayer (future)
 
-Not in the first version. The one rule to follow now: **an AI-controlled hero
-and a player-controlled hero must be interchangeable**, so a friend can later
-take over an AI slot.
-
----
+The simulation still supports a player-controlled hero (used by tests), so a
+future mode could hand a hero to a person.
 
 ## 3. Classes
 
@@ -348,7 +344,12 @@ and alongside bosses.
 | 7 | Flank and rush |
 | 8 | Brute and casters |
 | 9 | Surrounded |
-| 10 | Final assault |
+| 10 | Warband |
+| 11 | Shaman circle |
+| 12 | Twin Brutes |
+| 13 | Runner flood |
+| 14 | Pincer |
+| 15 | Final assault |
 
 **Goblin Brute (elite):** big and slow; winds up a telegraphed **Smash** (cast
 bar, red ring) that hits its target hard and splashes nearby heroes. It can be
@@ -421,12 +422,13 @@ Nothing about heroes carries over between runs.
 ### Leveling (as built)
 
 - 1 level per cleared wave: +6% health, damage and healing for everyone.
-- **A reward choice every 5 waves** (after waves 5, 10, 15, 20, 25), offering
-  new abilities. Other waves show a quick "Level up!" and continue on their own
+- **A reward choice every 5 waves** (after waves 5 and 10 in the current
+  15-wave run; 15, 20, 25 in the full game), offering new abilities. **You
+  pick one reward for each of your four heroes**, in turn. Other waves show a quick "Level up!" and continue on their own
   (3s, or tap Continue). In the current 10-wave chapter that is one choice.
-- **AUTO also picks rewards.** "Choose for me" on the reward screen turns AUTO
-  on and picks; while AUTO is on, future reward screens pick automatically
-  (highlighted for a moment). Turn AUTO off in the top bar to choose yourself.
+- **Auto picks.** "Choose for me" on the reward screen turns Auto picks on and
+  picks for the remaining heroes; while it's on, future reward screens pick
+  automatically. Turn it off in the top bar to choose yourself.
 - Other waves offer upgrades: Empowered (+25% effect) or Quick (−20% cooldown)
   versions of your abilities, the class's passive trait, Vitality (+10% max
   health) or Might (+10% damage & healing).

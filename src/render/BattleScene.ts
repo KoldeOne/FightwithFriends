@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING, CHOICE_AFTER_WAVES, HERO_KIT, makeWave, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, RUN_WAVES, TRAITS, WAVE_1, WORLD } from '../sim/content';
+import { ABILITIES, ABILITY_TUNING, CHOICE_AFTER_WAVES, DEFAULT_TEAM, HERO_KIT, makeWave, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, RUN_WAVES, TRAITS, WAVE_1, WORLD } from '../sim/content';
 import { sound } from './sound';
 import {
   autoChoose,
@@ -77,6 +77,23 @@ const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string; color:
 const MAX_BUFF_ICONS = 12;
 const BUFF_ICON = 22;
 const TARGET_BAR_X = 200;
+/** Party panel layout (bottom of the screen). */
+const PARTY = { x: 6, frameW: 128, gap: 4, frameH: 104, box: 22 };
+const HUD_TARGET_Y = 122;
+
+interface PartyFrame {
+  bg: Phaser.GameObjects.Rectangle;
+  name: Phaser.GameObjects.Text;
+  hpText: Phaser.GameObjects.Text;
+  boxes: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }[];
+  buffs: Phaser.GameObjects.Text;
+}
+
+/** "Heroic Strike" -> "HS", "Fireball" -> "Fi". */
+function initials(name: string): string {
+  const words = name.replace(/[^A-Za-z ]/g, ' ').split(/\s+/).filter(Boolean);
+  return words.length > 1 ? (words[0][0] + words[1][0]).toUpperCase() : name.slice(0, 2);
+}
 
 interface UnitView {
   container: Phaser.GameObjects.Container;
@@ -163,16 +180,10 @@ export class BattleScene extends Phaser.Scene {
   private waveText!: Phaser.GameObjects.Text;
   private speedButton!: Phaser.GameObjects.Text;
   private pauseButton!: Phaser.GameObjects.Text;
-  private slotViews: SlotView[] = [];
-  private slotCooldowns!: Phaser.GameObjects.Graphics;
-  private resourceBar!: Phaser.GameObjects.Graphics;
-  private resourceText!: Phaser.GameObjects.Text;
+  private partyFrames: PartyFrame[] = [];
+  private partyBars!: Phaser.GameObjects.Graphics;
+  private partyCooldowns!: Phaser.GameObjects.Graphics;
   private focusText!: Phaser.GameObjects.Text;
-  private healthBar!: Phaser.GameObjects.Graphics;
-  private healthText!: Phaser.GameObjects.Text;
-  private buffIcons: { bg: Phaser.GameObjects.Rectangle; letter: Phaser.GameObjects.Text; time: Phaser.GameObjects.Text }[] = [];
-  /** Effects currently shown in the buff row (index matches buffIcons). */
-  private shownEffects: Effect[] = [];
   private tooltip?: Phaser.GameObjects.Container;
   /** Target frame: focused unit's name, health bar and numbers. */
   private targetName!: Phaser.GameObjects.Text;
@@ -195,9 +206,8 @@ export class BattleScene extends Phaser.Scene {
     this.teamPicks = data?.teamPicks ?? '';
     const run = this.run;
     this.battle = run
-      ? new Battle({ seed: run.seed * 100 + run.wave, wave: makeWave(run.wave), carefulAI: this.careful, playerClass: run.playerClass, builds: run.builds })
-      : new Battle({ seed: Date.now() % 1_000_000, wave: WAVE_1, carefulAI: this.careful });
-    this.battle.playerAuto = this.auto;
+      ? new Battle({ seed: run.seed * 100 + run.wave, wave: makeWave(run.wave), carefulAI: this.careful, team: run.team, builds: run.builds })
+      : new Battle({ seed: Date.now() % 1_000_000, wave: WAVE_1, carefulAI: this.careful, team: DEFAULT_TEAM });
 
     this.drawField();
     this.zoneLayer = this.add.graphics().setDepth(5);
@@ -216,13 +226,12 @@ export class BattleScene extends Phaser.Scene {
     this.lastReinforcementCall = -99;
     this.tweens.timeScale = 1;
     if (run) {
-      this.markPlayer();
       this.state = 'playing';
       if (this.teamPicks) this.showBanner(this.teamPicks);
       this.showWaveIntro();
     } else {
       this.state = 'choosing';
-      this.showHeroSelect();
+      this.showTeamBuilder();
     }
   }
 
@@ -264,10 +273,9 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  /** AUTO: the AI plays your hero and picks your rewards. */
+  /** Auto picks: rewards are chosen for your heroes automatically. */
   private setAuto(on: boolean): void {
     this.auto = on;
-    this.battle.playerAuto = on;
   }
 
   /** "Wave 3 — Shamans": a short banner before the fight begins. */
@@ -288,79 +296,100 @@ export class BattleScene extends Phaser.Scene {
 
   // --- hero select ----------------------------------------------------------
 
-  private showHeroSelect(): void {
+  /** Pick a team of four: tap classes to fill the slots, tap a slot to empty it. */
+  private showTeamBuilder(team: HeroClass[] = []): void {
+    this.overlay?.destroy();
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [
-      this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 160, 'Choose your hero', 34, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
-      this.text(cx, 202, 'The other three are played by AI.', 16, '#c9d1e0').setOrigin(0.5),
+      this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.8).setOrigin(0, 0).setInteractive(),
+      this.text(cx, 128, 'Build your team', 32, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 164, 'Pick four heroes. They fight on their own — you choose the team and their rewards.', 13, '#c9d1e0')
+        .setOrigin(0.5)
+        .setAlign('center')
+        .setWordWrapWidth(480),
     ];
     const saved = loadRun();
     if (saved && saved.wave <= RUN_WAVES) {
-      const label = `▶ Continue: ${saved.playerClass[0].toUpperCase() + saved.playerClass.slice(1)} — wave ${saved.wave}`;
-      items.push(this.button(cx, 100, label, 18, '#1e6f50', () => this.scene.restart({ run: saved })));
+      const names = saved.team.map((c) => LETTERS[c]).join(' ');
+      items.push(this.button(cx, 68, `▶ Continue run: ${names} — wave ${saved.wave}`, 16, '#1e6f50', () => this.scene.restart({ run: saved })));
     }
+
+    // The four team slots.
+    const slotW = 108;
+    const slotY = 232;
+    for (let i = 0; i < 4; i++) {
+      const x = cx + (i - 1.5) * (slotW + 8);
+      const cls = team[i];
+      const bg = this.add
+        .rectangle(x, slotY, slotW, 70, cls ? 0x2b3a55 : 0x151b27)
+        .setStrokeStyle(2, cls ? COLORS[cls] : 0x3a4660)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          if (!cls) return;
+          sound.play('click');
+          this.showTeamBuilder(team.filter((_, j) => j !== i));
+        });
+      items.push(bg);
+      if (cls) {
+        items.push(
+          this.add.circle(x, slotY - 10, 16, COLORS[cls]).setStrokeStyle(2, 0x111111),
+          this.text(x, slotY - 10, LETTERS[cls], 15, DARK_LETTER.includes(cls) ? '#222' : '#fff').setOrigin(0.5).setFontStyle('bold'),
+          this.text(x, slotY + 18, cls[0].toUpperCase() + cls.slice(1), 12, '#ffffff').setOrigin(0.5),
+        );
+      } else {
+        items.push(this.text(x, slotY, `Slot ${i + 1}`, 13, '#5d6880').setOrigin(0.5));
+      }
+    }
+    items.push(this.text(cx, slotY + 48, 'Tap a filled slot to remove it. Classes can repeat.', 11, '#8f9bb3').setOrigin(0.5));
+
+    // Class cards: tap to add.
     const classes: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
-    const cardH = 128;
+    const cardH = 92;
     classes.forEach((cls, i) => {
-      const y = 236 + cardH / 2 + i * (cardH + 10);
-      const left = cx - 225;
-      const bg = this.add.rectangle(cx, y, 470, cardH, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
-      const disc = this.add.circle(left + 34, y - 18, 24, COLORS[cls]).setStrokeStyle(2, 0x111111);
-      const letter = this.text(left + 34, y - 18, LETTERS[cls], 22, DARK_LETTER.includes(cls) ? '#222' : '#fff')
-        .setOrigin(0.5)
-        .setFontStyle('bold');
+      const y = 342 + i * (cardH + 8);
       const kit = HERO_KIT[cls];
-      const tx = left + 72;
-      const top = y - cardH / 2 + 12;
-      const name = this.text(tx, top, cls[0].toUpperCase() + cls.slice(1), 20, '#ffffff').setFontStyle('bold');
-      const role = this.text(tx + 104, top + 4, kit.role, 13, '#c9d1e0');
-      // Five ability slots: the starting ability, then four earned during the run.
-      const slotNames: (string | null)[] = [ABILITIES[kit.starting].name, null, null, null, null];
-      const slotW = 68;
-      const slotH = 60;
-      const slots: Phaser.GameObjects.GameObject[] = [];
-      slotNames.forEach((label, j) => {
-        const sx = tx + j * (slotW + 6) + slotW / 2;
-        const sy = top + 34 + slotH / 2;
-        if (label) {
-          slots.push(
-            this.add.rectangle(sx, sy, slotW, slotH, 0x2b3a55).setStrokeStyle(2, COLORS[cls]),
-            this.text(sx, sy, label, 11, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold').setWordWrapWidth(slotW - 6),
-          );
-        } else {
-          slots.push(
-            this.add.rectangle(sx, sy, slotW, slotH, 0x151b27).setStrokeStyle(2, 0x3a4660),
-            this.text(sx, sy - 7, '+', 20, '#3f4b63').setOrigin(0.5).setFontStyle('bold'),
-            this.text(sx, sy + 15, 'Earn in run', 9, '#5d6880').setOrigin(0.5),
-          );
-        }
-      });
-      bg.on('pointerover', () => bg.setFillStyle(0x26314a));
-      bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
-      bg.on('pointerdown', () => this.startAs(cls));
-      const passive = PASSIVES[kit.passive];
-      const passiveText = this.text(tx, top + 99, `Passive: ${passive.name} — ${passive.short}`, 12, '#9ad1ff');
-      items.push(bg, disc, letter, name, role, ...slots, passiveText);
+      const bg = this.add
+        .rectangle(cx, y, 470, cardH, 0x1c2433)
+        .setStrokeStyle(2, 0x3a4660)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerover', () => bg.setFillStyle(0x26314a))
+        .on('pointerout', () => bg.setFillStyle(0x1c2433))
+        .on('pointerdown', () => {
+          if (team.length >= 4) return;
+          sound.play('click');
+          this.showTeamBuilder([...team, cls]);
+        });
+      const left = cx - 225;
+      items.push(
+        bg,
+        this.add.circle(left + 30, y, 22, COLORS[cls]).setStrokeStyle(2, 0x111111),
+        this.text(left + 30, y, LETTERS[cls], 20, DARK_LETTER.includes(cls) ? '#222' : '#fff').setOrigin(0.5).setFontStyle('bold'),
+        this.text(left + 64, y - 34, cls[0].toUpperCase() + cls.slice(1), 18, '#ffffff').setFontStyle('bold'),
+        this.text(left + 170, y - 31, kit.role, 12, '#c9d1e0'),
+        this.text(left + 64, y - 8, `Starts with: ${ABILITIES[kit.starting].name}`, 12, '#ffd166'),
+        this.text(left + 64, y + 12, `Passive: ${PASSIVES[kit.passive].name} — ${PASSIVES[kit.passive].short}`, 11, '#9ad1ff'),
+      );
     });
+
+    // Classic team shortcut and Start.
+    items.push(
+      this.text(cx, 732, 'Tip: a classic team is 1 tank, 1 healer and 2 damage.', 12, '#8f9bb3').setOrigin(0.5),
+      this.button(cx - 120, 790, 'Classic team', 16, '#2b3445', () => {
+        sound.play('click');
+        this.showTeamBuilder([...DEFAULT_TEAM]);
+      }),
+    );
+    const ready = team.length === 4;
+    const start = this.button(cx + 110, 790, ready ? 'Start run ▶' : `Pick ${4 - team.length} more`, 18, ready ? '#2e86de' : '#2b3445', () => {
+      if (!ready) return;
+      sound.unlock();
+      sound.play('click');
+      const run = newRun(team);
+      saveRun(run);
+      this.scene.restart({ run });
+    });
+    items.push(start);
     this.overlay = this.add.container(0, 0, items).setDepth(100);
-  }
-
-  private startAs(cls: HeroClass): void {
-    const run = newRun(cls);
-    saveRun(run);
-    this.scene.restart({ run });
-  }
-
-  /** Gold ring and "(You)" on the player's hero. */
-  private markPlayer(): void {
-    const player = this.battle.player;
-    if (!player) return;
-    const v = this.views.get(player.id);
-    if (v) {
-      v.body.setStrokeStyle(4, GOLD);
-      v.name?.setText(`${player.label} (You)`).setColor('#ffd166').setFontStyle('bold');
-    }
   }
 
   /** A message across the top of the field for a few seconds. */
@@ -377,79 +406,22 @@ export class BattleScene extends Phaser.Scene {
 
   // --- input ------------------------------------------------------------------
 
+  /** Tap any unit to inspect it (name and health along the bottom). It doesn't change what the AI does. */
   private onFieldTap(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
     if (this.state !== 'playing' || over.length) return;
     if (pointer.y > WORLD.gateY) return;
-    const player = this.battle.player;
-    if (!player) return;
-
-    const canFocusAllies = !!player.heal;
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.battle.units) {
       if (!u.alive) continue;
-      if (u.side === 'hero' && !canFocusAllies) continue;
-      const d = Math.hypot(u.x - pointer.x, u.y - pointer.y);
+      const v = this.views.get(u.id)?.container;
+      const d = Math.hypot((v?.x ?? u.x) - pointer.x, (v?.y ?? u.y) - pointer.y);
       if (d <= u.radius + 24 && d < bestD) {
         best = u;
         bestD = d;
       }
     }
-    if (!best || best.id === this.battle.focusId) this.battle.setFocus(null);
-    else this.battle.setFocus(best.id);
-  }
-
-  /** Tooltip for an ability slot: what it does, cost, cooldown, upgrades. */
-  private showSlotTooltip(slot: number, autoHide: boolean): void {
-    const p = this.battle.player;
-    if (!p) return;
-    const a = p.abilities?.[slot];
-    const trait = !a ? p.traits?.[slot - (p.abilities?.length ?? 0)] : undefined;
-    if (a) {
-      const def = ABILITIES[a.id];
-      const cost = this.battle.abilityCost(p, a.id);
-      const costText = cost ? `${cost} ${RESOURCES[p.resourceKind!].label.toLowerCase()}` : 'No cost';
-      const ups = [a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(' · ');
-      const cd = this.battle.abilityCooldown(a);
-      this.showTooltip(def.name, def.description, `${costText} · ${cd % 1 ? cd.toFixed(1) : cd}s cooldown${ups ? ` · ${ups}` : ''}`, COLORS[p.kind], autoHide);
-    } else if (trait) {
-      this.showTooltip(TRAITS[trait].name, TRAITS[trait].description, 'Passive — always on', 0xb57bff, autoHide);
-    } else {
-      this.showTooltip('Empty slot', 'Earn new abilities during the run.', 'New abilities unlock after waves 4 and 9.', 0x3a4660, autoHide);
-    }
-  }
-
-  private onSlotTap(slot: number): void {
-    if (this.state !== 'playing') return;
-    const p = this.battle.player;
-    if (!p?.abilities?.[slot]) {
-      const trait = p?.traits?.[slot - (p.abilities?.length ?? 0)];
-      this.showToast(trait ? `${TRAITS[trait].name}: passive — always on` : 'Earn more abilities during the run');
-      return;
-    }
-    const result = this.battle.useAbility(slot);
-    if (result === 'ok') {
-      this.tweens.add({ targets: this.slotViews[slot].bg, scale: 0.92, duration: 70, yoyo: true });
-      this.handleEvents(this.battle.drainEvents());
-    } else {
-      this.showToast(this.abilityMessage(result));
-    }
-  }
-
-  private abilityMessage(result: AbilityResult): string {
-    const p = this.battle.player;
-    switch (result) {
-      case 'cooldown':
-        return 'Not ready yet';
-      case 'resource':
-        return `Not enough ${p?.resourceKind ? RESOURCES[p.resourceKind].label.toLowerCase() : 'resource'}`;
-      case 'target':
-        return this.battle.focusId !== null ? 'Target out of range' : 'No target in range';
-      case 'dead':
-        return 'Your hero is down';
-      default:
-        return '';
-    }
+    this.battle.setFocus(!best || best.id === this.battle.focusId ? null : best.id);
   }
 
   private togglePause(): void {
@@ -527,60 +499,47 @@ export class BattleScene extends Phaser.Scene {
     this.hudText = this.text(WORLD.width / 2, 80, '', 13, '#c9d1e0').setOrigin(0.5, 0).setDepth(50);
     this.hudText.setStroke('#000000', 3);
 
-    // Health and resource bars.
-    this.healthBar = this.add.graphics();
-    this.healthText = this.text(HUD.barX + 8, top + HUD.healthY, '', 12, '#ffffff').setFontStyle('bold');
-    this.healthText.setStroke('#000000', 3);
-    this.resourceBar = this.add.graphics();
-    this.resourceText = this.text(HUD.barX + 8, top + HUD.resourceY, '', 12, '#ffffff').setFontStyle('bold');
-    this.resourceText.setStroke('#000000', 3);
-
-    // Buff icons: a grid to the right of the bars.
-    this.buffIcons = [];
-    const perRow = MAX_BUFF_ICONS / 2;
-    for (let i = 0; i < MAX_BUFF_ICONS; i++) {
-      const x = HUD.buffX + (i % perRow) * (BUFF_ICON + 4) + BUFF_ICON / 2;
-      const y = top + HUD.healthY + Math.floor(i / perRow) * (BUFF_ICON - 3) + BUFF_ICON / 2 - 3;
+    // Party panel: one frame per hero.
+    this.partyFrames = [];
+    this.partyBars = this.add.graphics().setDepth(1);
+    this.partyCooldowns = this.add.graphics().setDepth(4);
+    const w = PARTY.frameW;
+    for (let i = 0; i < 4; i++) {
+      const x = PARTY.x + i * (w + PARTY.gap);
+      const y = top + 6;
       const bg = this.add
-        .rectangle(x, y, BUFF_ICON, BUFF_ICON - 4, 0x2b3445)
+        .rectangle(x, y, w, PARTY.frameH, 0x111723)
+        .setOrigin(0, 0)
+        .setStrokeStyle(1, 0x2b3445)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.showEffectTooltip(i))
-        .setVisible(false);
-      const letter = this.text(x, y - 1, '', 12, '#111').setOrigin(0.5).setFontStyle('bold').setVisible(false);
-      const time = this.text(x + BUFF_ICON / 2 - 1, y + BUFF_ICON / 2 - 3, '', 9, '#ffffff').setOrigin(1, 1).setFontStyle('bold').setVisible(false);
-      time.setStroke('#000000', 3);
-      this.buffIcons.push({ bg, letter, time });
+        .on('pointerdown', () => this.showHeroTooltip(i));
+      const name = this.text(x + 6, y + 4, '', 12, '#ffffff').setFontStyle('bold');
+      const hpText = this.text(x + 6, y + 22, '', 10, '#ffffff').setFontStyle('bold').setDepth(2);
+      hpText.setStroke('#000000', 3);
+      const boxes: PartyFrame['boxes'] = [];
+      for (let j = 0; j < MAX_ABILITY_SLOTS; j++) {
+        const bx = x + 5 + j * (PARTY.box + 2) + PARTY.box / 2;
+        const by = y + 58 + PARTY.box / 2;
+        const box = this.add
+          .rectangle(bx, by, PARTY.box, PARTY.box, 0x151b27)
+          .setStrokeStyle(1, 0x2b3445)
+          .setInteractive({ useHandCursor: true })
+          .on('pointerover', (pointer: Phaser.Input.Pointer) => {
+            if (!pointer.wasTouch) this.showAbilityTooltip(i, j);
+          })
+          .on('pointerout', (pointer: Phaser.Input.Pointer) => {
+            if (!pointer.wasTouch) this.hideTooltip();
+          })
+          .on('pointerdown', () => this.showAbilityTooltip(i, j));
+        const label = this.text(bx, by, '', 9, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
+        boxes.push({ bg: box, label });
+      }
+      const buffs = this.text(x + 6, y + 86, '', 10, '#c9d1e0');
+      this.partyFrames.push({ bg, name, hpText, boxes, buffs });
     }
 
-    // Five ability slots.
-    this.slotViews = [];
-    const s = HUD.slotSize;
-    const sy = top + HUD.slotY;
-    for (let i = 0; i < MAX_ABILITY_SLOTS; i++) {
-      const cx = HUD.slotX + i * (s + HUD.slotGap) + s / 2;
-      const bg = this.add
-        .rectangle(cx, sy + s / 2, s, s, 0x151b27)
-        .setStrokeStyle(2, 0x3a4660)
-        .setInteractive({ useHandCursor: true })
-        // Tap = use it. Hover with a mouse = tooltip.
-        .on('pointerdown', () => this.onSlotTap(i))
-        .on('pointerout', (pointer: Phaser.Input.Pointer) => {
-          if (!pointer.wasTouch) this.hideTooltip();
-        })
-        .on('pointerover', (pointer: Phaser.Input.Pointer) => {
-          if (!pointer.wasTouch) this.showSlotTooltip(i, false);
-        });
-      const name = this.text(cx, sy + s / 2 - 8, '', 13, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold').setWordWrapWidth(s - 6);
-      const sub = this.text(cx, sy + s - 11, '', 10, '#c9d1e0').setOrigin(0.5);
-      const plus = this.text(cx, sy + s / 2, '+', 26, '#3f4b63').setOrigin(0.5).setFontStyle('bold');
-      const cdText = this.text(cx, sy + s / 2, '', 26, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
-      cdText.setStroke('#000000', 4);
-      this.slotViews.push({ bg, name, sub, plus, cdText });
-    }
-    this.slotCooldowns = this.add.graphics().setDepth(4);
-
-    // Bottom row (full width): target frame, or a hint.
-    const ty = top + HUD.targetY;
+    // Bottom row: inspected unit, or a hint.
+    const ty = top + HUD_TARGET_Y;
     this.focusText = this.text(16, ty + 1, '', 12, '#8f9bb3');
     this.targetName = this.text(16, ty, '', 13, '#ffffff').setFontStyle('bold');
     this.targetBar = this.add.graphics();
@@ -588,7 +547,6 @@ export class BattleScene extends Phaser.Scene {
     this.targetHp.setStroke('#000000', 3);
     this.toast = this.text(WORLD.width / 2, WORLD.hudTop - 30, '', 16, '#ff9f1a').setOrigin(0.5).setFontStyle('bold').setDepth(60);
     this.toast.setStroke('#000000', 4);
-
   }
 
   private updateHud(): void {
@@ -610,124 +568,116 @@ export class BattleScene extends Phaser.Scene {
     this.speedButton.setText(`Speed ${this.speed}x`);
     this.soundButton.setText(`Sound: ${sound.muted ? 'OFF' : 'ON'}`);
     this.pauseButton.setText(this.state === 'paused' ? '▶ Resume' : '❚❚ Pause');
+    this.autoButton.setText(`Auto picks: ${this.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.auto ? '#1e6f50' : '#2b3445');
 
-    this.autoButton.setText(`AUTO: ${this.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.auto ? '#1e6f50' : '#2b3445');
-
-    this.updatePlayerHud();
+    this.updatePartyHud();
   }
 
-  private updatePlayerHud(): void {
-    const p = this.battle.player;
-    const top = WORLD.hudTop;
-    this.healthBar.clear();
-    this.resourceBar.clear();
-    this.slotCooldowns.clear();
+  private heroInSlot(slot: number): Unit | undefined {
+    return this.battle.heroes.find((h) => h.slot === slot);
+  }
 
-    // Ability slots (empty ones show a "+").
-    const s = HUD.slotSize;
-    const sy = top + HUD.slotY;
-    this.slotViews.forEach((v, i) => {
-      const a = p?.abilities?.[i];
-      const trait = p && !a ? p.traits?.[i - (p.abilities?.length ?? 0)] : undefined;
-      v.plus.setVisible(!!p && !a && !trait);
-      if (p && trait) {
-        v.bg.setFillStyle(0x24203a).setStrokeStyle(2, 0xb57bff);
-        v.name.setText(TRAITS[trait].name).setColor('#e0c3ff');
-        v.sub.setText('passive').setColor('#b57bff');
-        v.cdText.setText('');
+  /** Each hero's health, resource, abilities (with cooldowns) and buffs. */
+  private updatePartyHud(): void {
+    const g = this.partyBars;
+    g.clear();
+    this.partyCooldowns.clear();
+    const w = PARTY.frameW;
+    this.partyFrames.forEach((f, i) => {
+      const h = this.heroInSlot(i);
+      const x = PARTY.x + i * (w + PARTY.gap);
+      const y = WORLD.hudTop + 6;
+      if (!h) {
+        f.bg.setVisible(false);
+        f.name.setText('');
+        f.hpText.setText('');
+        f.buffs.setText('');
+        for (const b of f.boxes) b.bg.setVisible(false), b.label.setText('');
         return;
       }
-      if (!p || !a) {
-        v.bg.setFillStyle(0x151b27).setStrokeStyle(2, 0x2b3445);
-        v.name.setText('');
-        v.sub.setText('');
-        v.cdText.setText('');
-        return;
+      f.bg.setVisible(true).setStrokeStyle(h.id === this.battle.focusId ? 2 : 1, h.id === this.battle.focusId ? 0x7dff9b : 0x2b3445);
+      f.name.setText(`${h.label}  Lv ${h.level ?? 1}`).setColor(h.alive ? '#' + COLORS[h.kind].toString(16).padStart(6, '0') : '#666');
+      // Health and resource.
+      const bw = w - 10;
+      g.fillStyle(0x2b3445).fillRect(x + 5, y + 21, bw, 14);
+      g.fillStyle(h.alive ? 0xc0392b : 0x444444).fillRect(x + 5, y + 21, bw * Math.max(0, h.hp / h.maxHp), 14);
+      f.hpText.setText(h.alive ? `${Math.ceil(h.hp)} / ${h.maxHp}` : 'Down');
+      if (h.resourceKind) {
+        g.fillStyle(0x2b3445).fillRect(x + 5, y + 39, bw, 8);
+        g.fillStyle(RESOURCE_COLORS[h.resourceKind]).fillRect(x + 5, y + 39, bw * ((h.resource ?? 0) / (h.maxResource ?? 1)), 8);
       }
-      const def = ABILITIES[a.id];
-      const state = this.battle.abilityState(i, p);
-      const ready = state === 'ok';
-      const dark = ready && DARK_LETTER.includes(p.kind);
-      const cost = this.battle.abilityCost(p, a.id);
-      v.name.setText(`${def.name}${a.power ? ` +${a.power}` : ''}`).setColor(dark ? '#111' : '#ffffff');
-      v.sub.setText(cost ? `${cost} ${RESOURCES[p.resourceKind!].label.toLowerCase()}` : 'no cost').setColor(dark ? '#333' : '#c9d1e0');
-      v.bg.setFillStyle(ready ? COLORS[p.kind] : 0x2b3445);
-      // Red outline = nothing it could hit is in range right now.
-      if (p.alive && !this.battle.abilityInRange(i, p)) v.bg.setStrokeStyle(3, OUT_OF_RANGE);
-      else v.bg.setStrokeStyle(2, 0x3a4660);
-      if (a.cooldown > 0) {
-        const x = HUD.slotX + i * (s + HUD.slotGap);
-        this.slotCooldowns.fillStyle(0x000000, 0.55).fillRect(x, sy, s, s * (a.cooldown / def.cooldown));
-        v.cdText.setText(a.cooldown >= 1 ? `${Math.ceil(a.cooldown)}` : a.cooldown.toFixed(1));
-      } else {
-        v.cdText.setText('');
-      }
+      // Ability boxes (traits in purple), with cooldown shading.
+      f.boxes.forEach((b, j) => {
+        const a = h.abilities?.[j];
+        const trait = !a ? h.traits?.[j - (h.abilities?.length ?? 0)] : undefined;
+        b.bg.setVisible(true);
+        if (a) {
+          const def = ABILITIES[a.id];
+          b.bg.setFillStyle(COLORS[h.kind]).setStrokeStyle(1, 0x111111);
+          b.label.setText(initials(def.name)).setColor(DARK_LETTER.includes(h.kind) ? '#111' : '#fff');
+          if (a.cooldown > 0) {
+            const bx = b.bg.x - PARTY.box / 2;
+            const by = b.bg.y - PARTY.box / 2;
+            this.partyCooldowns.fillStyle(0x000000, 0.6).fillRect(bx, by, PARTY.box, PARTY.box * Math.min(1, a.cooldown / this.battle.abilityCooldown(a)));
+          }
+        } else if (trait) {
+          b.bg.setFillStyle(0x24203a).setStrokeStyle(1, 0xb57bff);
+          b.label.setText(initials(TRAITS[trait].name)).setColor('#e0c3ff');
+        } else {
+          b.bg.setFillStyle(0x151b27).setStrokeStyle(1, 0x2b3445);
+          b.label.setText('');
+        }
+      });
+      // Active buffs/debuffs as short names.
+      const effects = (h.effects ?? []).filter((e) => e.remaining > 0 && e.kind !== 'fortitude').map((e) => EFFECT_INFO[e.kind].name);
+      f.buffs.setText(effects.slice(0, 2).join(', '));
     });
 
-    if (!p?.resourceKind) {
-      this.resourceText.setText('');
-      this.healthText.setText('');
-      this.focusText.setText('');
-      this.clearTargetFrame();
-      this.updateBuffIcons(undefined);
-      return;
-    }
-
-    // Health bar (red), with numbers.
-    const hy = top + HUD.healthY;
-    this.healthBar.fillStyle(0x2b3445).fillRect(HUD.barX, hy, HUD.barW, HUD.barH);
-    this.healthBar.fillStyle(0xc0392b).fillRect(HUD.barX, hy, HUD.barW * Math.max(0, p.hp / p.maxHp), HUD.barH);
-    this.healthText.setText(`Health ${Math.ceil(p.hp)} / ${p.maxHp}`);
-
-    // Resource bar.
-    const ry = top + HUD.resourceY;
-    const res = RESOURCES[p.resourceKind];
-    this.resourceBar.fillStyle(0x2b3445).fillRect(HUD.barX, ry, HUD.barW, HUD.barH);
-    this.resourceBar.fillStyle(RESOURCE_COLORS[p.resourceKind]).fillRect(HUD.barX, ry, HUD.barW * ((p.resource ?? 0) / (p.maxResource ?? 1)), HUD.barH);
-    const cp = p.comboPoints ?? 0;
-    const combo = this.battle.hasTrait(p, 'comboPoints') ? `  ${'●'.repeat(cp)}${'○'.repeat(5 - cp)}` : '';
-    this.resourceText.setText(`${res.label} ${Math.floor(p.resource ?? 0)} / ${p.maxResource}${combo}`);
-
-    this.updateBuffIcons(p);
-
-    // Bottom row: target frame or hint.
+    // Bottom row: the inspected unit, or a hint.
     const focus = this.battle.focusId !== null ? this.battle.unit(this.battle.focusId) : undefined;
-    const ty = top + HUD.targetY;
+    const ty = WORLD.hudTop + HUD_TARGET_Y;
     if (focus?.alive) {
       this.focusText.setText('');
       this.drawTargetFrame(focus, TARGET_BAR_X, ty, WORLD.width - 16 - TARGET_BAR_X);
     } else {
       this.clearTargetFrame();
-      if (!p.alive) this.focusText.setText('Your hero is down.');
-      else this.focusText.setText(p.heal ? 'Tap an enemy to focus it, or an ally to focus heals.' : 'Tap an enemy to focus it.');
+      this.focusText.setText('Tap a hero or goblin to inspect it. Tap a hero panel for its abilities.');
     }
   }
 
-  /** Your hero's buffs and debuffs as small tappable icons. */
-  private updateBuffIcons(p: Unit | undefined): void {
-    const effects = p?.alive ? (p.effects ?? []).filter((e) => e.remaining > 0).slice(0, MAX_BUFF_ICONS) : [];
-    this.shownEffects = effects;
-    this.buffIcons.forEach((icon, i) => {
-      const e = effects[i];
-      const visible = !!e;
-      icon.bg.setVisible(visible);
-      icon.letter.setVisible(visible);
-      icon.time.setVisible(visible);
-      if (!e) return;
-      const info = EFFECT_INFO[e.kind];
-      icon.bg.setFillStyle(info.color).setStrokeStyle(2, info.debuff ? 0xe74c3c : 0x111111);
-      icon.letter.setText(info.letter);
-      icon.time.setText(Number.isFinite(e.remaining) ? `${Math.ceil(e.remaining)}` : '');
-    });
+  /** Tooltip for one ability box in a hero's panel. */
+  private showAbilityTooltip(slot: number, j: number): void {
+    const h = this.heroInSlot(slot);
+    if (!h) return;
+    const a = h.abilities?.[j];
+    const trait = !a ? h.traits?.[j - (h.abilities?.length ?? 0)] : undefined;
+    if (a) {
+      const def = ABILITIES[a.id];
+      const cost = this.battle.abilityCost(h, a.id);
+      const costText = cost ? `${cost} ${RESOURCES[h.resourceKind!].label.toLowerCase()}` : 'No cost';
+      const ups = [a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(' · ');
+      const cd = this.battle.abilityCooldown(a);
+      this.showTooltip(`${h.label}: ${def.name}`, def.description, `${costText} · ${cd % 1 ? cd.toFixed(1) : cd}s cooldown${ups ? ` · ${ups}` : ''}`, COLORS[h.kind], true);
+    } else if (trait) {
+      this.showTooltip(`${h.label}: ${TRAITS[trait].name}`, TRAITS[trait].description, 'Passive — always on', 0xb57bff, true);
+    } else {
+      this.showTooltip('Empty slot', 'Earn new abilities from rewards every 5 waves.', '', 0x3a4660, true);
+    }
   }
 
-  private showEffectTooltip(index: number): void {
-    const e = this.shownEffects[index];
-    if (!e) return;
-    const info = EFFECT_INFO[e.kind];
-    const source = this.battle.unit(e.sourceId);
-    const timeLeft = Number.isFinite(e.remaining) ? `${Math.ceil(e.remaining)}s left` : 'Passive — always on';
-    this.showTooltip(info.name, info.text(e), `${timeLeft}${source ? ` · from ${source.label}` : ''}`, info.color, true, info.debuff);
+  /** Tap a hero's panel: its passive and abilities. */
+  private showHeroTooltip(slot: number): void {
+    const h = this.heroInSlot(slot);
+    if (!h) return;
+    const names = [...(h.abilities ?? []).map((a) => ABILITIES[a.id].name + (a.power ? ` +${a.power}` : '')), ...(h.traits ?? []).map((t) => TRAITS[t].name)];
+    const passive = h.passive ? PASSIVES[h.passive] : undefined;
+    this.showTooltip(
+      `${h.label} — level ${h.level ?? 1}`,
+      `Abilities: ${names.join(', ')}`,
+      passive ? `Passive: ${passive.name} — ${passive.short}` : '',
+      COLORS[h.kind],
+      true,
+    );
   }
 
   /** A small box just above the HUD. */
@@ -859,7 +809,7 @@ export class BattleScene extends Phaser.Scene {
       }
 
       if (v.aggroIcon) {
-        const level = u.id === this.battle.playerId ? this.battle.aggroLevel(u.id) : 'none';
+        const level = this.battle.aggroLevel(u.id);
         v.aggroIcon.container.setVisible(level !== 'none');
         v.aggroIcon.disc.setFillStyle(level === 'aggro' ? 0xe74c3c : 0xf39c12);
       }
@@ -1261,64 +1211,78 @@ export class BattleScene extends Phaser.Scene {
 
   // --- between waves ------------------------------------------------------
 
-  /** Level-up screen: pick 1 of 3 rewards, or tap "Choose for me". */
-  private showRewards(): void {
+  /**
+   * Reward screen: one pick for each hero in turn ("Choose for Warrior, 1 of 4").
+   * "Choose for me" turns Auto picks on and picks the rest.
+   */
+  private showRewards(slot = 0, picks: Reward[] = []): void {
     const run = this.run!;
     this.state = 'reward';
     const token = ++this.rewardToken;
     this.overlay?.destroy();
     const cx = WORLD.width / 2;
-    const cls = run.playerClass;
-    const options = rewardOptions(run, cls);
-    const level = run.builds[cls].level;
-    const milestone = isAbilityMilestone(run);
+    const cls = run.team[slot];
+    const hero = this.heroInSlot(slot);
+    const heroName = hero?.label ?? cls[0].toUpperCase() + cls.slice(1);
+    const options = rewardOptions(run, slot);
+    const level = run.builds[slot].level;
     const items: Phaser.GameObjects.GameObject[] = [
-      this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.8).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 130, `Wave ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
-      this.text(cx, 174, `Level up — everyone is now level ${level + 1} (+6% health & damage)`, 15, '#c9d1e0').setOrigin(0.5),
-      this.text(cx, 204, milestone ? '★ New ability unlocked — choose one:' : 'Choose an upgrade for your hero:', 16, milestone ? '#7dff9b' : '#ffffff')
-        .setOrigin(0.5)
-        .setFontStyle(milestone ? 'bold' : 'normal'),
+      this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
+      this.text(cx, 124, `Wave ${run.wave} cleared!`, 32, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 164, `Level up — everyone is now level ${level + 1}`, 15, '#c9d1e0').setOrigin(0.5),
     ];
+    // Which hero we're choosing for, with a row of four dots for progress.
+    items.push(
+      this.add.circle(cx - 120, 206, 16, COLORS[cls]).setStrokeStyle(2, 0x111111),
+      this.text(cx - 120, 206, LETTERS[cls], 14, DARK_LETTER.includes(cls) ? '#222' : '#fff').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx - 96, 196, `Choose for ${heroName}`, 18, '#ffffff').setFontStyle('bold'),
+      this.text(cx + 150, 198, `${slot + 1} of ${run.team.length}`, 14, '#8f9bb3'),
+    );
     const cardBgs: Phaser.GameObjects.Rectangle[] = [];
     options.forEach((opt, i) => {
       const d = describeReward(opt);
-      const y = 290 + i * 128;
-      const bg = this.add.rectangle(cx, y, 470, 112, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
+      const y = 300 + i * 124;
+      const bg = this.add.rectangle(cx, y, 470, 108, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
       const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
-      const tag = this.text(cx - 215, y - 42, d.tag, 12, tagColor).setFontStyle('bold');
-      const title = this.text(cx - 215, y - 22, d.title, 22, '#ffffff').setFontStyle('bold');
-      const text = this.text(cx - 215, y + 8, d.text, 14, '#c9d1e0').setWordWrapWidth(430);
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
       bg.on('pointerdown', () => {
-        if (this.rewardToken === token) this.takeReward(opt);
+        if (this.rewardToken !== token) return;
+        sound.play('click');
+        this.nextRewardPick(slot, [...picks, opt]);
       });
       cardBgs.push(bg);
-      items.push(bg, tag, title, text);
+      items.push(
+        bg,
+        this.text(cx - 215, y - 40, d.tag, 12, tagColor).setFontStyle('bold'),
+        this.text(cx - 215, y - 20, d.title, 21, '#ffffff').setFontStyle('bold'),
+        this.text(cx - 215, y + 10, d.text, 14, '#c9d1e0').setWordWrapWidth(430),
+      );
     });
-    // "Choose for me": turns AUTO on (AUTO plays your hero and picks future rewards) and picks now.
     items.push(
-      this.button(cx, 690, this.auto ? 'AUTO is choosing…' : 'Choose for me (turns AUTO on)', 18, '#5a4a1c', () => {
+      this.button(cx, 686, this.auto ? 'Auto picks is choosing…' : 'Choose for me (turns Auto picks on)', 17, '#5a4a1c', () => {
         if (this.rewardToken !== token) return;
         this.setAuto(true);
-        this.takeReward(autoChoose(cls, options));
+        this.takeReward(picks);
       }),
+      this.text(cx, 736, 'Turn Auto picks off in the top bar to choose yourself.', 12, '#8f9bb3').setOrigin(0.5),
     );
+    this.overlay = this.add.container(0, 0, items).setDepth(100);
     if (this.auto) {
-      // AUTO picks rewards too: show the pick for a moment, then continue.
+      // Auto picks: show the choice for a moment, then fill in every hero's pick.
       const pick = autoChoose(cls, options);
-      const idx = options.indexOf(pick);
       this.time.delayedCall(250, () => {
-        const card = cardBgs[idx];
-        if (this.rewardToken === token && card) card.setStrokeStyle(4, GOLD);
+        if (this.rewardToken === token) cardBgs[options.indexOf(pick)]?.setStrokeStyle(4, GOLD);
       });
-      this.time.delayedCall(1800, () => {
-        if (this.rewardToken === token && this.auto) this.takeReward(pick);
+      this.time.delayedCall(1500, () => {
+        if (this.rewardToken === token && this.auto) this.takeReward(picks);
       });
     }
-    items.push(this.text(cx, 744, 'Turn AUTO off in the top bar to choose rewards yourself.', 12, '#8f9bb3').setOrigin(0.5));
-    this.overlay = this.add.container(0, 0, items).setDepth(100);
+  }
+
+  private nextRewardPick(slot: number, picks: Reward[]): void {
+    if (slot + 1 < this.run!.team.length) this.showRewards(slot + 1, picks);
+    else this.takeReward(picks);
   }
 
   /** Waves without a reward choice: a quick level-up, then on to the next wave. */
@@ -1327,7 +1291,7 @@ export class BattleScene extends Phaser.Scene {
     this.state = 'reward';
     const token = ++this.rewardToken;
     const cx = WORLD.width / 2;
-    const level = run.builds[run.playerClass].level + 1;
+    const level = run.builds[0].level + 1;
     const next = CHOICE_AFTER_WAVES.find((w) => w > run.wave);
     const countdown = this.text(cx, 470, '', 15, '#8f9bb3').setOrigin(0.5);
     const items: Phaser.GameObjects.GameObject[] = [
@@ -1355,15 +1319,15 @@ export class BattleScene extends Phaser.Scene {
     tick();
   }
 
-  private takeReward(pick: Reward | null): void {
+  /** Apply the picks (missing ones are chosen automatically) and start the next wave. */
+  private takeReward(picks: Reward[] | null): void {
     const run = this.run!;
     this.rewardToken++;
     sound.play('click');
-    const aiPicks = completeWave(run, pick);
+    const chosen = completeWave(run, picks ?? []);
     saveRun(run);
-    const names: Record<string, string> = { warrior: 'Warrior', priest: 'Priest', mage: 'Mage', rogue: 'Rogue' };
-    const entries = Object.entries(aiPicks);
-    const teamPicks = entries.length ? 'Teammates chose: ' + entries.map(([cls, r]) => `${names[cls]} → ${describeReward(r!).title}`).join(' · ') : '';
+    const names = this.battle.heroes.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0)).map((h) => h.label);
+    const teamPicks = chosen.length ? 'Rewards: ' + chosen.map((r, i) => `${names[i] ?? run.team[i]} → ${describeReward(r).title}`).join(' · ') : '';
     this.scene.restart({ run, teamPicks });
   }
 
