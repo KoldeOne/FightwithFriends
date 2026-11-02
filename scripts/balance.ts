@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { HERO_KIT } from '../src/sim/content';
 import { ALL_CLASSES } from '../src/sim/run';
 import type { HeroClass } from '../src/sim/types';
-import { playRun, sensibleRecruit, type RunRecord } from './simlib';
+import { playRun, sensibleRecruit, type PickPolicy, type RunRecord } from './simlib';
 
 const args = process.argv.slice(2);
 const opt = (name: string, dflt: string) => {
@@ -35,14 +35,14 @@ const TANK = ALL_CLASSES.find((c) => role(c).startsWith('tank'))!;
 const HEALER = ALL_CLASSES.find((c) => role(c).startsWith('heal'))!;
 const DPS = ALL_CLASSES.filter((c) => !role(c).startsWith('tank') && !role(c).startsWith('heal'));
 
-function runAll(seeds: number, shard: number, shards: number): RunRecord[] {
+function runAll(seeds: number, shard: number, shards: number, policy: PickPolicy): RunRecord[] {
   const jobs: { team: HeroClass[]; seed: number }[] = [];
   for (const team of startingTeams(ALL_CLASSES)) for (let s = 0; s < seeds; s++) jobs.push({ team, seed: 1000 + s * 7919 });
   const mine = jobs.filter((_, i) => i % shards === shard);
   const out: RunRecord[] = [];
   const t0 = Date.now();
   for (const [i, j] of mine.entries()) {
-    out.push(playRun(j.team, j.seed, sensibleRecruit(TANK, HEALER, DPS), 80));
+    out.push(playRun(j.team, j.seed, sensibleRecruit(TANK, HEALER, DPS), 80, policy));
     if ((i + 1) % 20 === 0) console.error(`  ${i + 1}/${mine.length} runs (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
   }
   return out;
@@ -67,6 +67,11 @@ export interface Summary {
   rounds: { round: number; attempts: number; lossRate: number; meanSeconds: number; suddenDeathRate: number; stalls: number }[];
   abilities: { id: string; owners: number; usesPerOwnerRound: number; damagePerUse: number }[];
   enemies: { kind: string; damage: number; fielded: number; perEnemy: number }[];
+  /**
+   * Pick value (random-pick runs): for each reward taken, how many more rounds
+   * the run lasted than other picks made by the same class at the same round.
+   */
+  picks: { cls: string; pick: string; n: number; value: number }[];
   violations: string[];
 }
 
@@ -172,9 +177,24 @@ export function summarise(runs: RunRecord[]): Summary {
     lateSudden: late.filter((x) => x.suddenDeath).length / Math.max(1, late.length),
   };
 
+  // Pick value, controlled for survivorship: compare picks made at the same round.
+  const events = runs.flatMap((r) => (r.picks ?? []).map((p) => ({ ...p, score: r.reached - p.round })));
+  const base = new Map<string, number[]>();
+  for (const e of events) base.set(`${e.cls}@${e.round}`, [...(base.get(`${e.cls}@${e.round}`) ?? []), e.score]);
+  const baseMean = new Map([...base.entries()].map(([k, v]) => [k, mean(v)]));
+  const byPick = new Map<string, number[]>();
+  for (const e of events) {
+    const key = `${e.cls}|${e.pick}`;
+    byPick.set(key, [...(byPick.get(key) ?? []), e.score - (baseMean.get(`${e.cls}@${e.round}`) ?? 0)]);
+  }
+  const picks = [...byPick.entries()]
+    .map(([k, v]) => ({ cls: k.split('|')[0], pick: k.split('|')[1], n: v.length, value: mean(v) }))
+    .sort((a, b) => a.cls.localeCompare(b.cls) || b.value - a.value);
+
   return {
     runs: runs.length,
     kpi,
+    picks,
     overall: { meanReached: mean(reached), medianReached: median(reached), p10: pct(0.1), p90: pct(0.9) },
     teams,
     classes,
@@ -207,6 +227,15 @@ function print(s: Summary): void {
   for (const a of s.abilities) console.log(`  ${a.id.padEnd(16)} owners ${String(a.owners).padStart(6)}  uses ${f(a.usesPerOwnerRound, 2).padStart(6)}  dmg/use ${f(a.damagePerUse, 0)}`);
   console.log('\nDamage to heroes per enemy fielded (all rounds):');
   for (const e of s.enemies) console.log(`  ${e.kind.padEnd(14)} ${String(Math.round(e.perEnemy)).padStart(6)} per enemy  (${e.fielded} fielded)`);
+  if (s.picks.length) {
+    console.log('\nPick value (rounds gained vs other picks at the same round; n = times taken):');
+    let cls = '';
+    for (const p of s.picks) {
+      if (p.n < 15) continue;
+      if (p.cls !== cls) console.log(`  ${(cls = p.cls)}`);
+      console.log(`    ${p.pick.padEnd(26)} ${(p.value >= 0 ? '+' : '') + f(p.value, 1)}   n=${p.n}`);
+    }
+  }
   console.log(`\nInvariant violations: ${s.violations.length}`);
   for (const v of s.violations.slice(0, 20)) console.log('  ' + v);
 }
@@ -222,7 +251,7 @@ if (args.includes('--merge')) {
   if (out) writeFileSync(out, JSON.stringify(s, null, 1));
 } else {
   const [shard, shards] = opt('shard', '0/1').split('/').map(Number);
-  const runs = runAll(Number(opt('seeds', '6')), shard, shards);
+  const runs = runAll(Number(opt('seeds', '6')), shard, shards, opt('policy', 'ai') as PickPolicy);
   const out = opt('out', '');
   if (out) writeFileSync(out, JSON.stringify(runs));
   else print(summarise(runs));

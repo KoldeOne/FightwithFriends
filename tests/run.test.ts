@@ -126,7 +126,8 @@ describe('Run and rewards', () => {
     recruit(run, 'rogue');
     expect(run.team).toHaveLength(4);
     expect(run.builds[3].level).toBe(run.builds[0].level);
-    expect(run.builds[3].abilities.length).toBe(run.builds[0].abilities.length); // caught up on rewards
+    const picks = (i: number) => run.builds[i].abilities.length + run.builds[i].traits.length;
+    expect(picks(3)).toBe(picks(0)); // caught up on rewards
     while (run.wave <= 20) completeWave(run);
     expect(needsRecruit(run)).toBe(true);
     recruit(run, 'mage');

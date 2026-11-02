@@ -1463,8 +1463,8 @@ export class Battle {
       case 'whirlwind':
         ev();
         for (const e of this.enemiesNear(h, t.whirlwind.radius)) {
-          this.damage(h, e, this.roll(t.whirlwind.damage * k), { ability: id, aoe: true });
-          if (m) this.damage(h, e, this.roll(t.whirlwind.damage * k * t.whirlwind.secondHit), { ability: id, aoe: true });
+          this.damage(h, e, this.roll(t.whirlwind.damage * k), { ability: id, aoe: true, threatScale: t.whirlwind.threatBonus });
+          if (m) this.damage(h, e, this.roll(t.whirlwind.damage * k * t.whirlwind.secondHit), { ability: id, aoe: true, threatScale: t.whirlwind.threatBonus });
         }
         break;
       case 'shieldBlock':
@@ -1558,6 +1558,7 @@ export class Battle {
         ev(to);
         const shatter = m && (this.hasEffect(to, 'slow') || this.hasEffect(to, 'stun')) ? t.iceLance.shatter : 1;
         this.shoot(h, to, this.roll(t.iceLance.damage * k * shatter), { ability: id, big: shatter > 1 });
+        if (m) this.addEffect(to, { kind: 'slow', remaining: t.iceLance.chill, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id, ability: id });
         break;
       }
       case 'arcaneBarrage': {
@@ -1588,7 +1589,7 @@ export class Battle {
       }
       case 'frostNova':
         ev();
-        for (const e of this.enemiesNear(h, t.frostNova.radius)) {
+        for (const e of this.enemiesNear(h, m ? t.frostNova.masteryRadius : t.frostNova.radius)) {
           this.damage(h, e, this.roll(t.frostNova.damage * k), { ability: id, aoe: true });
           this.applyStun(h, e, m ? t.frostNova.masteryFreeze : t.frostNova.freeze);
         }

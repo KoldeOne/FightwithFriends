@@ -38,7 +38,7 @@ export function abilityText(h: HeroStatsForText, slot: SlotForText): string {
     case 'thunderclap':
       return `Deals ${r(t.thunderclap.damage)} damage to every nearby enemy (high threat) and slows their attacks for ${t.thunderclap.slow}s.${m ? ` They deal ${t.thunderclap.aftershock * 100}% less damage for 6s.` : ''}`;
     case 'whirlwind':
-      return `Deals ${r(t.whirlwind.damage)} damage to every nearby enemy${m ? `, then ${r(t.whirlwind.damage * t.whirlwind.secondHit)} more` : ''}.`;
+      return `Deals ${r(t.whirlwind.damage)} damage to every nearby enemy${m ? `, then ${r(t.whirlwind.damage * t.whirlwind.secondHit)} more` : ''}, with high threat.`;
     case 'shieldBlock':
       return `Takes ${(m ? t.shieldBlock.masteryReduction : t.shieldBlock.reduction) * 100}% less damage for ${m ? t.shieldBlock.masteryDuration : t.shieldBlock.duration}s.`;
     case 'shieldBash':
@@ -70,13 +70,13 @@ export function abilityText(h: HeroStatsForText, slot: SlotForText): string {
     case 'fireball':
       return `Deals ${r(t.fireball.damage)} damage, then ${r(t.fireball.burnPerSecond * t.fireball.burnDuration * (m ? 2 : 1))} burn damage over ${t.fireball.burnDuration}s${m ? ' (the burn also spreads to a nearby enemy)' : ''}.`;
     case 'iceLance':
-      return `Deals ${r(t.iceLance.damage)} damage${m ? ` (${r(t.iceLance.damage * t.iceLance.shatter)} to slowed or stunned enemies)` : ''}.`;
+      return `Deals ${r(t.iceLance.damage)} damage${m ? ` and chills the target (${r(t.iceLance.damage * t.iceLance.shatter)} to chilled or stunned enemies)` : ''}.`;
     case 'blizzard': {
       const dmg = t.blizzard.damagePerSecond * t.blizzard.duration * (m ? t.blizzard.masteryDamage : 1);
       return `Deals ${r(dmg)} damage over ${t.blizzard.duration}s to enemies in the storm and slows them${m ? ' (a 40% wider storm)' : ''}.`;
     }
     case 'frostNova':
-      return `Freezes every enemy within ${t.frostNova.radius} for ${m ? t.frostNova.masteryFreeze : t.frostNova.freeze}s and deals ${r(t.frostNova.damage)} damage.`;
+      return `Freezes every enemy within ${m ? t.frostNova.masteryRadius : t.frostNova.radius} for ${m ? t.frostNova.masteryFreeze : t.frostNova.freeze}s and deals ${r(t.frostNova.damage)} damage.`;
     case 'arcaneBarrage':
       return `Fires ${m ? t.arcaneBarrage.masteryMissiles : t.arcaneBarrage.missiles} missiles of ${r(t.arcaneBarrage.damage)} damage at random enemies.`;
     case 'polymorph':

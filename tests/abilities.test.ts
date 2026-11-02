@@ -169,10 +169,10 @@ describe('Named upgrades', () => {
     expect(b.enemies.filter((e) => e.hp < e.maxHp)).toHaveLength(2);
   });
 
-  it('Shield Wall blocks 70%', () => {
+  it('Shield Wall blocks 60%', () => {
     const { b, h } = setup('warrior', 'shieldBlock', ['grunt'], undefined, true);
     expect(b.useAbility(1)).toBe('ok');
-    expect(h.effects!.find((e) => e.kind === 'block')!.amount).toBe(0.7);
+    expect(h.effects!.find((e) => e.kind === 'block')!.amount).toBe(0.6);
   });
 
   it('Executioner: Eviscerate hits twice as hard on a wounded enemy', () => {
@@ -189,7 +189,7 @@ describe('Named upgrades', () => {
     expect(dmg(true)).toBeGreaterThan(dmg(false) * 1.7);
   });
 
-  it('Shatter: Ice Lance triples on a frozen enemy', () => {
+  it('Shatter: Ice Lance hits twice as hard on a frozen enemy', () => {
     const { b, h } = setup('mage', 'iceLance', ['abomination'], undefined, true);
     const e = b.enemies[0];
     e.y = h.y - 200;
@@ -197,7 +197,7 @@ describe('Named upgrades', () => {
     b.drainEvents();
     expect(b.useAbility(1)).toBe('ok');
     run(b, 0.7);
-    expect(lastAttack(b, h.id, e.id, 'iceLance')).toBeGreaterThan(70);
+    expect(lastAttack(b, h.id, e.id, 'iceLance')).toBeGreaterThan(48);
   });
 
   it('Reflective Shield hurts whoever hits it', () => {
@@ -242,7 +242,7 @@ describe('Boss signature moves', () => {
     expect(b.enemies.filter((e) => e.alive).every((e) => b.hasEffect(e, 'frenzy'))).toBe(true);
   });
 
-  it('The Bone King: Raise Dead summons weakened Skeletons (at most three at once)', () => {
+  it('The Bone King: Raise Dead summons weakened Skeletons (at most two at once)', () => {
     const b = bossFight('boneKing');
     const king = b.enemies[0];
     king.maxHp = king.hp = 1e6; // keep him up

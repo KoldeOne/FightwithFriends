@@ -47,7 +47,7 @@ type UnitStats = Pick<
 
 export const HERO_STATS: Record<HeroClass, UnitStats> = {
   warrior: { label: 'Warrior', radius: 22, maxHp: 420, damage: 12, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true, armor: 0.25 },
-  rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 10, attackInterval: 0.6, range: 30, attackStyle: 'melee', speed: 0, threatMultiplier: 0.7 },
+  rogue: { label: 'Rogue', radius: 18, maxHp: 235, damage: 11, attackInterval: 0.6, range: 30, attackStyle: 'melee', speed: 0, threatMultiplier: 0.7 },
   mage: { label: 'Mage', radius: 18, maxHp: 170, damage: 20, attackInterval: 1.8, range: 380, attackStyle: 'ranged', speed: 0 },
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
   paladin: { label: 'Paladin', radius: 21, maxHp: 380, damage: 13, attackInterval: 1.2, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.3, isTank: true, armor: 0.2 },
@@ -145,7 +145,7 @@ export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
 export const RESOURCES: Record<ResourceKind, { label: string; max: number; start: number; regen: number }> = {
   rage: { label: 'Rage', max: 100, start: 0, regen: 0 },
   mana: { label: 'Mana', max: 100, start: 100, regen: 3 },
-  energy: { label: 'Energy', max: 100, start: 100, regen: 12 },
+  energy: { label: 'Energy', max: 100, start: 100, regen: 15 },
 };
 
 /** Rage gained per point of damage dealt / taken. */
@@ -176,7 +176,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   heroicStrike: {
     id: 'heroicStrike', name: 'Heroic Strike', cls: 'warrior', cost: 15, cooldown: 3, scales: true,
     description: 'A heavy strike that generates extra threat.',
-    mastery: { name: 'Cleave', text: 'Also hits another enemy next to the target for 60%.' },
+    mastery: { name: 'Cleave', text: 'Also hits another enemy next to the target, just as hard.' },
   },
   thunderclap: {
     id: 'thunderclap', name: 'Thunderclap', cls: 'warrior', cost: 20, cooldown: 6, scales: true,
@@ -185,13 +185,13 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   },
   whirlwind: {
     id: 'whirlwind', name: 'Whirlwind', cls: 'warrior', cost: 25, cooldown: 6, scales: true,
-    description: 'Hits every nearby enemy.',
+    description: 'Hits every nearby enemy, with high threat.',
     mastery: { name: 'Bladestorm', text: 'Spins twice: a second hit for 50%.' },
   },
   shieldBlock: {
     id: 'shieldBlock', name: 'Shield Block', cls: 'warrior', cost: 15, cooldown: 12, scales: false,
-    description: 'Take 50% less damage for 5s.',
-    mastery: { name: 'Shield Wall', text: 'Blocks 70% for 7s.' },
+    description: 'Take 40% less damage for 5s.',
+    mastery: { name: 'Shield Wall', text: 'Blocks 60% for 6s.' },
   },
   shieldBash: {
     id: 'shieldBash', name: 'Shield Bash', cls: 'warrior', cost: 15, cooldown: 12, scales: false,
@@ -201,7 +201,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   lastStand: {
     id: 'lastStand', name: 'Last Stand', cls: 'warrior', cost: 0, cooldown: 40, scales: false,
     description: 'Below 30% health: instantly recovers 30% of maximum health.',
-    mastery: { name: 'Unbreakable', text: 'Recovers 45% and blocks 30% of damage for 5s.' },
+    mastery: { name: 'Unbreakable', text: 'Recovers 50% and blocks 40% of damage for 6s.' },
   },
   rallyingShout: {
     id: 'rallyingShout', name: 'Rallying Shout', cls: 'warrior', cost: 30, cooldown: 20, scales: false,
@@ -255,7 +255,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   iceLance: {
     id: 'iceLance', name: 'Ice Lance', cls: 'mage', cost: 12, cooldown: 2, scales: true,
     description: 'A quick, cheap ranged hit.',
-    mastery: { name: 'Shatter', text: 'Triple damage to slowed or stunned enemies.' },
+    mastery: { name: 'Shatter', text: 'Each lance chills the target; chilled or stunned enemies take double damage.' },
   },
   blizzard: {
     id: 'blizzard', name: 'Blizzard', cls: 'mage', cost: 35, cooldown: 12, scales: true,
@@ -265,7 +265,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   frostNova: {
     id: 'frostNova', name: 'Frost Nova', cls: 'mage', cost: 20, cooldown: 14, scales: false,
     description: 'Freezes every enemy near the Mage in place for 2.5s.',
-    mastery: { name: 'Ice Prison', text: 'Freezes for 4s.' },
+    mastery: { name: 'Ice Prison', text: 'Freezes for 4s, in a wider ring.' },
   },
   arcaneBarrage: {
     id: 'arcaneBarrage', name: 'Arcane Barrage', cls: 'mage', cost: 25, cooldown: 6, scales: true,
@@ -294,7 +294,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     mastery: { name: 'Riposte', text: 'Every dodged attack is answered with a 20-damage counter.' },
   },
   gouge: {
-    id: 'gouge', name: 'Gouge', cls: 'rogue', cost: 25, cooldown: 12, scales: false,
+    id: 'gouge', name: 'Gouge', cls: 'rogue', cost: 15, cooldown: 8, scales: false,
     description: 'A dirty strike that stuns an enemy for 2s (and breaks its cast).',
     mastery: { name: 'Blind', text: 'Stuns for 3.5s.' },
   },
@@ -310,7 +310,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     mastery: { name: 'Twin Judgement', text: 'Also strikes a second enemy for 60%.' },
   },
   radiantLight: {
-    id: 'radiantLight', name: 'Radiant Light', cls: 'paladin', cost: 30, cooldown: 4, scales: true,
+    id: 'radiantLight', name: 'Radiant Light', cls: 'paladin', cost: 25, cooldown: 4, scales: true,
     description: 'A solid heal on one ally.',
     mastery: { name: 'Beacon', text: 'The Paladin is healed for half as much too.' },
   },
@@ -357,7 +357,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   },
   doom: {
     id: 'doom', name: 'Doom', cls: 'warlock', cost: 30, cooldown: 15, scales: true,
-    description: 'Dooms the toughest enemy: 150 damage lands after 8s.',
+    description: 'Dooms the toughest enemy: 200 damage lands after 8s.',
     mastery: { name: 'Inevitable', text: 'Lands for 50% more, and comes back 3s sooner.' },
   },
   curseOfRuin: {
@@ -372,12 +372,13 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
  * so not every run sees every one). Order is the AI's preference when it picks.
  */
 export const CLASS_POOL: Record<HeroClass, (AbilityId | TraitId)[]> = {
-  warrior: ['thunderclap', 'shieldBlock', 'shieldBash', 'whirlwind', 'rallyingShout', 'lastStand', 'rage'],
-  paladin: ['radiantLight', 'hallowedGround', 'hammerOfJustice', 'exorcism', 'mercy', 'zeal'],
-  priest: ['renew', 'chainOfLight', 'guardianSpirit', 'powerShield', 'holyNova', 'blessedHands'],
-  mage: ['iceLance', 'blizzard', 'counterspell', 'arcaneBarrage', 'frostNova', 'arcaneSurge'],
-  warlock: ['wither', 'soulDrain', 'curseOfRuin', 'doom', 'enfeeble', 'agony'],
-  rogue: ['eviscerate', 'kick', 'fanOfKnives', 'gouge', 'evasion', 'comboPoints', 'poisonedBlades'],
+  // Ordered by measured value with random picks (scripts/balance.ts, pick value); the spread is small.
+  warrior: ['shieldBlock', 'shieldBash', 'rage', 'rallyingShout', 'lastStand', 'thunderclap', 'whirlwind'],
+  paladin: ['mercy', 'zeal', 'radiantLight', 'hallowedGround', 'exorcism', 'hammerOfJustice'],
+  priest: ['blessedHands', 'guardianSpirit', 'powerShield', 'renew', 'holyNova', 'chainOfLight'],
+  mage: ['counterspell', 'arcaneSurge', 'iceLance', 'blizzard', 'frostNova', 'arcaneBarrage'],
+  warlock: ['doom', 'enfeeble', 'wither', 'soulDrain', 'curseOfRuin', 'agony'],
+  rogue: ['poisonedBlades', 'gouge', 'evasion', 'eviscerate', 'kick', 'comboPoints', 'fanOfKnives'],
 };
 
 /** Max ability slots per hero: the starting ability + 4 earned during a run (passives take slots too). */
@@ -403,37 +404,38 @@ export const AI_RESERVE: Partial<Record<AbilityId, AbilityId[]>> = {
 /** Ability tuning numbers. */
 export const ABILITY_TUNING = {
   thunderclap: { radius: 120, damage: 12, threatBonus: 2, slow: 6, aftershock: 0.15 },
-  heroicStrike: { damage: 26, threatBonus: 1.5, cleave: 0.6, cleaveRadius: 70 },
-  whirlwind: { radius: 110, damage: 20, secondHit: 0.5 },
-  shieldBlock: { duration: 5, reduction: 0.5, masteryDuration: 7, masteryReduction: 0.7 },
+  heroicStrike: { damage: 26, threatBonus: 1.5, cleave: 1, cleaveRadius: 80 },
+  whirlwind: { radius: 110, damage: 30, secondHit: 0.6, threatBonus: 2 },
+  shieldBlock: { duration: 5, reduction: 0.4, masteryDuration: 6, masteryReduction: 0.6 },
   shieldBash: { damage: 15, stun: 2, masteryStun: 3.5, range: 30 },
-  lastStand: { below: 0.3, heal: 0.3, masteryHeal: 0.45, masteryBlock: 0.3, masteryBlockTime: 5 },
+  lastStand: { below: 0.3, heal: 0.3, masteryHeal: 0.5, masteryBlock: 0.4, masteryBlockTime: 6 },
   rallyingShout: { bonus: 0.15, duration: 8, masteryHeal: 0.08 },
   heal: { amount: 80, mastery: 1.4 },
-  renew: { total: 60, duration: 9, tick: 1.5 },
+  renew: { total: 84, duration: 9, tick: 1.5 },
   fortitude: { duration: 30, bonus: 0.2 },
   powerShield: { absorb: 60, duration: 15, reflect: 0.5 },
   guardianSpirit: { duration: 12, saveAt: 0.25, masterySaveAt: 0.5 },
   holyNova: { heal: 25, damage: 25, radius: 130, mastery: 1.5, masteryRadius: 180 },
-  chainOfLight: { amount: 55, jumps: 2, falloff: 0.7, masteryJumps: 3, masteryFalloff: 0.85 },
+  chainOfLight: { amount: 65, jumps: 2, falloff: 0.7, masteryJumps: 3, masteryFalloff: 0.85 },
   fireball: { damage: 45, burnPerSecond: 5, burnDuration: 3, spreadRadius: 110 },
   polymorph: { duration: 10, range: 380 },
   counterspell: { silence: 4, range: 380, masteryDamage: 40, masterySilence: 7 },
-  iceLance: { damage: 28, shatter: 3 },
-  blizzard: { radius: 85, duration: 6, damagePerSecond: 9, masteryRadius: 1.4, masteryDamage: 1.33 },
-  frostNova: { radius: 110, freeze: 2.5, masteryFreeze: 4, damage: 10 },
+  /** Shatter: each lance chills (slows) the target; chilled or stunned targets take double. */
+  iceLance: { damage: 28, shatter: 2, chill: 3 },
+  blizzard: { radius: 85, duration: 6, damagePerSecond: 13, masteryRadius: 1.4, masteryDamage: 1.33 },
+  frostNova: { radius: 110, freeze: 2.5, masteryFreeze: 4, masteryRadius: 150, damage: 10 },
   arcaneBarrage: { missiles: 3, masteryMissiles: 5, damage: 18 },
-  sinisterStrike: { damage: 32, bleed: 18, bleedDuration: 3 },
+  sinisterStrike: { damage: 36, bleed: 18, bleedDuration: 3 },
   /** Kick has its own range, separate from the Rogue's melee reach. */
   kick: { damage: 8, silence: 4, range: 300, masterySilence: 6, masteryStun: 1.5 },
   eviscerate: { damage: 55, executeBelow: 0.35 },
   evasion: { duration: 6, dodge: 0.75, riposte: 20 },
   gouge: { stun: 2, masteryStun: 3.5 },
-  fanOfKnives: { radius: 100, damage: 18, poison: 20, poisonDuration: 4 },
+  fanOfKnives: { radius: 100, damage: 26, poison: 20, poisonDuration: 4 },
   /** Paladin: Judgement reaches further than the Paladin's melee swing. */
   judgement: { damage: 40, range: 220, healShare: 0.5, second: 0.6 },
-  radiantLight: { amount: 70, beacon: 0.5 },
-  hallowedGround: { radius: 95, duration: 6, damagePerSecond: 8, threatBonus: 2, healPerSecond: 6 },
+  radiantLight: { amount: 95, beacon: 0.5 },
+  hallowedGround: { radius: 95, duration: 6, damagePerSecond: 12, threatBonus: 2, healPerSecond: 6 },
   /** Mercy: only for an ally below `below` of their health. */
   mercy: { amount: 160, below: 0.35, graceTime: 4 },
   hammerOfJustice: { range: 220, damage: 12, stun: 2.5, masteryStun: 4 },
@@ -442,7 +444,7 @@ export const ABILITY_TUNING = {
   wither: { total: 78, duration: 12, tick: 1 },
   soulDrain: { damage: 40, mastery: 1.5 },
   enfeeble: { reduction: 0.3, duration: 8, masteryReduction: 0.4 },
-  doom: { damage: 150, delay: 8, mastery: 1.5, masteryCooldown: 3 },
+  doom: { damage: 200, delay: 8, mastery: 1.5, masteryCooldown: 3 },
   curseOfRuin: { bonus: 0.2, masteryBonus: 0.35, duration: 8 },
   /** Slowed units attack this much slower. */
   slowFactor: 1.3,
@@ -469,10 +471,10 @@ export interface TraitDef {
 /** Class passives that can be picked like abilities (they take a slot). */
 export const TRAITS: Record<TraitId, TraitDef> = {
   rage: { id: 'rage', cls: 'warrior', name: 'Rage', description: 'Hits up to 20% harder at full rage.' },
-  blessedHands: { id: 'blessedHands', cls: 'priest', name: 'Blessed Hands', description: 'Heals on an ally below 35% health are 50% stronger.' },
+  blessedHands: { id: 'blessedHands', cls: 'priest', name: 'Blessed Hands', description: 'Heals on an ally below 35% health are 25% stronger.' },
   arcaneSurge: { id: 'arcaneSurge', cls: 'mage', name: 'Arcane Surge', description: 'Fireball has a 25% chance to cost no mana.' },
   comboPoints: { id: 'comboPoints', cls: 'rogue', name: 'Combo Points', description: 'Auto attacks build combo points; Sinister Strike and Eviscerate spend them for +15% damage each.' },
-  poisonedBlades: { id: 'poisonedBlades', cls: 'rogue', name: 'Poisoned Blades', description: 'Auto attacks poison the target: 4 damage a second for 4s.' },
+  poisonedBlades: { id: 'poisonedBlades', cls: 'rogue', name: 'Poisoned Blades', description: 'Auto attacks poison the target: 6 damage a second for 4s.' },
   zeal: { id: 'zeal', cls: 'paladin', name: 'Zeal', description: 'Judgement heals for the full damage dealt, not half.' },
   agony: { id: 'agony', cls: 'warlock', name: 'Agony', description: 'Wither deals 50% more damage.' },
 };
@@ -481,12 +483,12 @@ export const TRAIT_TUNING = {
   /** Warrior: +20% damage at full rage. */
   rageDamageAtMax: 0.2,
   blessedHandsBelow: 0.35,
-  blessedHandsBonus: 0.5,
+  blessedHandsBonus: 0.25,
   arcaneSurgeChance: 0.25,
   maxComboPoints: 5,
   /** Sinister Strike: +15% damage per combo point. */
   comboBonusPerPoint: 0.15,
-  poisonPerSecond: 4,
+  poisonPerSecond: 6,
   poisonDuration: 4,
   agonyBonus: 0.5,
 };
@@ -508,8 +510,8 @@ export const SHAMAN_MEND = { castTime: 2.5, heal: 70, cooldown: 7, minMissing: 4
 export const BOSS_SPECIALS = {
   warCry: { castTime: 1.5, cooldown: 14, first: 6, frenzy: 0.4, duration: 6 },
   /** Raised Skeletons are weaker than the real thing: less health, half the damage. */
-  raiseDead: { castTime: 2.5, cooldown: 18, first: 10, count: 2, maxAlive: 3, hpFactor: 0.45, damageFactor: 0.5 },
-  rainOfFire: { castTime: 2.2, cooldown: 12, first: 7, damageFactor: 1.6, radius: 85 },
+  raiseDead: { castTime: 2.5, cooldown: 20, first: 12, count: 1, maxAlive: 2, hpFactor: 0.4, damageFactor: 0.45 },
+  rainOfFire: { castTime: 2.2, cooldown: 14, first: 8, damageFactor: 1.2, radius: 75 },
 };
 
 export const BOSS_INFO: Partial<Record<EnemyKind, { special: CastKind; moves: { name: string; text: string }[] }>> = {
@@ -524,14 +526,14 @@ export const BOSS_INFO: Partial<Record<EnemyKind, { special: CastKind; moves: { 
     special: 'raiseDead',
     moves: [
       { name: 'Grave Cleave', text: 'Winds up a crushing blow on his target (splashes nearby heroes).' },
-      { name: 'Raise Dead', text: 'Every 18s: raises two weakened Skeletons (up to three at once). Interrupt it!' },
+      { name: 'Raise Dead', text: 'Every 20s: raises a weakened Skeleton (up to two at once). Interrupt it!' },
     ],
   },
   demonLord: {
     special: 'rainOfFire',
     moves: [
       { name: 'Hellfire Slam', text: 'Winds up a crushing blow on his target (splashes nearby heroes).' },
-      { name: 'Rain of Fire', text: 'Every 12s: fire falls on your back line, hitting every hero near the mark.' },
+      { name: 'Rain of Fire', text: 'Every 14s: fire falls on your back line, hitting every hero near the mark.' },
     ],
   },
 };
@@ -651,8 +653,8 @@ export function roundStrength(n: number): number {
   if (n <= 10) return 1.6 + (n - 1) * 0.08;
   if (n <= 20) return 3.2 + (n - 11) * 0.14;
   if (n <= 30) return 5.2 + (n - 21) * 0.3;
-  // Past round 30 it compounds (+6% a round), so even the sturdiest team's run ends.
-  return roundStrength(30) * Math.pow(1.06, n - 30);
+  // Past round 30 it compounds (+8% a round), so even the sturdiest team's run ends.
+  return roundStrength(30) * Math.pow(1.08, n - 30);
 }
 
 /**

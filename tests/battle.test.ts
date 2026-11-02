@@ -611,7 +611,7 @@ describe('Traits (future rewards)', () => {
       b.useAbility(0);
       return w.hp - before;
     };
-    expect(healOn(['blessedHands'])).toBeGreaterThan(healOn([]) * 1.3);
+    expect(healOn(['blessedHands'])).toBeGreaterThan(healOn([]) * 1.15);
   });
 
   it('Arcane Surge sometimes makes Fireball free', () => {
