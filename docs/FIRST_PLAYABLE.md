@@ -20,7 +20,7 @@ Answer one question: **is a wave fun?** Specifically:
 | Portrait battlefield, simple shapes | Pixel art |
 | 4 heroes — player controls 1, AI controls 3 | Multiplayer |
 | **4 classes:** Warrior, Priest, Mage, Rogue | Paladin + Druid, Shaman, Warlock, Hunter |
-| ~4 abilities per class + signature + trait | Full 8-ability pools |
+| ~4 abilities per class + starting ability + traits as rewards | Full 8-ability pools |
 | Aggro with orange/red icons, Taunt | |
 | Focus target, ability buttons, AUTO toggle, pause | |
 | Goblins: brute, runner, archer, shaman, flyer | Undead and demon factions |
@@ -39,7 +39,7 @@ Each milestone ends with something playable.
    gate HP, win/lose a wave.
 2. **Aggro** — threat, target switching, Taunt, orange/red icons.
 3. **Player controls** — tap to focus, ability buttons, resource bar, AUTO, pause.
-4. **Class kits** — 4 classes with signatures, traits, starting abilities;
+4. **Class kits** — 4 classes with starting abilities, default abilities, traits;
    healing, buffs, debuffs. (Step 3 already added each class's default
    starting ability, its resource, and simple effects: heal/damage over time
    and slows.)

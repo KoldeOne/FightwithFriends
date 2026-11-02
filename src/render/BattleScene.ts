@@ -189,13 +189,32 @@ export class BattleScene extends Phaser.Scene {
       const top = y - cardH / 2 + 12;
       const name = this.text(tx, top, cls[0].toUpperCase() + cls.slice(1), 20, '#ffffff').setFontStyle('bold');
       const role = this.text(tx + 104, top + 4, kit.role, 13, '#c9d1e0');
-      const sig = this.text(tx, top + 32, `★ Starting ability: ${SIGNATURES[kit.signature].name}`, 14, '#ffd166').setFontStyle('bold');
-      const sigDesc = this.text(tx + 14, top + 52, SIGNATURES[kit.signature].description, 12, '#c9d1e0').setWordWrapWidth(370);
-      const ability = this.text(tx, top + 72, `Ability: ${ABILITIES[kit.ability].name}`, 12, '#8f9bb3');
+      // Five ability slots: the starting ability, the class's default ability,
+      // then three empty slots earned during the run.
+      const slotNames = [SIGNATURES[kit.signature].name, ABILITIES[kit.ability].name, null, null, null];
+      const slotW = 68;
+      const slotH = 60;
+      const slots: Phaser.GameObjects.GameObject[] = [];
+      slotNames.forEach((label, j) => {
+        const sx = tx + j * (slotW + 6) + slotW / 2;
+        const sy = top + 34 + slotH / 2;
+        if (label) {
+          slots.push(
+            this.add.rectangle(sx, sy, slotW, slotH, 0x2b3a55).setStrokeStyle(2, COLORS[cls]),
+            this.text(sx, sy, label, 11, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold').setWordWrapWidth(slotW - 6),
+          );
+        } else {
+          slots.push(
+            this.add.rectangle(sx, sy, slotW, slotH, 0x151b27).setStrokeStyle(2, 0x3a4660),
+            this.text(sx, sy - 7, '+', 20, '#3f4b63').setOrigin(0.5).setFontStyle('bold'),
+            this.text(sx, sy + 15, 'Earn in run', 9, '#5d6880').setOrigin(0.5),
+          );
+        }
+      });
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
       bg.on('pointerdown', () => this.startAs(cls));
-      items.push(bg, disc, letter, name, role, sig, sigDesc, ability);
+      items.push(bg, disc, letter, name, role, ...slots);
     });
     this.overlay = this.add.container(0, 0, items).setDepth(100);
   }
@@ -362,11 +381,11 @@ export class BattleScene extends Phaser.Scene {
     const ax0 = sx + s + ABILITY_BTN.gap;
     this.sigBg = this.add
       .rectangle(sx + s / 2, by + s / 2, s, s, 0x2b3445)
-      .setStrokeStyle(3, GOLD)
+      .setStrokeStyle(2, 0x3a4660)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this.onSignatureTap());
-    this.sigTag = this.text(sx + s / 2, by + 9, '★', 12, '#ffd166').setOrigin(0.5);
-    this.sigName = this.text(sx + s / 2, by + s / 2 + 4, '', 13, '#ffffff')
+    this.sigTag = this.text(sx + s / 2, by + s - 13, '', 11, '#c9d1e0').setOrigin(0.5);
+    this.sigName = this.text(sx + s / 2, by + s / 2 - 8, '', 13, '#ffffff')
       .setOrigin(0.5)
       .setAlign('center')
       .setFontStyle('bold')
@@ -474,6 +493,7 @@ export class BattleScene extends Phaser.Scene {
     this.healthBar.clear();
     if (!p?.ability || !p.resourceKind || !p.signature) {
       this.sigName.setText('');
+      this.sigTag.setText('');
       this.sigCooldownText.setText('');
       this.abilityName.setText('');
       this.abilityCost.setText('');
@@ -490,10 +510,13 @@ export class BattleScene extends Phaser.Scene {
     const sig = SIGNATURES[p.signature];
     const sigReady = this.battle.signatureState(p) === 'ok';
     this.sigName.setText(sig.name);
-    this.sigBg.setFillStyle(sigReady ? 0x5a4a1c : 0x2b3445);
+    this.sigTag.setText('no cost');
+    this.sigBg.setFillStyle(sigReady ? COLORS[p.kind] : 0x2b3445);
+    this.sigName.setColor(sigReady && DARK_LETTER.includes(p.kind) ? '#111' : '#ffffff');
+    this.sigTag.setColor(sigReady && DARK_LETTER.includes(p.kind) ? '#333' : '#c9d1e0');
     // Red outline = nothing it could hit is in range right now.
     if (p.alive && !this.battle.signatureInRange(p)) this.sigBg.setStrokeStyle(4, OUT_OF_RANGE);
-    else this.sigBg.setStrokeStyle(3, GOLD);
+    else this.sigBg.setStrokeStyle(2, 0x3a4660);
     const scd = p.signatureCooldown ?? 0;
     if (scd > 0) {
       this.sigCooldown.fillStyle(0x000000, 0.55).fillRect(ABILITY_BTN.x, by, s, s * (scd / sig.cooldown));

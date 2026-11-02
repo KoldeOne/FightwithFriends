@@ -96,44 +96,44 @@ original or properly licensed assets (see §12).
 
 ## 4. Hero kit
 
-Every hero has:
+Every hero has **5 abilities in total**:
 
 | Part | Count | Notes |
 |---|---|---|
 | **Auto attack** | 1 | Always on |
-| **Signature ability** | 1 | Fixed per class, active. The thing only that class does |
+| **Starting ability** | 1 | Fixed per class (e.g. Warrior: Taunt). The thing only that class does |
+| **Additional abilities** | 4 | Slot 1 is pre-filled with the class's default ability (e.g. Thunderclap); slots 2–4 are earned during the run |
 | **Class traits** | 0 at start | Passive traits are **not** part of the starting kit — they are reward options during a run |
-| **Chosen abilities** | 4 | 1 picked at the start of the run + 3 earned during the run |
 
-- Chosen abilities can be **any mix of active and passive** (e.g. 4 actives, or
-  3 passives + 1 active). There is no requirement to have an active.
-- **Buttons on screen:** maximum 5 (signature + up to 4 actives), typically 3–4.
+- Additional abilities can be **any mix of active and passive** (e.g. 4 actives,
+  or 3 passives + 1 active). There is no requirement to have an active.
+- **Buttons on screen:** maximum 5 (starting ability + up to 4 actives), typically 3–4.
+  The starting ability and other ability buttons look the same.
 - All actives can **autocast** (auto mode).
 - Each class has a pool of **~8 choosable abilities** (may expand later).
+- The class select screen shows all **5 slots** per class: the starting ability
+  and default ability filled in, and 3 empty "Earn in run" slots.
 
 ### Out-of-range indicator
 
-An ability or signature button gets a **red outline** when it has nothing in
-range to hit (e.g. the focused target is too far away). The outline clears as
-soon as a target is in range. With a focus target set, abilities only go to
-that target.
+An ability button gets a **red outline** when it has nothing in range to hit
+(e.g. the focused target is too far away). The outline clears as soon as a
+target is in range. With a focus target set, abilities only go to that target.
 
-### Starting abilities
+### Default ability options
 
-- Each class has **3 starting-ability options**.
+- Each class has **3 options** for its pre-filled slot (the default ability).
 - The **first option is always an active** and is unlocked by default.
 - The other 2 options are **unlocked with tokens**.
-- At the start of a run, the hero takes **1** starting ability from its unlocked
-  options.
 
 ---
 
 ## 5. Class ability pools (draft)
 
-⭐ = default starting ability. Pools are drafts and will be tuned in testing.
+⭐ = default ability (pre-filled slot). Pools are drafts and will be tuned in testing.
 
 ### Warrior — Tank / DPS
-- **Signature:** Taunt — forces an enemy to attack you.
+- **Starting ability:** Taunt — forces an enemy to attack you.
 - **Trait:** Rage — builds from dealing and taking damage; up to +20% damage at full rage.
 
 | Ability | Type | Leans | Effect |
@@ -147,10 +147,10 @@ that target.
 | Battle Shout | Passive (aura) | Shared | Nearby heroes deal more damage |
 | Sunder Armor | Passive (on hit) | Shared | Attacks reduce the target's armor |
 
-Starting options: Thunderclap (default), Whirlwind, Battle Shout.
+Default ability options: Thunderclap (default), Whirlwind, Battle Shout.
 
 ### Paladin — Tank / Healer / DPS
-- **Signature:** Hammer of Justice — stuns an enemy and interrupts its cast.
+- **Starting ability:** Hammer of Justice — stuns an enemy and interrupts its cast.
 - **Trait:** Holy Power — each heal or attack gives a small heal/shield to a nearby ally.
 
 | Ability | Type | Leans | Effect |
@@ -165,7 +165,7 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Beacon of Light | Passive | Healer | Your heals also partly heal the tank |
 
 ### Priest — Healer / DPS
-- **Signature:** Power Word: Fortitude — raises the whole party's maximum health by 20% for 30s.
+- **Starting ability:** Power Word: Fortitude — raises the whole party's maximum health by 20% for 30s.
 - **Trait:** Inner Focus — Renew costs half while the whole party is above 80% health.
 
 | Ability | Type | Leans | Effect |
@@ -180,7 +180,7 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Fade | Passive (proc) | Shared | Automatically drops threat when you pull aggro |
 
 ### Mage — DPS (ranged AoE and control)
-- **Signature:** Polymorph — turns an enemy (not a boss) into a sheep for 10s.
+- **Starting ability:** Polymorph — turns an enemy (not a boss) into a sheep for 10s.
 - **Trait:** Arcane Surge — Fireball has a 25% chance to cost no mana.
 
 | Ability | Type | Leans | Effect |
@@ -195,7 +195,7 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Arcane Intellect | Passive (aura) | Shared | Party gains resource capacity |
 
 ### Rogue — DPS (melee single-target burst, self threat management)
-- **Signature:** Kick — interrupts an enemy cast and locks it out of casting. Kick has its
+- **Starting ability:** Kick — interrupts an enemy cast and locks it out of casting. Kick has its
   own range (same as Taunt), separate from the Rogue's short melee reach.
 - **Trait:** Combo Points — auto attacks build points (max 5); Sinister Strike spends them
   for +15% damage each.
@@ -212,7 +212,7 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Evasion | Active | Defense | Dodge most attacks for a few seconds |
 
 ### Later classes (notes only)
-- **Druid:** Signature Rebirth (combat revive). Trait Shapeshift — role direction
+- **Druid:** Starting ability Rebirth (combat revive). Trait Shapeshift — role direction
   sets the form (bear = tank, cat = DPS, tree = healer). Pool includes Roots,
   Innervate, Faerie Fire.
 - **Shaman:** Has an interrupt. Can self-revive once per wave.
