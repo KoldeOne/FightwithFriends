@@ -23,7 +23,7 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
   warrior: { label: 'Warrior', radius: 22, maxHp: 340, damage: 9, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true },
   rogue: { label: 'Rogue', radius: 18, maxHp: 210, damage: 10, attackInterval: 0.6, range: 120, attackStyle: 'melee', speed: 0, threatMultiplier: 0.7 },
   mage: { label: 'Mage', radius: 18, maxHp: 170, damage: 20, attackInterval: 1.8, range: 380, attackStyle: 'ranged', speed: 0 },
-  priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 28 },
+  priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
 };
 
 /**
@@ -32,7 +32,7 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
  */
 export const SPOTS = {
   center: { x: 270, y: 630 },
-  front: { x: 270, y: 568 },
+  front: { x: 270, y: 552 },
   left: { x: 198, y: 650 },
   right: { x: 342, y: 650 },
 };
@@ -63,9 +63,10 @@ export const FORMATION: { cls: HeroClass; x: number; y: number }[] = [
 ];
 
 export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
-  grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 17, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
-  archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 12, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
+  grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 22, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
+  archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 16, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
   shaman: { label: 'Goblin Shaman', radius: 16, maxHp: 150, damage: 8, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true },
+  brute: { label: 'Goblin Brute', radius: 24, maxHp: 620, damage: 24, attackInterval: 1.6, range: 10, attackStyle: 'melee', speed: 30, isElite: true },
   runner: { label: 'Goblin Runner', radius: 13, maxHp: 90, damage: 14, attackInterval: 1.0, range: 6, attackStyle: 'melee', speed: 75, goesForGate: true },
 };
 
@@ -154,7 +155,13 @@ export const UPGRADE = { powerPerRank: 0.25, hastePerRank: 0.8, vitalityPerRank:
  * New abilities are only offered after these waves (so the second ability is
  * used from wave 5, the third from wave 10). Other waves offer upgrades.
  */
-export const NEW_ABILITY_AFTER_WAVES = [4, 9];
+export const NEW_ABILITY_AFTER_WAVES = [4, 8];
+
+/**
+ * A reward choice screen only appears after these waves; every other wave just
+ * levels everyone up automatically.
+ */
+export const CHOICE_AFTER_WAVES = [2, 4, 6, 8];
 
 /** Per level after 1: +6% max health, damage and healing. */
 export const LEVEL_SCALING = 0.06;
@@ -186,6 +193,9 @@ export const TRAIT_TUNING = {
   /** Sinister Strike: +15% damage per combo point. */
   comboBonusPerPoint: 0.15,
 };
+
+/** Goblin Brute's telegraphed Smash: a cast bar, then a heavy hit with splash. Interruptible. */
+export const BRUTE_SMASH = { name: 'Smash', castTime: 1.8, damage: 70, splash: 30, splashRadius: 70, cooldown: 8 };
 
 /** Goblin Shaman's heal spell. It must walk within `range` of the goblin it heals. */
 export const SHAMAN_MEND = { name: 'Mend', castTime: 2.5, heal: 70, cooldown: 7, minMissing: 40, range: 90 };
@@ -243,8 +253,9 @@ export const AGGRO = {
 export const RUN_WAVES = 10;
 
 /**
- * Wave N: enemies arrive in tight groups. Counts and stats grow each wave;
- * shamans (casters) appear from wave 3; reinforcements from wave 6.
+ * Wave N has a pattern: a main push from the top, runner rushes, shaman
+ * casters, flanks from the sides, and elite Brutes. Enemy health and damage
+ * also grow each wave.
  */
 export function makeWave(n: number): WaveDef {
   // Small deterministic generator so a wave is the same every time.
@@ -253,26 +264,34 @@ export function makeWave(n: number): WaveDef {
     seed = (seed * 9301 + 49297) % 233280;
     return seed / 233280;
   };
-  const group = (time: number, kinds: EnemyKind[]): SpawnDef[] => {
+  /** A tight group arriving from the top. */
+  const top = (time: number, kinds: EnemyKind[]): SpawnDef[] => {
     const cx = 170 + rand() * 200;
     return kinds.map((kind, i) => ({ time: time + i * 0.35, kind, x: cx + (rand() - 0.5) * 110 }));
   };
-  const mainCount = [3, 4, 4, 5, 5, 4, 5, 5, 6, 6][n - 1] ?? 6;
-  const main: EnemyKind[] = [];
-  for (let i = 0; i < mainCount; i++) main.push('grunt');
-  main[1 % mainCount] = 'archer';
-  if (n >= 2) main[2 % mainCount] = 'runner';
-  if (n >= 3) main[mainCount - 1] = 'shaman';
-  if (n >= 7) main[0] = 'archer';
-  const spawns = group(0, main);
-  const reinforcements = [0, 0, 0, 0, 0, 2, 2, 3, 3, 3][n - 1] ?? 3;
-  if (reinforcements) {
-    const extra: EnemyKind[] = [];
-    for (let i = 0; i < reinforcements; i++) extra.push(i === 1 ? 'runner' : 'grunt');
-    if (n >= 9) extra[extra.length - 1] = 'shaman';
-    spawns.push(...group(22, extra));
-  }
-  return { number: n, spawns, strength: 1 + (n - 1) * 0.18 };
+  /** A tight group coming in from the left or right edge. */
+  const side = (time: number, from: 'left' | 'right', kinds: EnemyKind[]): SpawnDef[] => {
+    const cy = 230 + rand() * 140;
+    const x = from === 'left' ? -24 : WORLD.width + 24;
+    return kinds.map((kind, i) => ({ time: time + i * 0.4, kind, x, y: cy + (rand() - 0.5) * 80 }));
+  };
+  const patterns: Record<number, { name: string; spawns: SpawnDef[] }> = {
+    1: { name: 'Goblin push', spawns: top(0, ['grunt', 'archer', 'grunt']) },
+    2: { name: 'Runner rush', spawns: [...top(0, ['grunt', 'grunt', 'archer']), ...top(6, ['runner', 'runner'])] },
+    3: { name: 'Shamans', spawns: top(0, ['grunt', 'shaman', 'grunt', 'archer']) },
+    4: { name: 'Flanked!', spawns: [...side(0, 'left', ['grunt', 'archer']), ...side(1.5, 'right', ['grunt', 'grunt', 'shaman'])] },
+    5: { name: 'Elite: Goblin Brute', spawns: top(0, ['brute', 'grunt', 'archer', 'shaman']) },
+    6: { name: 'Reinforcements', spawns: [...top(0, ['grunt', 'grunt', 'archer', 'shaman']), ...top(20, ['grunt', 'runner', 'grunt'])] },
+    7: { name: 'Flank and rush', spawns: [...side(0, 'left', ['grunt', 'archer']), ...side(0.5, 'right', ['grunt', 'shaman']), ...top(9, ['runner', 'runner', 'runner'])] },
+    8: { name: 'Brute and casters', spawns: [...top(0, ['brute', 'grunt', 'shaman', 'archer']), ...top(18, ['grunt', 'shaman', 'grunt'])] },
+    9: { name: 'Surrounded', spawns: [...top(0, ['grunt', 'grunt', 'archer', 'shaman']), ...side(12, 'left', ['runner', 'runner']), ...side(16, 'right', ['brute', 'grunt'])] },
+    10: {
+      name: 'Final assault',
+      spawns: [...top(0, ['brute', 'grunt', 'grunt', 'archer', 'shaman']), ...side(16, 'left', ['grunt', 'shaman']), ...side(22, 'right', ['runner', 'runner', 'brute'])],
+    },
+  };
+  const p = patterns[n] ?? patterns[10];
+  return { number: n, name: p.name, spawns: p.spawns, strength: 1 + (n - 1) * 0.15 };
 }
 
 export const WAVE_1: WaveDef = makeWave(1);

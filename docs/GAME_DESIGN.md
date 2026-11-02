@@ -335,6 +335,25 @@ and alongside bosses.
 | Shaman | Heals/shields other enemies | Kill or interrupt it first |
 | Flyer | Ignores the line, goes for the gate or heroes | The tank can't easily hold it |
 
+### Wave patterns (as built, chapter 1)
+
+| Wave | Pattern |
+|---|---|
+| 1 | Goblin push |
+| 2 | Runner rush |
+| 3 | Shamans (first casters) |
+| 4 | Flanked! (groups from both sides) |
+| 5 | Elite: Goblin Brute |
+| 6 | Reinforcements |
+| 7 | Flank and rush |
+| 8 | Brute and casters |
+| 9 | Surrounded |
+| 10 | Final assault |
+
+**Goblin Brute (elite):** big and slow; winds up a telegraphed **Smash** (cast
+bar, red ring) that hits its target hard and splashes nearby heroes. It can be
+interrupted (Kick, Counterspell), Polymorphed (elites first), or Shield Blocked.
+
 ### Factions and bosses (proposed)
 
 | Chapter | Waves | Faction | Bosses |
@@ -402,8 +421,11 @@ Nothing about heroes carries over between runs.
 ### Leveling (as built)
 
 - 1 level per cleared wave: +6% health, damage and healing for everyone.
-- **New abilities only at milestones:** the reward after wave 4 is a choice of
-  new abilities (used from wave 5), and again after wave 9 (used in wave 10).
+- **Reward choices every other wave:** a choice screen only after waves 2, 4, 6
+  and 8. Odd waves show a quick "Level up!" and continue on their own (3s, or
+  tap Continue).
+- **New abilities only at milestones:** the choice after wave 4 and after wave 8
+  is a choice of new abilities (used from waves 5 and 9).
 - Other waves offer upgrades: Empowered (+25% effect) or Quick (−20% cooldown)
   versions of your abilities, the class's passive trait, Vitality (+10% max
   health) or Might (+10% damage & healing).
@@ -520,6 +542,21 @@ All professions can be owned; tokens decide which grow first.
 - **Endless mode** provides a "best wave" high-score chase alongside tiers.
 
 ---
+
+## 11b. Game feel (as built)
+
+- **Smooth motion:** drawing is interpolated between simulation steps; units
+  steer with easing (accelerate, slow on arrival) instead of snapping.
+- **Melee enemies surround their target** instead of stacking.
+- **Projectiles:** ranged damage lands when the shot arrives.
+- **Hit feedback:** white flash, small knockback, sparks; heavy hits add a
+  small screen shake and a 50ms hit-pause.
+- **Numbers:** rapid hits on the same target merge into one number; yours and
+  damage to heroes are prominent, teammates' hits are smaller.
+- **Rhythm:** wave intro banner ("Wave 4 — Flanked!"), "Reinforcements!" /
+  "Flankers incoming!" callouts, slow motion on the last kill.
+- **Sound:** synthesized in the browser (no audio files); Sound ON/OFF in the
+  top bar.
 
 ## 12. Theme and art
 

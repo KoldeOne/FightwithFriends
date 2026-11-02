@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
 import { makeWave, RUN_WAVES } from '../src/sim/content';
-import { applyReward, autoChoose, completeWave, newRun, rewardOptions, type RunState } from '../src/sim/run';
+import { applyReward, autoChoose, completeWave, isChoiceWave, newRun, rewardOptions, type RunState } from '../src/sim/run';
 
 function playWave(run: RunState): Battle {
   const b = new Battle({ seed: run.seed + run.wave, wave: makeWave(run.wave), playerClass: run.playerClass, builds: run.builds });
@@ -16,17 +16,21 @@ describe('Run and rewards', () => {
     expect(run.builds.mage).toEqual({ level: 1, abilities: [{ id: 'fireball', power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 });
   });
 
-  it('new abilities only after waves 4 and 9; other waves offer upgrades', () => {
+  it('choices only after waves 2, 4, 6, 8; new abilities after 4 and 8', () => {
     const run = newRun('warrior', 7);
     const key = (o: { kind: string; id?: string }) => `${o.kind}:${o.id ?? ''}`;
     for (let w = 1; w <= 10; w++) {
-      const opts = rewardOptions(run, 'warrior');
-      expect(opts).toHaveLength(3);
-      expect(new Set(opts.map(key)).size).toBe(3);
-      const newOnes = opts.filter((o) => o.kind === 'ability');
-      if (w === 4 || w === 9) expect(newOnes).toHaveLength(3 - (w === 9 ? 1 : 0));
-      else expect(newOnes).toHaveLength(0);
-      completeWave(run, newOnes[0] ?? opts[0]);
+      expect(isChoiceWave(run)).toBe([2, 4, 6, 8].includes(w));
+      if (isChoiceWave(run)) {
+        const opts = rewardOptions(run, 'warrior');
+        expect(opts).toHaveLength(3);
+        expect(new Set(opts.map(key)).size).toBe(3);
+        const newOnes = opts.filter((o) => o.kind === 'ability');
+        expect(newOnes.length > 0).toBe(w === 4 || w === 8);
+        completeWave(run, newOnes[0] ?? opts[0]);
+      } else {
+        completeWave(run, null);
+      }
     }
     const b = run.builds.warrior;
     expect(b.abilities.map((a) => a.id).filter((id) => id !== 'heroicStrike')).toHaveLength(2);
@@ -50,10 +54,11 @@ describe('Run and rewards', () => {
 
   it('AI teammates pick for themselves and everyone levels up', () => {
     const run = newRun('priest', 3);
+    run.wave = 2; // a choice wave
     const picks = completeWave(run, rewardOptions(run, 'priest')[0]);
     expect(Object.keys(picks).sort()).toEqual(['mage', 'rogue', 'warrior']);
     for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) expect(run.builds[cls].level).toBe(2);
-    expect(run.wave).toBe(2);
+    expect(run.wave).toBe(3);
   });
 
   it('upgrades raise power and shorten cooldowns', () => {
@@ -79,8 +84,11 @@ describe('Run and rewards', () => {
     expect(makeWave(1).spawns.length).toBe(3);
     expect(makeWave(2).spawns.some((s) => s.kind === 'shaman')).toBe(false);
     expect(makeWave(3).spawns.some((s) => s.kind === 'shaman')).toBe(true);
+    expect(makeWave(4).spawns.some((s) => s.y !== undefined)).toBe(true); // flank
+    expect(makeWave(5).spawns.some((s) => s.kind === 'brute')).toBe(true); // elite
     expect(makeWave(6).spawns.some((s) => s.time > 10)).toBe(true);
     expect(makeWave(10).spawns.length).toBeGreaterThan(makeWave(1).spawns.length);
+    for (let n = 1; n <= 10; n++) expect(makeWave(n).name).toBeTruthy();
   });
 
   it('a full AI-played run can be completed', () => {
@@ -90,7 +98,7 @@ describe('Run and rewards', () => {
       while (run.wave <= RUN_WAVES) {
         const b = playWave(run);
         if (b.outcome !== 'victory') break;
-        completeWave(run, autoChoose(cls, rewardOptions(run, cls)));
+        completeWave(run, isChoiceWave(run) ? autoChoose(cls, rewardOptions(run, cls)) : null);
       }
       if (run.wave > RUN_WAVES) finished++;
     }
@@ -143,6 +151,7 @@ describe('New earnable abilities', () => {
     const m = setup('mage', 'iceLance', 1);
     m.enemies[0].y = 400;
     expect(m.useAbility(1)).toBe('ok');
+    for (let i = 0; i < 0.7 / STEP; i++) m.step(STEP); // the Ice Lance is in flight
     expect(m.enemies[0].hp).toBeLessThan(m.enemies[0].maxHp);
     const r = setup('rogue', 'eviscerate', 1);
     r.enemies[0].x = r.player!.x;
@@ -174,8 +183,38 @@ describe('Formation', () => {
       expect([b.player!.x, b.player!.y]).toEqual([270, 630]);
       const others = b.heroes.filter((h) => h.kind !== cls);
       expect(others).toHaveLength(3);
-      const front = others.find((h) => h.y === 568)!;
+      const front = others.find((h) => h.y === 552)!;
       expect(front.kind).toBe(cls === 'warrior' ? 'rogue' : 'warrior');
     }
+  });
+});
+
+describe('Goblin Brute', () => {
+  const bruteWave = { number: 1, spawns: [{ time: 0, kind: 'brute' as const, x: 270 }] };
+  const setup = () => {
+    const b = new Battle({ seed: 1, wave: bruteWave, playerClass: 'rogue', heroes: ['warrior', 'rogue'] });
+    b.playerAuto = false;
+    b.step(STEP);
+    const brute = b.enemies[0];
+    const w = b.heroes.find((h) => h.kind === 'warrior')!;
+    brute.x = w.x;
+    brute.y = w.y - 50;
+    for (let i = 0; i < 20 && !brute.casting; i++) b.step(STEP);
+    return { b, brute, w };
+  };
+
+  it('winds up a telegraphed Smash that hits hard', () => {
+    const { b, brute, w } = setup();
+    expect(brute.casting?.spell).toBe('Smash');
+    const before = w.hp;
+    for (let i = 0; i < 2 / STEP; i++) b.step(STEP);
+    expect(before - w.hp).toBeGreaterThanOrEqual(40);
+  });
+
+  it('Smash can be interrupted', () => {
+    const { b, brute } = setup();
+    b.learnAbility(b.player!, 'kick');
+    expect(b.useAbility(1)).toBe('ok');
+    expect(brute.casting).toBeUndefined();
   });
 });

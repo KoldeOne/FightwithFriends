@@ -1,6 +1,6 @@
 export type Side = 'hero' | 'enemy';
 export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue';
-export type EnemyKind = 'grunt' | 'archer' | 'runner' | 'shaman';
+export type EnemyKind = 'grunt' | 'archer' | 'runner' | 'shaman' | 'brute';
 export type AttackStyle = 'melee' | 'ranged';
 export type ResourceKind = 'rage' | 'mana' | 'energy';
 export type AbilityId =
@@ -118,6 +118,12 @@ export interface Unit {
   /** Enemy: elite (tougher) and caster flags, used by auto-Polymorph priority. */
   isElite?: boolean;
   isCaster?: boolean;
+  /** Current velocity (px/s) — movement eases in and out instead of snapping. */
+  vx?: number;
+  vy?: number;
+  /** Hero: a small personal offset so the idle formation isn't rigid. */
+  idleOffX?: number;
+  idleOffY?: number;
   /** Hero: starting spot (AI teammates drift back here when it's quiet). */
   homeX?: number;
   homeY?: number;
@@ -142,8 +148,10 @@ export type AggroLevel = 'none' | 'warning' | 'aggro';
 
 export type BattleEvent =
   | { type: 'spawn'; id: number }
-  | { type: 'attack'; from: number; to: number; style: AttackStyle; amount: number; ability?: AbilityId }
+  | { type: 'attack'; from: number; to: number; style: AttackStyle; amount: number; ability?: AbilityId; big?: boolean }
   | { type: 'ability'; from: number; ability: AbilityId; to?: number }
+  /** A projectile was fired; its damage lands `duration` seconds later (as an 'attack' event). */
+  | { type: 'shoot'; from: number; to: number; duration: number; ability?: AbilityId }
   | { type: 'tick'; to: number; amount: number; kind: 'hot' | 'dot' }
   | { type: 'heal'; from: number; to: number; amount: number }
   | { type: 'taunt'; from: number; to: number }
@@ -160,10 +168,14 @@ export interface SpawnDef {
   kind: EnemyKind;
   /** Horizontal spawn position. */
   x: number;
+  /** Vertical spawn position (default: just above the top edge). Used for flanks. */
+  y?: number;
 }
 
 export interface WaveDef {
   number: number;
+  /** Shown in the wave intro, e.g. "Flanked!". */
+  name?: string;
   spawns: SpawnDef[];
   /** Enemy health and damage multiplier (1 = base). */
   strength?: number;

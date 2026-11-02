@@ -1,4 +1,4 @@
-import { ABILITIES, CLASS_POOL, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, RUN_WAVES, TRAITS, UPGRADE } from './content';
+import { ABILITIES, CHOICE_AFTER_WAVES, CLASS_POOL, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, RUN_WAVES, TRAITS, UPGRADE } from './content';
 import { createRng } from './rng';
 import type { AbilityId, HeroBuild, HeroClass, TraitId } from './types';
 
@@ -40,6 +40,11 @@ function slotsUsed(b: HeroBuild): number {
 
 function traitFor(cls: HeroClass): TraitId {
   return (Object.values(TRAITS).find((t) => t.cls === cls) ?? TRAITS.rage).id;
+}
+
+/** Does clearing the current wave give a reward choice (vs. an automatic level-up)? */
+export function isChoiceWave(run: RunState): boolean {
+  return CHOICE_AFTER_WAVES.includes(run.wave);
 }
 
 /** Is the reward after the current wave a "new ability" milestone? */
@@ -132,16 +137,19 @@ export function applyReward(b: HeroBuild, r: Reward): void {
 }
 
 /**
- * Finish a wave: every hero levels up, the player takes `playerPick`, and
- * the AI teammates choose their own rewards. Returns what each AI picked.
+ * Finish a wave: every hero levels up. On choice waves the player takes
+ * `playerPick` and the AI teammates choose their own rewards (returned).
  */
-export function completeWave(run: RunState, playerPick: Reward): Partial<Record<HeroClass, Reward>> {
+export function completeWave(run: RunState, playerPick: Reward | null): Partial<Record<HeroClass, Reward>> {
   const aiPicks: Partial<Record<HeroClass, Reward>> = {};
+  const choice = isChoiceWave(run);
   for (const cls of ALL_CLASSES) {
     const b = run.builds[cls];
-    const pick = cls === run.playerClass ? playerPick : autoChoose(cls, rewardOptions(run, cls));
-    if (cls !== run.playerClass) aiPicks[cls] = pick;
-    applyReward(b, pick);
+    if (choice) {
+      const pick = cls === run.playerClass ? (playerPick ?? autoChoose(cls, rewardOptions(run, cls))) : autoChoose(cls, rewardOptions(run, cls));
+      if (cls !== run.playerClass) aiPicks[cls] = pick;
+      applyReward(b, pick);
+    }
     b.level += 1;
   }
   run.wave += 1;

@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
 import { ABILITIES, ABILITY_TUNING, HERO_KIT, makeWave, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, RUN_WAVES, TRAITS, WAVE_1, WORLD } from '../sim/content';
+import { sound } from './sound';
 import {
   autoChoose,
   clearRun,
   completeWave,
   describeReward,
   isAbilityMilestone,
+  isChoiceWave,
   loadRun,
   nextAbilityMilestone,
   newRun,
@@ -82,6 +84,8 @@ interface UnitView {
   hpBar: Phaser.GameObjects.Graphics;
   name?: Phaser.GameObjects.Text;
   letter: Phaser.GameObjects.Text;
+  /** White overlay for hit flashes. */
+  flash: Phaser.GameObjects.Arc;
   /** Cast bar label (enemies that cast). */
   castLabel?: Phaser.GameObjects.Text;
   /** Aggro warning badge (shown on the player's hero only). */
@@ -138,6 +142,18 @@ export class BattleScene extends Phaser.Scene {
   private zoneLayer!: Phaser.GameObjects.Graphics;
   /** Bumped whenever the reward screen changes, to cancel stale timers. */
   private rewardToken = 0;
+  private soundButton!: Phaser.GameObjects.Text;
+  /** Positions before the latest simulation step, for smooth (interpolated) drawing. */
+  private prevPos = new Map<number, { x: number; y: number }>();
+  /** Brief freeze on heavy hits (seconds of real time). */
+  private hitStop = 0;
+  /** Wave intro banner time left; the fight starts when it ends. */
+  private introLeft = 0;
+  /** Set when the wave ends: short slow-motion before the end screen. */
+  private endingLeft = -1;
+  /** Merged floating damage numbers, per target. */
+  private numbers = new Map<number, { text: Phaser.GameObjects.Text; total: number; at: number }>();
+  private lastReinforcementCall = -99;
 
   // Scenery / HUD
   private gateWall!: Phaser.GameObjects.Rectangle;
@@ -145,7 +161,6 @@ export class BattleScene extends Phaser.Scene {
   private gateLabel!: Phaser.GameObjects.Text;
   private hudText!: Phaser.GameObjects.Text;
   private speedButton!: Phaser.GameObjects.Text;
-  private carefulButton!: Phaser.GameObjects.Text;
   private pauseButton!: Phaser.GameObjects.Text;
   private slotViews: SlotView[] = [];
   private slotCooldowns!: Phaser.GameObjects.Graphics;
@@ -192,10 +207,18 @@ export class BattleScene extends Phaser.Scene {
     this.syncViews();
 
     this.input.on('pointerdown', this.onFieldTap, this);
+    this.input.on('pointerdown', () => sound.unlock());
+    this.prevPos.clear();
+    this.numbers.clear();
+    this.hitStop = 0;
+    this.endingLeft = -1;
+    this.lastReinforcementCall = -99;
+    this.tweens.timeScale = 1;
     if (run) {
       this.markPlayer();
       this.state = 'playing';
       if (this.teamPicks) this.showBanner(this.teamPicks);
+      this.showWaveIntro();
     } else {
       this.state = 'choosing';
       this.showHeroSelect();
@@ -203,12 +226,20 @@ export class BattleScene extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number): void {
+    const dt = deltaMs / 1000;
     if (this.state === 'playing' && this.battle.outcome === 'running') {
-      // Fixed-step simulation; cap catch-up so a background tab doesn't explode.
-      this.acc = Math.min(this.acc + (deltaMs / 1000) * this.speed, 0.5);
-      while (this.acc >= STEP && this.battle.outcome === 'running') {
-        this.battle.step(STEP);
-        this.acc -= STEP;
+      if (this.introLeft > 0) {
+        this.introLeft -= dt;
+      } else if (this.hitStop > 0) {
+        this.hitStop -= dt;
+      } else {
+        // Fixed-step simulation; cap catch-up so a background tab doesn't explode.
+        this.acc = Math.min(this.acc + dt * this.speed, 0.5);
+        while (this.acc >= STEP && this.battle.outcome === 'running') {
+          for (const u of this.battle.units) this.prevPos.set(u.id, { x: u.x, y: u.y });
+          this.battle.step(STEP);
+          this.acc -= STEP;
+        }
       }
       this.handleEvents(this.battle.drainEvents());
     }
@@ -216,7 +247,36 @@ export class BattleScene extends Phaser.Scene {
     this.updateHud();
     this.drawFocus(time);
     this.drawZones(time);
-    if (this.battle.outcome !== 'running' && this.state === 'playing') this.showEnd();
+    if (this.battle.outcome !== 'running' && this.state === 'playing') {
+      // A beat of slow motion on the last kill (or the gate falling), then the end screen.
+      if (this.endingLeft < 0) {
+        this.handleEvents(this.battle.drainEvents());
+        this.endingLeft = 1.1;
+        this.tweens.timeScale = 0.35;
+        if (this.battle.outcome === 'victory') this.cameras.main.flash(250, 255, 240, 200);
+      }
+      this.endingLeft -= dt;
+      if (this.endingLeft <= 0) {
+        this.tweens.timeScale = 1;
+        this.showEnd();
+      }
+    }
+  }
+
+  /** "Wave 3 — Shamans": a short banner before the fight begins. */
+  private showWaveIntro(): void {
+    const w = this.battle.wave;
+    this.introLeft = 1.4;
+    sound.play('wave');
+    const cx = WORLD.width / 2;
+    const title = this.text(cx, 330, `Wave ${w.number}`, 44, '#ffd166').setOrigin(0.5).setFontStyle('bold').setDepth(80);
+    const sub = this.text(cx, 382, w.name ?? '', 20, '#ffffff').setOrigin(0.5).setDepth(80);
+    for (const t of [title, sub]) {
+      t.setStroke('#000000', 5);
+      t.setAlpha(0);
+      this.tweens.add({ targets: t, alpha: 1, duration: 200 });
+      this.tweens.add({ targets: t, alpha: 0, y: t.y - 20, delay: 1100, duration: 400, onComplete: () => t.destroy() });
+    }
   }
 
   // --- hero select ----------------------------------------------------------
@@ -297,8 +357,13 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /** A message across the top of the field for a few seconds. */
-  private showBanner(msg: string): void {
-    const t = this.text(WORLD.width / 2, 104, msg, 13, '#c9d1e0').setOrigin(0.5, 0).setAlign('center').setDepth(55).setWordWrapWidth(500);
+  private showBanner(msg: string, alert = false): void {
+    const t = this.text(WORLD.width / 2, alert ? 140 : 104, msg, alert ? 20 : 13, alert ? '#ff9f1a' : '#c9d1e0')
+      .setOrigin(0.5, 0)
+      .setAlign('center')
+      .setDepth(55)
+      .setWordWrapWidth(500)
+      .setFontStyle(alert ? 'bold' : 'normal');
     t.setStroke('#000000', 3);
     this.tweens.add({ targets: t, alpha: 0, delay: 5000, duration: 800, onComplete: () => t.destroy() });
   }
@@ -435,9 +500,9 @@ export class BattleScene extends Phaser.Scene {
     this.speedButton = small(8, 8, () => {
       this.speed = this.speed === 1 ? 2 : this.speed === 2 ? 4 : 1;
     });
-    this.carefulButton = small(98, 8, () => {
-      this.careful = !this.careful;
-      this.battle.carefulAI = this.careful;
+    this.soundButton = small(98, 8, () => {
+      sound.unlock();
+      sound.toggleMute();
     });
     this.pauseButton = small(WORLD.width - 8, 8, () => this.togglePause()).setOrigin(1, 0);
     this.autoButton = small(WORLD.width - 104, 8, () => {
@@ -536,8 +601,7 @@ export class BattleScene extends Phaser.Scene {
     this.hudText.setText(`Wave ${this.battle.wave.number}/${RUN_WAVES} · ${this.battle.enemiesRemaining} left · ${clock}`);
 
     this.speedButton.setText(`Speed ${this.speed}x`);
-    this.carefulButton.setText(`Careful AI: ${this.careful ? 'ON' : 'OFF'}`);
-    this.carefulButton.setBackgroundColor(this.careful ? '#1e6f50' : '#7a2e2e');
+    this.soundButton.setText(`Sound: ${sound.muted ? 'OFF' : 'ON'}`);
     this.pauseButton.setText(this.state === 'paused' ? '▶ Resume' : '❚❚ Pause');
 
     this.autoButton.setText(`AUTO: ${this.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.auto ? '#1e6f50' : '#2b3445');
@@ -716,7 +780,8 @@ export class BattleScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setFontStyle('bold');
     const hpBar = this.add.graphics();
-    const container = this.add.container(u.x, u.y, [body, letter, hpBar]);
+    const flash = this.add.circle(0, 0, u.radius, 0xffffff).setAlpha(0);
+    const container = this.add.container(u.x, u.y, [body, flash, letter, hpBar]);
     container.setDepth(u.side === 'hero' ? 10 : 20);
     let name: Phaser.GameObjects.Text | undefined;
     if (u.side === 'hero') {
@@ -741,14 +806,18 @@ export class BattleScene extends Phaser.Scene {
       castLabel.setStroke('#000000', 3);
       container.add(castLabel);
     }
-    this.views.set(u.id, { container, body, hpBar, name, letter, aggroIcon, castLabel, dead: false });
+    this.views.set(u.id, { container, body, hpBar, name, letter, flash, aggroIcon, castLabel, dead: false });
   }
 
   private syncViews(): void {
     for (const u of this.battle.units) {
       const v = this.views.get(u.id);
       if (!v || v.dead) continue;
-      v.container.setPosition(u.x, u.y);
+      // Draw between the last two simulation steps so motion is smooth at any frame rate.
+      const prev = this.prevPos.get(u.id);
+      const a = Math.min(1, this.acc / STEP);
+      if (prev && this.battle.outcome === 'running') v.container.setPosition(prev.x + (u.x - prev.x) * a, prev.y + (u.y - prev.y) * a);
+      else v.container.setPosition(u.x, u.y);
       const w = u.radius * 2 + 6;
       const y = -u.radius - 10;
       v.hpBar.clear();
@@ -802,8 +871,10 @@ export class BattleScene extends Phaser.Scene {
 
   private drawFocus(time: number): void {
     this.focusMarker.clear();
-    const f = this.battle.focusId !== null ? this.battle.unit(this.battle.focusId) : undefined;
-    if (!f?.alive) return;
+    const unit = this.battle.focusId !== null ? this.battle.unit(this.battle.focusId) : undefined;
+    if (!unit?.alive) return;
+    const drawn = this.views.get(unit.id)?.container;
+    const f = { ...unit, x: drawn?.x ?? unit.x, y: drawn?.y ?? unit.y };
     const color = f.side === 'enemy' ? GOLD : 0x7dff9b;
     const r = f.radius + 9 + Math.sin(time / 150) * 2;
     this.focusMarker.lineStyle(3, color, 0.95).strokeCircle(f.x, f.y, r);
@@ -828,20 +899,42 @@ export class BattleScene extends Phaser.Scene {
         case 'spawn': {
           const u = this.battle.unit(e.id);
           if (u) this.createView(u);
+          if (u?.side === 'enemy' && this.battle.time > 5 && this.battle.time - this.lastReinforcementCall > 4) {
+            this.lastReinforcementCall = this.battle.time;
+            this.showBanner(u.y > 0 ? 'Flankers incoming!' : 'Reinforcements!', true);
+            sound.play('wave');
+          }
           break;
         }
+        case 'shoot':
+          this.showProjectile(e.from, e.to, e.duration, e.ability);
+          break;
         case 'attack':
-          this.showAttack(e.from, e.to, e.style, e.amount, e.ability);
+          this.showAttack(e.from, e.to, e.style, e.amount, e.ability, e.big);
           break;
         case 'heal':
           this.showHeal(e.from, e.to, e.amount);
+          sound.play('heal');
           break;
+        case 'castStart': {
+          sound.play('cast');
+          const u = this.battle.unit(e.from);
+          if (u && e.spell === 'Smash') {
+            const ring = this.add.circle(u.x, u.y, u.radius + 6).setStrokeStyle(4, 0xff4d4d).setDepth(30);
+            this.tweens.add({ targets: ring, scale: 2.2, alpha: 0, duration: e.duration * 1000, onComplete: () => ring.destroy() });
+          }
+          break;
+        }
         case 'ability':
           this.showAbility(e.from, e.ability, e.to);
           break;
         case 'tick': {
-          const u = this.battle.unit(e.to);
-          if (u) this.floatText(u.x, u.y - 14, e.kind === 'hot' ? `+${e.amount}` : `${e.amount}`, e.kind === 'hot' ? '#7dff9b' : '#ff9f1a', 12);
+          if (e.kind === 'hot') {
+            const u = this.battle.unit(e.to);
+            if (u) this.floatText(u.x, u.y - 14, `+${e.amount}`, '#7dff9b', 11, 0.75);
+          } else {
+            this.addNumber(e.to, e.amount, '#ff9f1a', 11, 0.8);
+          }
           break;
         }
         case 'taunt':
@@ -851,12 +944,17 @@ export class BattleScene extends Phaser.Scene {
           if (e.interrupted) {
             const u = this.battle.unit(e.from);
             if (u) this.views.get(u.id)?.castLabel?.setText('');
+            sound.play('interrupt');
           }
           break;
         case 'notice': {
           const u = this.battle.unit(e.id);
           const color = e.tone === 'good' ? '#7dff9b' : e.tone === 'bad' ? '#ff6b6b' : '#9ad1ff';
-          if (u) this.floatText(u.x, u.y - u.radius - 30, e.text, color, 16);
+          if (u) this.floatText(u.x, u.y - u.radius - 30, e.text, color, e.text === 'SMASH!' ? 22 : 16);
+          if (e.text === 'SMASH!') {
+            sound.play('smash');
+            this.cameras.main.shake(220, 0.01);
+          }
           break;
         }
         case 'death':
@@ -866,61 +964,124 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private showAttack(fromId: number, toId: number, style: 'melee' | 'ranged', amount: number, ability?: AbilityId): void {
+  /** A projectile flying to its target; the hit itself arrives as an 'attack' event. */
+  private showProjectile(fromId: number, toId: number, duration: number, ability?: AbilityId): void {
+    const from = this.views.get(fromId)?.container;
+    const to = this.views.get(toId)?.container;
+    const shooter = this.battle.unit(fromId);
+    if (!from || !to || !shooter) return;
+    const big = ability === 'fireball';
+    const color = big ? 0xff5a1f : ability === 'iceLance' ? 0x9ad1ff : (PROJECTILE_COLORS[shooter.kind] ?? 0xffffff);
+    const bolt = this.add.circle(from.x, from.y, big ? 11 : shooter.kind === 'mage' ? 6 : 4, color).setDepth(30);
+    if (big) bolt.setStrokeStyle(3, 0xffd166);
+    sound.play(big ? 'fire' : ability === 'iceLance' ? 'frost' : 'shoot');
+    const sx = from.x;
+    const sy = from.y;
+    // Home in on where the target is drawn, so the shot always lands on it.
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: duration * 1000,
+      onUpdate: (tw) => {
+        const t = tw.getValue() ?? 0;
+        const tx = to.active ? to.x : bolt.x;
+        const ty = to.active ? to.y : bolt.y;
+        bolt.setPosition(sx + (tx - sx) * t, sy + (ty - sy) * t);
+        if (big && Math.random() < 0.5) this.spark(bolt.x, bolt.y, 0xffb347, 1, 10);
+      },
+      onComplete: () => bolt.destroy(),
+    });
+  }
+
+  private showAttack(fromId: number, toId: number, style: 'melee' | 'ranged', amount: number, ability?: AbilityId, big?: boolean): void {
     const from = this.battle.unit(fromId);
-    if (!from) return;
+    const fromView = this.views.get(fromId)?.container;
     const atGate = toId === GATE_ID;
-    // A unit killed by this hit is already gone from the battle, so fall back
-    // to where it was last drawn. (Bug fix: killing blows used to show at the gate.)
+    // A unit killed by this hit is already gone from the battle, so use where it was last drawn.
+    const toView = atGate ? undefined : this.views.get(toId);
     const to = atGate ? undefined : this.battle.unit(toId);
-    const lastSeen = atGate ? undefined : this.views.get(toId)?.container;
-    if (!atGate && !to && !lastSeen) return;
-    const tx = atGate ? from.x : (to?.x ?? lastSeen!.x);
-    const ty = atGate ? WORLD.gateY + 4 : (to?.y ?? lastSeen!.y);
+    if (!atGate && !toView) return;
+    const fx = fromView?.x ?? from?.x ?? 0;
+    const fy = fromView?.y ?? from?.y ?? 0;
+    const tx = atGate ? fx : toView!.container.x;
+    const ty = atGate ? WORLD.gateY + 4 : toView!.container.y;
     const hitHero = to?.side === 'hero';
-    const hitColor = atGate || hitHero ? '#ff6b6b' : ability ? '#ffd166' : '#ffffff';
-    const size = ability ? 18 : 15;
+    const mine = fromId === this.battle.playerId;
+    const heavy = big || (ability !== undefined && amount >= 40);
 
-    const land = () => {
-      this.floatText(tx, ty - 18, `${amount}`, hitColor, size);
-      if (atGate) this.flashGate();
-    };
-
-    if (ability === 'thunderclap') {
-      land();
-      return;
+    // Numbers: yours and damage to heroes are prominent; teammates' hits are smaller.
+    const color = atGate || hitHero ? '#ff6b6b' : ability ? '#ffd166' : '#ffffff';
+    const size = heavy ? 20 : ability || mine || hitHero ? 15 : 12;
+    if (atGate) {
+      this.floatText(tx, ty - 18, `${amount}`, color, 16);
+      this.flashGate();
+      sound.play('gate');
+    } else {
+      this.addNumber(toId, amount, color, size, mine || hitHero || ability ? 1 : 0.7);
     }
 
-    if (style === 'melee') {
-      const v = this.views.get(fromId);
-      if (v && from.side === 'enemy') {
-        const dx = tx - from.x;
-        const dy = ty - from.y;
-        const len = Math.hypot(dx, dy) || 1;
-        this.tweens.add({ targets: v.body, x: (dx / len) * 6, y: (dy / len) * 6, duration: 80, yoyo: true });
-      }
+    // Melee: a lunge and a slash.
+    if (style === 'melee' && ability !== 'thunderclap' && ability !== 'whirlwind' && fromView) {
+      const dx = tx - fx;
+      const dy = ty - fy;
+      const len = Math.hypot(dx, dy) || 1;
+      const body = this.views.get(fromId)?.body;
+      if (body) this.tweens.add({ targets: body, x: (dx / len) * 7, y: (dy / len) * 7, duration: 70, yoyo: true });
       const slash = this.add.graphics().setDepth(30);
-      if (ability === 'sinisterStrike') slash.lineStyle(7, 0xffe066, 1).lineBetween(from.x, from.y, tx, ty);
-      else if (ability === 'heroicStrike') slash.lineStyle(8, 0xff7043, 1).lineBetween(from.x, from.y, tx, ty);
-      else if (ability === 'eviscerate') slash.lineStyle(9, 0xe74c3c, 1).lineBetween(from.x, from.y, tx, ty);
-      else slash.lineStyle(3, 0xffffff, 0.9).lineBetween(from.x, from.y, tx, ty);
-      this.tweens.add({ targets: slash, alpha: 0, duration: ability ? 260 : 160, onComplete: () => slash.destroy() });
-      land();
-    } else {
-      const big = ability === 'fireball';
-      const color = big ? 0xff5a1f : ability === 'iceLance' ? 0x9ad1ff : (PROJECTILE_COLORS[from.kind] ?? 0xffffff);
-      const bolt = this.add.circle(from.x, from.y, big ? 12 : from.kind === 'mage' ? 7 : 4, color).setDepth(30);
-      if (big) bolt.setStrokeStyle(3, 0xffd166);
-      this.tweens.add({
-        targets: bolt,
-        x: tx,
-        y: ty,
-        duration: big ? 280 : 200,
-        onComplete: () => {
-          bolt.destroy();
-          land();
-        },
-      });
+      const w = ability === 'eviscerate' ? 9 : ability === 'heroicStrike' ? 8 : ability === 'sinisterStrike' ? 7 : 3;
+      const c = ability === 'eviscerate' ? 0xe74c3c : ability === 'heroicStrike' ? 0xff7043 : ability === 'sinisterStrike' ? 0xffe066 : 0xffffff;
+      slash.lineStyle(w, c, 0.95).lineBetween(fx + (dx / len) * 10, fy + (dy / len) * 10, tx, ty);
+      this.tweens.add({ targets: slash, alpha: 0, duration: ability ? 240 : 140, onComplete: () => slash.destroy() });
+    }
+
+    // Impact on the target: flash, knockback, sparks.
+    if (toView && !toView.dead) {
+      toView.flash.setAlpha(0.85);
+      this.tweens.add({ targets: toView.flash, alpha: 0, duration: 130 });
+      const dx = tx - fx;
+      const dy = ty - fy;
+      const len = Math.hypot(dx, dy) || 1;
+      const kb = heavy ? 7 : 3;
+      this.tweens.add({ targets: toView.body, x: (dx / len) * kb, y: (dy / len) * kb, duration: 60, yoyo: true });
+      this.spark(tx, ty, hitHero ? 0xff6b6b : 0xfff2c4, heavy ? 8 : 3, heavy ? 26 : 16);
+    }
+    if (heavy) {
+      this.cameras.main.shake(90, 0.004);
+      this.hitStop = Math.max(this.hitStop, 0.05);
+      sound.play('heavyHit');
+    } else if (!atGate) {
+      sound.play('hit');
+    }
+  }
+
+  /** Merge rapid hits on the same target into one growing number. */
+  private addNumber(targetId: number, amount: number, color: string, size: number, alpha = 1): void {
+    const view = this.views.get(targetId);
+    if (!view) return;
+    const now = this.time.now;
+    const existing = this.numbers.get(targetId);
+    if (existing && existing.text.active && now - existing.at < 300) {
+      existing.total += amount;
+      existing.at = now;
+      existing.text.setText(`${existing.total}`).setFontSize(Math.min(size + 6, Math.max(parseInt(`${existing.text.style.fontSize}`, 10), size)));
+      return;
+    }
+    const x = view.container.x + Phaser.Math.Between(-6, 6);
+    const y = view.container.y - 22;
+    const t = this.text(x, y, `${amount}`, size, color).setOrigin(0.5).setDepth(40).setFontStyle('bold').setAlpha(alpha);
+    t.setStroke('#000000', 3);
+    this.tweens.add({ targets: t, y: y - 30, duration: 750, ease: 'Cubic.easeOut' });
+    this.tweens.add({ targets: t, alpha: 0, delay: 450, duration: 300, onComplete: () => t.destroy() });
+    this.numbers.set(targetId, { text: t, total: amount, at: now });
+  }
+
+  /** A few small particles flying out from a point. */
+  private spark(x: number, y: number, color: number, count: number, distance: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = distance * (0.5 + Math.random() * 0.7);
+      const p = this.add.circle(x, y, 2 + Math.random() * 2, color).setDepth(35);
+      this.tweens.add({ targets: p, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, alpha: 0, duration: 260 + Math.random() * 160, onComplete: () => p.destroy() });
     }
   }
 
@@ -1026,6 +1187,13 @@ export class BattleScene extends Phaser.Scene {
     v.dead = true;
     v.hpBar.clear();
     v.aggroIcon?.container.setVisible(false);
+    this.spark(v.container.x, v.container.y, u?.side === 'hero' ? 0xff6b6b : 0x9fdc5a, 12, 34);
+    if (u?.side === 'hero') {
+      sound.play('heroDown');
+      this.cameras.main.shake(160, 0.006);
+    } else {
+      sound.play('death');
+    }
     if (u?.side === 'hero') {
       v.body.setFillStyle(0x444444);
       v.container.setAlpha(0.5);
@@ -1048,8 +1216,8 @@ export class BattleScene extends Phaser.Scene {
     this.time.delayedCall(90, () => this.gateWall.setFillStyle(0x7a5230));
   }
 
-  private floatText(x: number, y: number, str: string, color: string, size = 15): void {
-    const t = this.text(x + Phaser.Math.Between(-6, 6), y, str, size, color).setOrigin(0.5).setDepth(40).setFontStyle('bold');
+  private floatText(x: number, y: number, str: string, color: string, size = 15, alpha = 1): void {
+    const t = this.text(x + Phaser.Math.Between(-6, 6), y, str, size, color).setOrigin(0.5).setDepth(40).setFontStyle('bold').setAlpha(alpha);
     t.setStroke('#000000', 3);
     this.tweens.add({ targets: t, y: y - 28, alpha: 0, duration: 700, onComplete: () => t.destroy() });
   }
@@ -1060,7 +1228,9 @@ export class BattleScene extends Phaser.Scene {
     const run = this.run;
     const win = this.battle.outcome === 'victory';
     if (run && win && run.wave < RUN_WAVES) {
-      this.showRewards();
+      sound.play('levelUp');
+      if (isChoiceWave(run)) this.showRewards();
+      else this.showLevelUp();
       return;
     }
     this.state = 'over';
@@ -1131,17 +1301,49 @@ export class BattleScene extends Phaser.Scene {
     this.overlay = this.add.container(0, 0, items).setDepth(100);
   }
 
-  private takeReward(pick: Reward): void {
+  /** Waves without a reward choice: a quick level-up, then on to the next wave. */
+  private showLevelUp(): void {
+    const run = this.run!;
+    this.state = 'reward';
+    const token = ++this.rewardToken;
+    const cx = WORLD.width / 2;
+    const level = run.builds[run.playerClass].level + 1;
+    const next = nextAbilityMilestone(run);
+    const countdown = this.text(cx, 470, '', 15, '#8f9bb3').setOrigin(0.5);
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.55).setOrigin(0, 0).setInteractive(),
+      this.text(cx, 330, `Wave ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 378, `Level up! Everyone is now level ${level}.`, 18, '#ffffff').setOrigin(0.5),
+      this.text(cx, 408, next ? `Next reward choice after wave ${run.wave + 1}` : '', 13, '#9ad1ff').setOrigin(0.5),
+      countdown,
+      this.button(cx, 530, 'Continue', 20, '#2e86de', () => {
+        if (this.rewardToken === token) this.takeReward(null);
+      }),
+    ];
+    this.overlay = this.add.container(0, 0, items).setDepth(100);
+    let left = 3;
+    const tick = () => {
+      if (this.rewardToken !== token) return;
+      if (left === 0) {
+        this.takeReward(null);
+        return;
+      }
+      countdown.setText(`Next wave in ${left}…`);
+      left--;
+      this.time.delayedCall(1000, tick);
+    };
+    tick();
+  }
+
+  private takeReward(pick: Reward | null): void {
     const run = this.run!;
     this.rewardToken++;
+    sound.play('click');
     const aiPicks = completeWave(run, pick);
     saveRun(run);
     const names: Record<string, string> = { warrior: 'Warrior', priest: 'Priest', mage: 'Mage', rogue: 'Rogue' };
-    const teamPicks =
-      'Teammates chose: ' +
-      Object.entries(aiPicks)
-        .map(([cls, r]) => `${names[cls]} → ${describeReward(r!).title}`)
-        .join(' · ');
+    const entries = Object.entries(aiPicks);
+    const teamPicks = entries.length ? 'Teammates chose: ' + entries.map(([cls, r]) => `${names[cls]} → ${describeReward(r!).title}`).join(' · ') : '';
     this.scene.restart({ run, teamPicks });
   }
 

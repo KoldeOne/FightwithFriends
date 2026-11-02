@@ -14,6 +14,7 @@ import {
   PASSIVE_TUNING,
   RAGE,
   RESOURCES,
+  BRUTE_SMASH,
   SHAMAN_MEND,
   TRAIT_TUNING,
   UPGRADE,
@@ -22,6 +23,28 @@ import {
 import { createRng } from './rng';
 import type { AbilityId, AbilitySlot, AggroLevel, BattleEvent, Effect, EnemyKind, HeroBuild, HeroClass, Outcome, SpawnDef, TraitId, Unit, WaveDef, Zone } from './types';
 import { GATE_ID } from './types';
+
+interface DamageOpts {
+  threatScale?: number;
+  ability?: AbilityId;
+  tick?: boolean;
+  aoe?: boolean;
+  /** A heavy hit worth extra feedback (screen shake, hit-stop). */
+  big?: boolean;
+  /** Fireball: burn damage per second applied on impact. */
+  burn?: number;
+}
+
+interface Projectile {
+  from: Unit;
+  to: Unit;
+  amount: number;
+  opts: DamageOpts;
+  remaining: number;
+}
+
+/** Projectile speed (px/s): ranged damage lands when the shot arrives. */
+const PROJECTILE_SPEED = 520;
 
 /** Fixed simulation step in seconds. The renderer calls step() with this. */
 export const STEP = 0.05;
@@ -60,6 +83,8 @@ export class Battle {
   focusId: number | null = null;
   /** Ground effects such as Blizzard. */
   zones: Zone[] = [];
+  /** Shots in flight. */
+  private projectiles: Projectile[] = [];
 
   private nextId = 1;
   private pending: SpawnDef[];
@@ -228,7 +253,7 @@ export class Battle {
 
     while (this.pending.length && this.pending[0].time <= this.time) {
       const s = this.pending.shift()!;
-      this.addEnemy(s.kind, s.x + (this.rng() - 0.5) * 16);
+      this.addEnemy(s.kind, s.x + (this.rng() - 0.5) * 16, s.y);
     }
 
     for (const u of this.units) {
@@ -249,6 +274,7 @@ export class Battle {
       }
     }
     this.updateZones(dt);
+    this.updateProjectiles(dt);
     this.separate();
     this.units = this.units.filter((u) => u.alive || u.side === 'hero');
 
@@ -287,6 +313,8 @@ export class Battle {
       y,
       homeX: x,
       homeY: y,
+      idleOffX: (this.rng() - 0.5) * 36,
+      idleOffY: (this.rng() - 0.5) * 24,
       hp: Math.round(s.maxHp * scale * vitality),
       cooldown: 0.3 * this.rng(),
       targetId: null,
@@ -308,12 +336,13 @@ export class Battle {
     return { kind: 'stealth', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: 0 };
   }
 
-  private addEnemy(kind: EnemyKind, x: number): void {
+  private addEnemy(kind: EnemyKind, x: number, y = WORLD.spawnY): void {
     const s = ENEMY_STATS[kind];
     const strength = this.wave.strength ?? 1;
-    const clampedX = Math.min(WORLD.width - s.radius, Math.max(s.radius, x));
+    // Flankers start just off the side edges; everyone else just above the top.
+    const clampedX = y === WORLD.spawnY ? Math.min(WORLD.width - s.radius, Math.max(s.radius, x)) : x;
     const maxHp = Math.round(s.maxHp * strength);
-    this.addUnit({ ...s, maxHp, damage: s.damage * strength, id: 0, side: 'enemy', kind, x: clampedX, y: WORLD.spawnY, hp: maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [] });
+    this.addUnit({ ...s, maxHp, damage: s.damage * strength, id: 0, side: 'enemy', kind, x: clampedX, y, hp: maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [] });
   }
 
   private addUnit(u: Unit): void {
@@ -334,6 +363,7 @@ export class Battle {
       return;
     }
     if (e.kind === 'shaman' && this.shamanMend(e, dt)) return;
+    if (e.kind === 'brute' && this.bruteSmash(e)) return;
 
     const target = this.chooseEnemyTarget(e);
     e.targetId = target ? target.id : GATE_ID;
@@ -352,10 +382,13 @@ export class Battle {
     }
 
     if (gap <= e.range) {
+      e.vx = (e.vx ?? 0) * 0.5;
+      e.vy = (e.vy ?? 0) * 0.5;
       if (e.cooldown <= 0) {
         e.cooldown = e.attackInterval * (this.hasEffect(e, 'slow') ? ABILITY_TUNING.slowFactor : 1);
         const amount = this.roll(e.damage);
-        if (target) this.damage(e, target, amount);
+        if (target && e.attackStyle === 'ranged') this.shoot(e, target, amount);
+        else if (target) this.damage(e, target, amount);
         else {
           this.gate.hp -= amount;
           this.events.push({ type: 'attack', from: e.id, to: GATE_ID, style: e.attackStyle, amount });
@@ -364,13 +397,53 @@ export class Battle {
       return;
     }
 
-    // Move toward the target, without overshooting the attack range.
-    const dx = tx - e.x;
-    const dy = ty - e.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const move = Math.min(e.speed * dt, gap - e.range + 0.5);
-    e.x += (dx / len) * move;
-    e.y += (dy / len) * move;
+    // Melee enemies spread around their target instead of stacking up.
+    if (target && e.attackStyle === 'melee') {
+      const spot = this.surroundSpot(e, target);
+      steer(e, spot.x, spot.y, e.speed, 0, dt);
+      return;
+    }
+    // Otherwise walk straight in, easing to a stop at attack range.
+    const len = Math.hypot(tx - e.x, ty - e.y) || 1;
+    // Aim a little inside attack range so easing can't leave it just short.
+    const stopAt = Math.max(0, len - (gap - e.range) - 3);
+    steer(e, tx, ty, e.speed, stopAt, dt);
+  }
+
+  /** A free spot around `target` for a melee enemy, so attackers form a ring. */
+  private surroundSpot(e: Unit, target: Unit): { x: number; y: number } {
+    const r = target.radius + e.radius + Math.min(e.range, 8) * 0.5;
+    const base = Math.atan2(e.y - target.y, e.x - target.x);
+    const others = this.units.filter((o) => o !== e && o.side === 'enemy' && o.alive && o.targetId === target.id && o.attackStyle === 'melee');
+    for (let i = 0; i < 9; i++) {
+      const offset = i === 0 ? 0 : Math.ceil(i / 2) * 0.5 * (i % 2 ? 1 : -1);
+      const a = base + offset;
+      const x = target.x + Math.cos(a) * r;
+      const y = target.y + Math.sin(a) * r;
+      if (!others.some((o) => Math.hypot(o.x - x, o.y - y) < o.radius + e.radius)) return { x, y };
+    }
+    return { x: target.x + Math.cos(base) * r, y: target.y + Math.sin(base) * r };
+  }
+
+  /** Fire a projectile; its damage lands when it arrives. */
+  private shoot(from: Unit, to: Unit, amount: number, opts: DamageOpts = {}): void {
+    const duration = Math.min(0.6, Math.max(0.08, dist(from, to) / PROJECTILE_SPEED));
+    this.projectiles.push({ from, to, amount, opts, remaining: duration });
+    this.events.push({ type: 'shoot', from: from.id, to: to.id, duration, ability: opts.ability });
+  }
+
+  private updateProjectiles(dt: number): void {
+    for (const p of this.projectiles) {
+      p.remaining -= dt;
+      if (p.remaining > 1e-6) continue;
+      if (!p.to.alive) continue;
+      this.damage(p.from, p.to, p.amount, p.opts);
+      if (p.opts.burn && p.to.alive) {
+        const f = ABILITY_TUNING.fireball;
+        this.addEffect(p.to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: p.opts.burn, sourceId: p.from.id });
+      }
+    }
+    this.projectiles = this.projectiles.filter((p) => p.remaining > 1e-6 && p.to.alive);
   }
 
   /**
@@ -465,6 +538,17 @@ export class Battle {
     return true;
   }
 
+  /** Brute: when it reaches its target, wind up a telegraphed Smash. */
+  private bruteSmash(e: Unit): boolean {
+    if (e.castCooldown || this.hasEffect(e, 'silence')) return false;
+    const target = this.chooseEnemyTarget(e);
+    if (!target || dist(e, target) - e.radius - target.radius > e.range + 4) return false;
+    e.targetId = target.id;
+    e.casting = { spell: BRUTE_SMASH.name, remaining: BRUTE_SMASH.castTime, total: BRUTE_SMASH.castTime, targetId: target.id };
+    this.events.push({ type: 'castStart', from: e.id, spell: BRUTE_SMASH.name, to: target.id, duration: BRUTE_SMASH.castTime });
+    return true;
+  }
+
   private progressCast(e: Unit, dt: number): void {
     const c = e.casting!;
     const target = this.unit(c.targetId);
@@ -474,16 +558,27 @@ export class Battle {
     }
     c.remaining -= dt;
     if (c.remaining > 0) return;
-    const amount = Math.min(target.maxHp - target.hp, SHAMAN_MEND.heal);
-    target.hp += amount;
-    this.events.push({ type: 'heal', from: e.id, to: target.id, amount });
+    if (c.spell === SHAMAN_MEND.name) {
+      const amount = Math.min(target.maxHp - target.hp, SHAMAN_MEND.heal);
+      target.hp += amount;
+      this.events.push({ type: 'heal', from: e.id, to: target.id, amount });
+    } else if (c.spell === BRUTE_SMASH.name) {
+      const strength = this.wave.strength ?? 1;
+      this.events.push({ type: 'notice', id: e.id, text: 'SMASH!', tone: 'bad' });
+      this.damage(e, target, Math.round(BRUTE_SMASH.damage * strength), { big: true });
+      for (const h of this.units) {
+        if (h.side !== 'hero' || !h.alive || h.id === target.id) continue;
+        if (dist(h, target) <= BRUTE_SMASH.splashRadius) this.damage(e, h, Math.round(BRUTE_SMASH.splash * strength), { aoe: true });
+      }
+    }
     this.endCast(e, false);
   }
 
   private endCast(e: Unit, interrupted: boolean): void {
     if (!e.casting) return;
+    const spell = e.casting.spell;
     e.casting = undefined;
-    e.castCooldown = interrupted ? SHAMAN_MEND.cooldown : SHAMAN_MEND.cooldown;
+    e.castCooldown = spell === BRUTE_SMASH.name ? BRUTE_SMASH.cooldown : SHAMAN_MEND.cooldown;
     this.events.push({ type: 'castEnd', from: e.id, interrupted });
   }
 
@@ -593,10 +688,20 @@ export class Battle {
 
   /** Where an AI teammate wants to stand right now. */
   private desiredSpot(h: Unit): { x: number; y: number } {
-    const home = { x: h.homeX ?? h.x, y: h.homeY ?? h.y };
-    const enemies = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && u.y > 0);
-    if (!enemies.length) return home;
     const center = this.anchor();
+    const enemies = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && u.y > 0);
+    const close = enemies.filter((e) => Math.hypot(e.x - center.x, e.y - center.y) < 320);
+    // Relaxed formation: lean toward where the enemies are (or are coming from),
+    // with a little personal variation and drift so it never looks rigid.
+    const watch = enemies.length ? enemies : this.units.filter((u) => u.side === 'enemy' && u.alive);
+    const threatX = watch.length ? watch.reduce((a, e) => a + e.x, 0) / watch.length : this.pending[0]?.x ?? center.x;
+    const lean = Math.max(-55, Math.min(55, (threatX - center.x) * 0.35)) * (h.isTank ? 1 : 0.7);
+    const drift = Math.sin(this.time * 0.35 + h.id) * 8;
+    const home = {
+      x: (h.homeX ?? h.x) + lean + (h.idleOffX ?? 0) + drift,
+      y: (h.homeY ?? h.y) + (h.idleOffY ?? 0) + Math.cos(this.time * 0.27 + h.id * 2) * 5,
+    };
+    if (!close.length) return home;
     /** A spot just in reach of `e`, on the party's side of it. */
     const besides = (e: Unit, reach: number) => {
       const dx = center.x - e.x;
@@ -658,13 +763,7 @@ export class Battle {
     }
     wx = Math.min(WORLD.width - h.radius, Math.max(h.radius, wx));
     wy = Math.min(WORLD.gateY - h.radius - 6, wy);
-    const dx = wx - h.x;
-    const dy = wy - h.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 2) return;
-    const move = Math.min(HERO_MOVE.speed * dt, len);
-    h.x += (dx / len) * move;
-    h.y += (dy / len) * move;
+    steer(h, wx, wy, HERO_MOVE.speed, 0, dt);
   }
 
   /** Would hitting `e` for `amount` push a careful hero past the caution line? */
@@ -711,7 +810,8 @@ export class Battle {
     }
     h.targetId = target.id;
     h.cooldown = h.attackInterval;
-    this.damage(h, target, this.roll(h.damage));
+    if (h.attackStyle === 'ranged') this.shoot(h, target, this.roll(h.damage));
+    else this.damage(h, target, this.roll(h.damage));
     if (this.hasTrait(h, 'comboPoints')) h.comboPoints = Math.min(TRAIT_TUNING.maxComboPoints, (h.comboPoints ?? 0) + 1);
   }
 
@@ -785,7 +885,10 @@ export class Battle {
       case 'whirlwind':
         return this.enemiesNear(h, t.whirlwind.radius).length >= 2 || (this.enemiesNear(h, t.whirlwind.radius).length >= 1 && h.isTank === true);
       case 'shieldBlock':
-        return !this.hasEffect(h, 'block') && this.attackersOf(h) >= 1 && h.hp < h.maxHp * 0.85;
+        if (this.hasEffect(h, 'block')) return false;
+        // Block an incoming Smash, or when taking a beating.
+        if (this.units.some((e) => e.side === 'enemy' && e.alive && e.casting?.spell === BRUTE_SMASH.name && e.casting.targetId === h.id)) return true;
+        return this.attackersOf(h) >= 1 && h.hp < h.maxHp * 0.85;
       case 'powerShield':
         return this.units.some((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'shield') && this.attackersOf(u) > 0);
       case 'prayerOfHealing':
@@ -980,11 +1083,8 @@ export class Battle {
         }
         h.targetId = to.id;
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.damage(h, to, this.roll(size * k), { ability: id });
-        if (id === 'fireball' && to.alive) {
-          const f = t.fireball;
-          this.addEffect(to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: f.burnPerSecond * k, sourceId: h.id });
-        }
+        if (id === 'fireball') this.shoot(h, to, this.roll(size * k), { ability: id, burn: t.fireball.burnPerSecond * k, big: true });
+        else this.damage(h, to, this.roll(size * k), { ability: id });
         break;
       }
       case 'polymorph':
@@ -1038,7 +1138,8 @@ export class Battle {
         }
         h.targetId = to.id;
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.damage(h, to, this.roll(size), { ability: id });
+        if (id === 'iceLance') this.shoot(h, to, this.roll(size), { ability: id });
+        else this.damage(h, to, this.roll(size), { ability: id, big: true });
         break;
       }
       case 'blizzard': {
@@ -1109,7 +1210,7 @@ export class Battle {
     }
   }
 
-  private damage(from: Unit, to: Unit, amount: number, opts: { threatScale?: number; ability?: AbilityId; tick?: boolean; aoe?: boolean } = {}): void {
+  private damage(from: Unit, to: Unit, amount: number, opts: DamageOpts = {}): void {
     if (!to.alive) return;
     if (this.isSheep(to)) {
       if (opts.aoe) return; // sheep ignore AoE
@@ -1162,7 +1263,7 @@ export class Battle {
     if (from.resourceKind === 'rage') from.resource = Math.min(from.maxResource!, from.resource! + amount * RAGE.perDealt);
     if (to.resourceKind === 'rage') to.resource = Math.min(to.maxResource!, to.resource! + amount * RAGE.perTaken);
     if (opts.tick) this.events.push({ type: 'tick', to: to.id, amount, kind: 'dot' });
-    else this.events.push({ type: 'attack', from: from.id, to: to.id, style: from.attackStyle, amount, ability: opts.ability });
+    else this.events.push({ type: 'attack', from: from.id, to: to.id, style: from.attackStyle, amount, ability: opts.ability, big: opts.big });
     if (to.hp <= 0 && to.alive) {
       to.hp = 0;
       to.alive = false;
@@ -1183,15 +1284,16 @@ export class Battle {
     for (let i = 0; i < heroes.length; i++) {
       for (let j = i + 1; j < heroes.length; j++) {
         const [a, b] = [heroes[i], heroes[j]];
-        if (a.id === this.playerId) push(b, a, 1);
-        else if (b.id === this.playerId) push(a, b, 1);
-        else push(a, b, 0.5);
+        if (a.id === this.playerId) push(b, a, 1, 0.5);
+        else if (b.id === this.playerId) push(a, b, 1, 0.5);
+        else push(a, b, 0.5, 0.5);
       }
     }
     for (let i = 0; i < enemies.length; i++) {
       const a = enemies[i];
-      for (let j = i + 1; j < enemies.length; j++) push(a, enemies[j], 0.5);
-      for (const h of heroes) push(a, h, 1);
+      for (let j = i + 1; j < enemies.length; j++) push(a, enemies[j], 0.5, 0.5);
+      // Heroes physically block enemies: the enemy is pushed aside.
+      for (const h of heroes) push(a, h, 1, 0.7);
       a.x = Math.min(WORLD.width - a.radius, Math.max(a.radius, a.x));
       a.y = Math.min(WORLD.gateY - a.radius, a.y);
     }
@@ -1211,8 +1313,39 @@ function nearest(from: Unit, list: Unit[]): Unit {
   return list.reduce((best, u) => (dist(from, u) < dist(from, best) ? u : best));
 }
 
-/** Push `a` (and `b` by the remaining share) apart if they overlap. */
-function push(a: Unit, b: Unit, aShare: number): void {
+/**
+ * Ease a unit toward (tx, ty) at up to maxSpeed, slowing as it arrives and
+ * stopping `stopDist` short. Velocity changes gradually so motion is smooth.
+ */
+function steer(u: Unit, tx: number, ty: number, maxSpeed: number, stopDist: number, dt: number): void {
+  const dx = tx - u.x;
+  const dy = ty - u.y;
+  const len = Math.hypot(dx, dy);
+  const remaining = len - stopDist;
+  let wantVx = 0;
+  let wantVy = 0;
+  if (remaining > 1) {
+    const speed = maxSpeed * Math.min(1, remaining / 28);
+    wantVx = (dx / len) * speed;
+    wantVy = (dy / len) * speed;
+  }
+  const k = Math.min(1, dt * 8);
+  u.vx = (u.vx ?? 0) + (wantVx - (u.vx ?? 0)) * k;
+  u.vy = (u.vy ?? 0) + (wantVy - (u.vy ?? 0)) * k;
+  // Never overshoot the stopping point.
+  const step = Math.hypot(u.vx, u.vy) * dt;
+  if (step > Math.max(0, remaining)) {
+    const f = Math.max(0, remaining) / (step || 1);
+    u.x += u.vx * dt * f;
+    u.y += u.vy * dt * f;
+  } else {
+    u.x += u.vx * dt;
+    u.y += u.vy * dt;
+  }
+}
+
+/** Push `a` (and `b` by the remaining share) apart if they overlap; `k` softens the push. */
+function push(a: Unit, b: Unit, aShare: number, k = 1): void {
   const min = a.radius + b.radius + 2;
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -1220,7 +1353,7 @@ function push(a: Unit, b: Unit, aShare: number): void {
   if (d >= min) return;
   const nx = d === 0 ? 1 : dx / d;
   const ny = d === 0 ? 0 : dy / d;
-  const overlap = min - d;
+  const overlap = (min - d) * k;
   a.x += nx * overlap * aShare;
   a.y += ny * overlap * aShare;
   if (aShare < 1) {

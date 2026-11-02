@@ -193,6 +193,7 @@ describe('Starting abilities and player controls', () => {
     expect(b.useAbility()).toBe('ok');
     expect(b.player!.resource).toBe(70);
     expect(b.useAbility()).toBe('cooldown');
+    for (let i = 0; i < 0.7 / STEP; i++) b.step(STEP); // the Fireball is in flight
     expect(e.hp).toBeLessThan(e.maxHp);
   });
 
@@ -468,6 +469,7 @@ describe('Earnable abilities', () => {
     expect(b.focusId).toBeNull();
     b.setFocus(sheep.id);
     expect(b.useAbility(0)).toBe('ok'); // Fireball it on purpose
+    for (let i = 0; i < 0.7 / STEP; i++) b.step(STEP); // ...and let it land
     expect(b.isSheep(sheep)).toBe(false);
   });
 

@@ -28,18 +28,19 @@ Steps 1–5 (part 1) of the first playable version are done:
    the gate; four are earned in step 5. Earnable abilities already work in
    the simulation: Thunderclap, Renew, Counterspell, Kick.
 
-5. **Between waves (part 1)** — a 10-wave run. After each wave everyone
-   levels up and you pick 1 of 3 rewards. New abilities are offered only
-   after waves 4 and 9; other waves offer upgrades (Empowered, Quick, the
-   class trait, Vitality, Might). "Choose for me" on the reward screen picks
-   one of the three for you. AI teammates pick their own. Autosave after
-   each pick (Continue on the hero screen). Hover an ability for a tooltip.
-   Your hero stands in the center; AI teammates start front, left, right
-   and move on their own, staying close to the party.
+5. **Between waves (part 1)** — a 10-wave run with named wave patterns
+   (rushes, flanks, casters, an elite Goblin Brute with a telegraphed Smash).
+   Everyone levels up each wave; a reward choice appears after waves 2, 4, 6
+   and 8 (new abilities at 4 and 8), other waves continue automatically.
+   "Choose for me" on the reward screen. Autosave between waves. Your hero
+   stands in the center; AI teammates move, staying close to the party.
+6. **Feel pass** — smooth interpolated motion and steering, projectiles that
+   land on arrival, hit flashes/knockback/sparks/shake, merged damage
+   numbers, wave intros and callouts, slow motion on the last kill, and
+   synthesized sound effects.
 
-Top bar: **AUTO** (the AI plays your hero) and **Pause**; **Choose for me**.
-Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**
-(ON = AI damage dealers hold back before pulling aggro; OFF = they don't).
+Top bar: **AUTO** (the AI plays your hero), **Pause**, **Sound** on/off.
+Testing aid: **Speed** (1x / 2x / 4x).
 
 ## Running locally
 
