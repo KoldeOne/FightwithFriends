@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING, HERO_KIT, MAX_ABILITY_SLOTS, RESOURCES, WAVE_1, WORLD } from '../sim/content';
+import { ABILITIES, ABILITY_TUNING, HERO_KIT, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, WAVE_1, WORLD } from '../sim/content';
 import type { AbilityId, BattleEvent, Effect, HeroClass, ResourceKind, Unit } from '../sim/types';
 import { GATE_ID } from '../sim/types';
 
@@ -53,6 +53,7 @@ const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string; color:
   slow: { name: 'Slowed', letter: 'S', color: 0x5dade2, debuff: true, text: () => 'Attacks 30% slower.' },
   sheep: { name: 'Polymorphed', letter: '~', color: 0xf4f1e8, debuff: true, text: () => 'Turned into a sheep. Breaks when hit directly.' },
   silence: { name: 'Silenced', letter: 'X', color: 0xb57bff, debuff: true, text: () => 'Cannot cast spells.' },
+  stealth: { name: 'Stealth', letter: 'H', color: 0x9aa5b8, debuff: false, text: () => 'Hidden: enemies cannot target you. Your next hit deals double damage.' },
 };
 const MAX_BUFF_ICONS = 12;
 const BUFF_ICON = 22;
@@ -79,18 +80,19 @@ const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 /** Size and position of the ability button and AUTO button. */
 /** HUD layout (offsets from WORLD.hudTop). */
 const HUD = {
+  // Big ability buttons first, right under the gate.
+  slotY: 8,
+  slotSize: 78,
+  slotGap: 7,
   barX: 16,
-  barW: 300,
-  healthY: 24,
-  resourceY: 43,
+  barW: 290,
+  healthY: 92,
+  resourceY: 111,
   barH: 16,
-  buffX: 330,
-  slotY: 65,
-  slotSize: 54,
-  slotGap: 6,
-  targetY: 126,
+  buffX: 318,
+  targetY: 132,
 };
-const AUTO_BTN = { w: 120 };
+const AUTO_BTN = { w: 80 };
 
 interface SlotView {
   bg: Phaser.GameObjects.Rectangle;
@@ -114,6 +116,7 @@ export class BattleScene extends Phaser.Scene {
   // Scenery / HUD
   private gateWall!: Phaser.GameObjects.Rectangle;
   private gateBar!: Phaser.GameObjects.Graphics;
+  private gateLabel!: Phaser.GameObjects.Text;
   private hudText!: Phaser.GameObjects.Text;
   private speedButton!: Phaser.GameObjects.Text;
   private carefulButton!: Phaser.GameObjects.Text;
@@ -183,13 +186,13 @@ export class BattleScene extends Phaser.Scene {
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 168, 'Choose your hero', 34, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
-      this.text(cx, 210, 'The other three are played by AI.', 16, '#c9d1e0').setOrigin(0.5),
+      this.text(cx, 160, 'Choose your hero', 34, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 202, 'The other three are played by AI.', 16, '#c9d1e0').setOrigin(0.5),
     ];
     const classes: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
-    const cardH = 112;
+    const cardH = 128;
     classes.forEach((cls, i) => {
-      const y = 240 + cardH / 2 + i * (cardH + 12);
+      const y = 236 + cardH / 2 + i * (cardH + 10);
       const left = cx - 225;
       const bg = this.add.rectangle(cx, y, 470, cardH, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
       const disc = this.add.circle(left + 34, y - 18, 24, COLORS[cls]).setStrokeStyle(2, 0x111111);
@@ -225,7 +228,9 @@ export class BattleScene extends Phaser.Scene {
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
       bg.on('pointerdown', () => this.startAs(cls));
-      items.push(bg, disc, letter, name, role, ...slots);
+      const passive = PASSIVES[kit.passive];
+      const passiveText = this.text(tx, top + 99, `Passive: ${passive.name} — ${passive.short}`, 12, '#9ad1ff');
+      items.push(bg, disc, letter, name, role, ...slots, passiveText);
     });
     this.overlay = this.add.container(0, 0, items).setDepth(100);
   }
@@ -337,7 +342,8 @@ export class BattleScene extends Phaser.Scene {
     for (let x = 0; x < WORLD.width; x += 30) g.fillRect(x + 4, WORLD.gateY - 8, 18, 8);
     this.gateWall = this.add.rectangle(WORLD.width / 2, WORLD.gateY + WORLD.gateHeight / 2, 110, WORLD.gateHeight + 6, 0x7a5230);
     this.gateWall.setStrokeStyle(2, 0x3b2716);
-    this.text(WORLD.width / 2, WORLD.gateY + WORLD.gateHeight / 2, 'GATE', 13, '#f5e6c8').setOrigin(0.5);
+    this.gateBar = this.add.graphics().setDepth(2);
+    this.gateLabel = this.text(WORLD.width / 2, WORLD.gateY + WORLD.gateHeight / 2 - 2, 'GATE', 12, '#f5e6c8').setOrigin(0.5).setDepth(3).setFontStyle('bold');
   }
 
   /** Small testing/utility buttons along the top edge. */
@@ -365,10 +371,8 @@ export class BattleScene extends Phaser.Scene {
     this.add.rectangle(0, top, WORLD.width, WORLD.height - top, 0x0b0e14).setOrigin(0, 0);
     this.add.rectangle(0, top, WORLD.width, 2, 0x2b3445).setOrigin(0, 0);
 
-    // Row 1: gate health + wave info.
-    this.text(16, top + 4, 'Gate', 13, '#c9d1e0');
-    this.gateBar = this.add.graphics();
-    this.hudText = this.text(WORLD.width - 16, top + 4, '', 13, '#ffffff').setOrigin(1, 0);
+    // Wave info lives in the top bar.
+    this.hudText = this.text(342, 14, '', 13, '#ffffff').setOrigin(0.5, 0).setDepth(50);
 
     // Health and resource bars.
     this.healthBar = this.add.graphics();
@@ -406,10 +410,10 @@ export class BattleScene extends Phaser.Scene {
         .setStrokeStyle(2, 0x3a4660)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => this.onSlotTap(i));
-      const name = this.text(cx, sy + s / 2 - 6, '', 11, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold').setWordWrapWidth(s - 4);
-      const sub = this.text(cx, sy + s - 9, '', 9, '#c9d1e0').setOrigin(0.5);
-      const plus = this.text(cx, sy + s / 2, '+', 20, '#3f4b63').setOrigin(0.5).setFontStyle('bold');
-      const cdText = this.text(cx, sy + s / 2, '', 20, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
+      const name = this.text(cx, sy + s / 2 - 8, '', 13, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold').setWordWrapWidth(s - 6);
+      const sub = this.text(cx, sy + s - 11, '', 10, '#c9d1e0').setOrigin(0.5);
+      const plus = this.text(cx, sy + s / 2, '+', 26, '#3f4b63').setOrigin(0.5).setFontStyle('bold');
+      const cdText = this.text(cx, sy + s / 2, '', 26, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
       cdText.setStroke('#000000', 4);
       this.slotViews.push({ bg, name, sub, plus, cdText });
     }
@@ -435,17 +439,19 @@ export class BattleScene extends Phaser.Scene {
         this.auto = !this.auto;
         this.battle.playerAuto = this.auto;
       });
-    this.autoText = this.text(ax, sy + s / 2, '', 16, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold');
+    this.autoText = this.text(ax, sy + s / 2, '', 15, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold');
   }
 
   private updateHud(): void {
-    const top = WORLD.hudTop;
+    // Gate health, drawn on the gate itself.
     const { hp, maxHp } = this.battle.gate;
-    const gx = 56;
-    const gw = 260;
+    const gw = 96;
+    const gx = WORLD.width / 2 - gw / 2;
+    const gy = WORLD.gateY + WORLD.gateHeight - 9;
     this.gateBar.clear();
-    this.gateBar.fillStyle(0x2b3445).fillRect(gx, top + 7, gw, 10);
-    this.gateBar.fillStyle(hp / maxHp > 0.3 ? 0xd4a24c : 0xe74c3c).fillRect(gx, top + 7, (gw * hp) / maxHp, 10);
+    this.gateBar.fillStyle(0x000000, 0.6).fillRect(gx, gy, gw, 6);
+    this.gateBar.fillStyle(hp / maxHp > 0.3 ? 0xd4a24c : 0xe74c3c).fillRect(gx, gy, (gw * hp) / maxHp, 6);
+    this.gateLabel.setText(`GATE ${Math.ceil(hp)}`);
 
     const t = Math.floor(this.battle.time);
     const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
@@ -555,7 +561,7 @@ export class BattleScene extends Phaser.Scene {
       const info = EFFECT_INFO[e.kind];
       icon.bg.setFillStyle(info.color).setStrokeStyle(2, info.debuff ? 0xe74c3c : 0x111111);
       icon.letter.setText(info.letter);
-      icon.time.setText(`${Math.ceil(e.remaining)}`);
+      icon.time.setText(Number.isFinite(e.remaining) ? `${Math.ceil(e.remaining)}` : '');
     });
   }
 
@@ -570,7 +576,8 @@ export class BattleScene extends Phaser.Scene {
     const y = WORLD.hudTop - 92;
     const title = this.text(x + 12, y + 10, info.name, 15, info.debuff ? '#ff8a8a' : '#ffd166').setFontStyle('bold');
     const body = this.text(x + 12, y + 32, info.text(e), 13, '#ffffff').setWordWrapWidth(w - 24);
-    const meta = this.text(x + 12, y + 56, `${Math.ceil(e.remaining)}s left${source ? ` · from ${source.label}` : ''}`, 12, '#8f9bb3');
+    const timeLeft = Number.isFinite(e.remaining) ? `${Math.ceil(e.remaining)}s left` : 'Passive — always on';
+    const meta = this.text(x + 12, y + 56, `${timeLeft}${source ? ` · from ${source.label}` : ''}`, 12, '#8f9bb3');
     const box = this.add.rectangle(x, y, w, 80, 0x111723, 0.95).setOrigin(0, 0).setStrokeStyle(2, info.color);
     this.tooltip = this.add.container(0, 0, [box, title, body, meta]).setDepth(90);
     const tip = this.tooltip;
@@ -661,6 +668,7 @@ export class BattleScene extends Phaser.Scene {
       if (this.battle.hasEffect(u, 'hot')) v.hpBar.fillStyle(0x7dff9b).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
       if (this.battle.hasEffect(u, 'dot')) v.hpBar.fillStyle(0xff8c1a).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
       if (this.battle.hasEffect(u, 'fortitude')) v.hpBar.fillStyle(0xfff3b0).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
+      if (u.side === 'hero') v.container.setAlpha(this.battle.hasEffect(u, 'stealth') ? 0.45 : 1);
       if (u.side === 'enemy') {
         const sheep = this.battle.isSheep(u);
         v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind]);
@@ -789,6 +797,7 @@ export class BattleScene extends Phaser.Scene {
       }
       const slash = this.add.graphics().setDepth(30);
       if (ability === 'sinisterStrike') slash.lineStyle(7, 0xffe066, 1).lineBetween(from.x, from.y, tx, ty);
+      else if (ability === 'heroicStrike') slash.lineStyle(8, 0xff7043, 1).lineBetween(from.x, from.y, tx, ty);
       else slash.lineStyle(3, 0xffffff, 0.9).lineBetween(from.x, from.y, tx, ty);
       this.tweens.add({ targets: slash, alpha: 0, duration: ability ? 260 : 160, onComplete: () => slash.destroy() });
       land();

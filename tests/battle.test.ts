@@ -67,10 +67,11 @@ describe('Aggro', () => {
   });
 
   it('needs more than 110% threat to steal aggro', () => {
-    const b = new Battle({ seed: 1, wave: tinyWave, heroes: ['rogue', 'mage'] });
+    const b = new Battle({ seed: 1, wave: tinyWave, heroes: ['priest', 'mage'] });
     b.step(STEP);
     const e = b.enemies[0];
-    const [rogue, mage] = [b.heroes.find((h) => h.kind === 'rogue')!, b.heroes.find((h) => h.kind === 'mage')!];
+    // (the priest stands in for "the current target" here)
+    const [rogue, mage] = [b.heroes.find((h) => h.kind === 'priest')!, b.heroes.find((h) => h.kind === 'mage')!];
     e.threat = { [rogue.id]: 100, [mage.id]: 0 };
     b.step(STEP);
     expect(e.targetId).toBe(rogue.id);
@@ -145,7 +146,9 @@ describe('Starting abilities and player controls', () => {
   it('each class starts with exactly one ability', () => {
     const b = new Battle({ seed: 1, wave: WAVE_1 });
     const kit = Object.fromEntries(b.heroes.map((h) => [h.kind, h.abilities!.map((a) => a.id)]));
-    expect(kit).toEqual({ warrior: ['taunt'], priest: ['heal'], mage: ['fireball'], rogue: ['sinisterStrike'] });
+    expect(kit).toEqual({ warrior: ['heroicStrike'], priest: ['heal'], mage: ['fireball'], rogue: ['sinisterStrike'] });
+    const passives = Object.fromEntries(b.heroes.map((h) => [h.kind, h.passive]));
+    expect(passives).toEqual({ warrior: 'autoTaunt', priest: 'fortitudeAura', mage: 'autoPolymorph', rogue: 'stealth' });
   });
 
   it('heroes start with no traits', () => {
@@ -156,7 +159,7 @@ describe('Starting abilities and player controls', () => {
   it('learnAbility fills up to 5 slots, no duplicates', () => {
     const b = new Battle({ seed: 1, wave: WAVE_1 });
     const w = hero(b, 'warrior');
-    expect(b.learnAbility(w, 'taunt')).toBe(false);
+    expect(b.learnAbility(w, 'heroicStrike')).toBe(false); // already has it
     for (const id of ['thunderclap', 'heal', 'renew', 'fireball'] as const) expect(b.learnAbility(w, id)).toBe(true);
     expect(w.abilities!.length).toBe(5);
     expect(b.learnAbility(w, 'kick')).toBe(false);
@@ -201,17 +204,103 @@ describe('Starting abilities and player controls', () => {
     expect(b.useAbility()).toBe('ok');
   });
 
-  it('Taunt (player) forces the focused enemy onto the warrior', () => {
+  it('Heroic Strike spends rage and hits hard with extra threat', () => {
+    const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'warrior' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const w = b.player!;
+    const e = b.enemies[0];
+    e.x = w.x;
+    e.y = w.y - 45;
+    expect(b.useAbility()).toBe('resource'); // no rage yet
+    w.resource = 50;
+    expect(b.useAbility()).toBe('ok');
+    expect(w.abilities![0].cooldown).toBeGreaterThan(0);
+    expect(e.hp).toBeLessThanOrEqual(e.maxHp - 23);
+    expect(b.topThreat(e).id).toBe(w.id);
+  });
+
+  it('Taunt passive works even with AUTO off', () => {
     const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'warrior' });
     b.playerAuto = false;
     b.step(STEP);
     const e = b.enemies[0];
     e.y = 450;
     e.threat = { [hero(b, 'mage').id]: 500 };
-    b.setFocus(e.id);
-    expect(b.useAbility()).toBe('ok');
+    e.targetId = hero(b, 'mage').id;
+    b.step(STEP);
     expect(e.targetId).toBe(b.player!.id);
-    expect(b.useAbility()).toBe('cooldown');
+    expect(b.player!.passiveCooldown).toBeGreaterThan(7);
+  });
+
+  it('Fortitude passive: the whole party starts with +20% max health when a priest is present', () => {
+    const withPriest = new Battle({ seed: 1, wave: grunts(1) });
+    const without = new Battle({ seed: 1, wave: grunts(1), heroes: ['warrior', 'mage', 'rogue'] });
+    const w1 = withPriest.heroes.find((h) => h.kind === 'warrior')!;
+    const w2 = without.heroes.find((h) => h.kind === 'warrior')!;
+    expect(w1.maxHp).toBe(w2.maxHp + Math.round(w2.maxHp * 0.2));
+    expect(w1.hp).toBe(w1.maxHp);
+    run(withPriest, 40);
+    expect(withPriest.hasEffect(w1, 'fortitude')).toBe(true); // never wears off
+  });
+
+  it('Polymorph passive sheeps casters before others, and never the last enemy', () => {
+    const wave = { number: 1, spawns: [{ time: 0, kind: 'grunt' as const, x: 230 }, { time: 0, kind: 'shaman' as const, x: 310 }] };
+    const b = new Battle({ seed: 1, wave, playerClass: 'mage' });
+    b.playerAuto = false;
+    b.step(STEP);
+    for (const e of b.enemies) e.y = 400;
+    b.step(STEP);
+    const shaman = b.enemies.find((e) => e.kind === 'shaman')!;
+    expect(b.isSheep(shaman)).toBe(true);
+
+    const solo = new Battle({ seed: 1, wave: grunts(1), playerClass: 'mage' });
+    solo.step(STEP);
+    solo.enemies[0].y = 400;
+    run(solo, 1);
+    expect(solo.isSheep(solo.enemies[0])).toBe(false);
+  });
+
+  it('Polymorph passive prefers elites', () => {
+    const wave = { number: 1, spawns: [{ time: 0, kind: 'shaman' as const, x: 230 }, { time: 0, kind: 'grunt' as const, x: 310 }] };
+    const b = new Battle({ seed: 1, wave, playerClass: 'mage' });
+    b.step(STEP);
+    const grunt = b.enemies.find((e) => e.kind === 'grunt')!;
+    grunt.isElite = true;
+    for (const e of b.enemies) e.y = 400;
+    b.player!.passiveCooldown = 0;
+    b.step(STEP);
+    expect(b.isSheep(grunt)).toBe(true);
+  });
+
+  it('Stealth: enemies ignore the rogue; the first hit is a double-damage ambush', () => {
+    const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'rogue', heroes: ['rogue'] });
+    b.playerAuto = false;
+    b.step(STEP);
+    const r = b.player!;
+    const e = b.enemies[0];
+    expect(b.hasEffect(r, 'stealth')).toBe(true);
+    e.x = r.x;
+    e.y = r.y - 50;
+    e.hp = e.maxHp = 5000;
+    r.cooldown = 99; // no auto attack yet
+    b.step(STEP);
+    expect(e.targetId).not.toBe(r.id); // can't see the rogue
+    b.drainEvents();
+    expect(b.useAbility()).toBe('ok');
+    const hit = b.drainEvents().find((x) => x.type === 'attack' && x.from === r.id);
+    expect(hit && hit.type === 'attack' ? hit.amount : 0).toBeGreaterThanOrEqual(57); // 32 x 2, -10% roll
+    expect(b.hasEffect(r, 'stealth')).toBe(false);
+  });
+
+  it('Stealth: the rogue re-stealths after 5s out of combat', () => {
+    // No enemies on the field yet (the only spawn is much later).
+    const b = new Battle({ seed: 1, wave: { number: 1, spawns: [{ time: 100, kind: 'grunt', x: 270 }] }, playerClass: 'rogue', heroes: ['rogue'] });
+    b.step(STEP);
+    const r = b.player!;
+    r.effects = [];
+    run(b, 5.2);
+    expect(b.hasEffect(r, 'stealth')).toBe(true);
   });
 
   it('Heal (player) heals the focused ally', () => {
@@ -305,17 +394,14 @@ describe('Earnable abilities', () => {
     expect(rogue.hp).toBeGreaterThanOrEqual(160);
   });
 
-  it("Power Word: Fortitude raises the whole party's max health, then wears off", () => {
-    const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'priest' });
+  it('Power Word: Fortitude (earned, without a priest) raises max health, then wears off', () => {
+    const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'warrior', heroes: ['warrior', 'mage'] });
     b.playerAuto = false;
     b.step(STEP);
     b.learnAbility(b.player!, 'fortitude');
     const before = b.heroes.map((h) => h.maxHp);
     expect(b.useAbility(1)).toBe('ok');
-    b.heroes.forEach((h, i) => {
-      expect(h.maxHp).toBe(before[i] + Math.round(before[i] * 0.2));
-      expect(b.hasEffect(h, 'fortitude')).toBe(true);
-    });
+    b.heroes.forEach((h, i) => expect(h.maxHp).toBe(before[i] + Math.round(before[i] * 0.2)));
     b.enemies[0].y = -1000;
     b.enemies[0].speed = 0;
     run(b, 31);
@@ -370,6 +456,7 @@ describe('Earnable abilities', () => {
   const shamanSetup = (cls: 'rogue' | 'mage', interrupt: 'kick' | 'counterspell') => {
     const b = new Battle({ seed: 1, wave: wave(['shaman', 'grunt']), playerClass: cls, heroes: [cls, 'priest'] });
     b.playerAuto = false;
+    b.player!.passiveCooldown = 999; // keep the mage's auto-Polymorph out of this test
     b.step(STEP);
     b.learnAbility(b.player!, interrupt);
     const [shaman, grunt] = b.enemies;

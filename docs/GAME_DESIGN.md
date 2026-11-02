@@ -101,16 +101,17 @@ Every hero has up to **5 ability slots**:
 | Part | Count | Notes |
 |---|---|---|
 | **Auto attack** | 1 | Always on (the Priest's auto attack includes a small free heal) |
-| **Starting ability** | 1 | Fixed per class: Warrior **Taunt**, Priest **Heal**, Mage **Fireball**, Rogue **Sinister Strike** |
+| **Starting ability** | 1 | Fixed per class: Warrior **Heroic Strike**, Priest **Heal**, Mage **Fireball**, Rogue **Sinister Strike** |
+| **Starting passive** | 1 | Always on, no button: Warrior **Taunt** (auto-taunts enemies attacking allies), Priest **Power Word: Fortitude** (party +20% max health), Mage **Polymorph** (auto-sheeps an enemy every 15s — elites, then casters, first), Rogue **Stealth** (starts hidden; first hit out of stealth deals double; re-stealths after 5s out of combat) |
 | **Earned abilities** | 4 | Empty at the start; filled from the class's pool through level-up rewards during the run |
 | **Class traits** | 0 at start | Passive traits are reward options during a run, not part of the starting kit |
 
 - Earned abilities can be **any mix of active and passive**.
-- **Buttons on screen:** 5 slots, shown even when empty (empty slots show "+").
+- **Buttons on screen:** 5 large slots directly under the gate, shown even when empty (empty slots show "+"). Passives have no button; active passive effects (e.g. Stealth, Fortitude) show as buff icons.
 - All actives can **autocast** (auto mode).
 - Each class has a pool of **~8 earnable abilities** (may expand later).
-- The class select screen shows all **5 slots** per class: the starting ability
-  filled in and 4 empty "Earn in run" slots.
+- The class select screen shows all **5 slots** per class (the starting ability
+  filled in, 4 empty "Earn in run" slots) with the starting passive listed below.
 - **Interrupts are earned, not starting abilities.** Enemy casters (e.g. the
   Goblin Shaman) appear a few waves in, by which time Kick (Rogue) or
   Counterspell (Mage) can have been earned.
@@ -128,7 +129,8 @@ target is in range. With a focus target set, abilities only go to that target.
 Abilities below are the earnable pool (traits are listed as earnable passives). Pools are drafts and will be tuned in testing.
 
 ### Warrior — Tank / DPS
-- **Starting ability:** Taunt — forces an enemy to attack you.
+- **Starting ability:** Heroic Strike — a heavy rage-spending strike with extra threat.
+- **Starting passive:** Taunt — automatically taunts an enemy attacking an ally (every 8s).
 - **Trait:** Rage — builds from dealing and taking damage; up to +20% damage at full rage.
 
 | Ability | Type | Leans | Effect |
@@ -161,7 +163,7 @@ Abilities below are the earnable pool (traits are listed as earnable passives). 
 
 ### Priest — Healer / DPS
 - **Starting ability:** Heal — a strong heal on one ally.
-- **Earnable:** Power Word: Fortitude — raises the whole party's maximum health by 20% for 30s.
+- **Starting passive:** Power Word: Fortitude — the whole party has +20% maximum health.
 - **Trait:** Inner Focus — Renew costs half while the whole party is above 80% health.
 
 | Ability | Type | Leans | Effect |
@@ -177,7 +179,7 @@ Abilities below are the earnable pool (traits are listed as earnable passives). 
 
 ### Mage — DPS (ranged AoE and control)
 - **Starting ability:** Fireball.
-- **Earnable:** Polymorph — turns an enemy (not a boss) into a sheep for 10s.
+- **Starting passive:** Polymorph — every 15s, sheeps an enemy for 10s (not bosses); elites first, then casters.
 - **Earnable:** Counterspell — interrupts an enemy cast and locks it out of casting.
 - **Trait:** Arcane Surge — Fireball has a 25% chance to cost no mana.
 
@@ -193,6 +195,8 @@ Abilities below are the earnable pool (traits are listed as earnable passives). 
 
 ### Rogue — DPS (melee single-target burst, self threat management)
 - **Starting ability:** Sinister Strike.
+- **Starting passive:** Stealth — starts each wave hidden (enemies can't target him); the first hit
+  out of stealth deals double damage; re-stealths after 5s out of combat.
 - **Earnable:** Kick — interrupts an enemy cast and locks it out of casting. Kick has its
   own range (same as Taunt), separate from the Rogue's short melee reach.
 - **Trait:** Combo Points — auto attacks build points (max 5); Sinister Strike spends them

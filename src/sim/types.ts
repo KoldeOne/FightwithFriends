@@ -5,6 +5,7 @@ export type AttackStyle = 'melee' | 'ranged';
 export type ResourceKind = 'rage' | 'mana' | 'energy';
 export type AbilityId =
   | 'taunt'
+  | 'heroicStrike'
   | 'thunderclap'
   | 'heal'
   | 'renew'
@@ -14,6 +15,9 @@ export type AbilityId =
   | 'counterspell'
   | 'sinisterStrike'
   | 'kick';
+
+/** Each class's always-on starting passive. */
+export type PassiveId = 'autoTaunt' | 'fortitudeAura' | 'autoPolymorph' | 'stealth';
 
 /** One of a hero's ability slots (max 5: the starting ability + 4 earned). */
 export interface AbilitySlot {
@@ -26,7 +30,7 @@ export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints';
 
 /** A timed buff/debuff on a unit. */
 export interface Effect {
-  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence';
+  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence' | 'stealth';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */
@@ -83,6 +87,14 @@ export interface Unit {
   abilities?: AbilitySlot[];
   /** Active buffs/debuffs. */
   effects?: Effect[];
+  /** Hero: the class's always-on starting passive, and its internal cooldown. */
+  passive?: PassiveId;
+  passiveCooldown?: number;
+  /** Rogue: seconds without dealing/taking damage (to re-enter stealth). */
+  outOfCombat?: number;
+  /** Enemy: elite (tougher) and caster flags, used by auto-Polymorph priority. */
+  isElite?: boolean;
+  isCaster?: boolean;
   /** Hero: passive traits earned so far (none at the start). */
   traits?: TraitId[];
   /** Rogue: combo points (0-5), only used with the Combo Points trait. */

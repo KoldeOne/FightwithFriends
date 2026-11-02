@@ -1,4 +1,4 @@
-import type { AbilityId, EnemyKind, HeroClass, ResourceKind, TraitId, Unit, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroClass, PassiveId, ResourceKind, TraitId, Unit, WaveDef } from './types';
 
 /** World is a fixed portrait canvas; the renderer scales it to the screen. */
 export const WORLD = {
@@ -16,7 +16,7 @@ export const GATE_MAX_HP = 600;
 
 type UnitStats = Pick<
   Unit,
-  'label' | 'radius' | 'maxHp' | 'damage' | 'attackInterval' | 'range' | 'attackStyle' | 'speed' | 'heal' | 'goesForGate' | 'threatMultiplier' | 'isTank'
+  'label' | 'radius' | 'maxHp' | 'damage' | 'attackInterval' | 'range' | 'attackStyle' | 'speed' | 'heal' | 'goesForGate' | 'threatMultiplier' | 'isTank' | 'isCaster' | 'isElite'
 >;
 
 export const HERO_STATS: Record<HeroClass, UnitStats> = {
@@ -37,7 +37,7 @@ export const FORMATION: { cls: HeroClass; x: number; y: number }[] = [
 export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
   grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 17, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
   archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 12, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
-  shaman: { label: 'Goblin Shaman', radius: 16, maxHp: 150, damage: 8, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30 },
+  shaman: { label: 'Goblin Shaman', radius: 16, maxHp: 150, damage: 8, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true },
   runner: { label: 'Goblin Runner', radius: 13, maxHp: 90, damage: 14, attackInterval: 1.0, range: 6, attackStyle: 'melee', speed: 75, goesForGate: true },
 };
 
@@ -63,6 +63,7 @@ export interface AbilityDef {
 /** Every ability in the game. Each class starts with one; the rest are earned. */
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
   taunt: { id: 'taunt', name: 'Taunt', cls: 'warrior', cost: 0, cooldown: 8, description: 'Forces an enemy to attack you.' },
+  heroicStrike: { id: 'heroicStrike', name: 'Heroic Strike', cls: 'warrior', cost: 15, cooldown: 3, description: 'A heavy strike that generates extra threat.' },
   thunderclap: { id: 'thunderclap', name: 'Thunderclap', cls: 'warrior', cost: 20, cooldown: 6, description: 'Damage and high threat to nearby enemies; slows their attacks.' },
   heal: { id: 'heal', name: 'Heal', cls: 'priest', cost: 25, cooldown: 3, description: 'A strong heal on one ally.' },
   renew: { id: 'renew', name: 'Renew', cls: 'priest', cost: 20, cooldown: 3, description: 'Heals an ally over 9 seconds.' },
@@ -80,6 +81,7 @@ export const MAX_ABILITY_SLOTS = 5;
 /** Ability tuning numbers. */
 export const ABILITY_TUNING = {
   thunderclap: { radius: 120, damage: 12, threatBonus: 2, slow: 6 },
+  heroicStrike: { damage: 26, threatBonus: 1.5 },
   heal: { amount: 80 },
   renew: { total: 60, duration: 9, tick: 1.5 },
   fortitude: { duration: 30, bonus: 0.2 },
@@ -124,13 +126,36 @@ export const TRAIT_TUNING = {
 /** Goblin Shaman's heal spell. It must walk within `range` of the goblin it heals. */
 export const SHAMAN_MEND = { name: 'Mend', castTime: 2.5, heal: 70, cooldown: 7, minMissing: 40, range: 90 };
 
-/** Each class starts a run with one ability; the other 4 slots are earned. */
-export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; starting: AbilityId; role: string }> = {
-  warrior: { resource: 'rage', starting: 'taunt', role: 'Tank — holds enemies with threat' },
-  priest: { resource: 'mana', starting: 'heal', role: 'Healer — keeps the party alive' },
-  mage: { resource: 'mana', starting: 'fireball', role: 'Ranged damage and control' },
-  rogue: { resource: 'energy', starting: 'sinisterStrike', role: 'Melee damage' },
+export interface PassiveDef {
+  id: PassiveId;
+  name: string;
+  /** One line for the class select card. */
+  short: string;
+  description: string;
+}
+
+/** Each class's always-on starting passive (no button). */
+export const PASSIVES: Record<PassiveId, PassiveDef> = {
+  autoTaunt: { id: 'autoTaunt', name: 'Taunt', short: 'Auto-taunts enemies attacking allies.', description: 'Automatically taunts an enemy attacking an ally (every 8s).' },
+  fortitudeAura: { id: 'fortitudeAura', name: 'Power Word: Fortitude', short: 'Party has +20% max health.', description: "The whole party has +20% maximum health." },
+  autoPolymorph: { id: 'autoPolymorph', name: 'Polymorph', short: 'Auto-sheeps an enemy (elites, casters first).', description: 'Every 15s, turns an enemy into a sheep — elites and casters first.' },
+  stealth: { id: 'stealth', name: 'Stealth', short: 'Starts hidden; first hit deals double.', description: 'Starts hidden; the first hit out of stealth deals double damage. Re-stealths after 5s out of combat.' },
 };
+
+export const PASSIVE_TUNING = {
+  autoTaunt: { cooldown: 8 },
+  autoPolymorph: { cooldown: 15 },
+  stealth: { ambushMultiplier: 2, restealthAfter: 5 },
+};
+
+/** Each class starts a run with one active ability + one passive; 4 more slots are earned. */
+export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; starting: AbilityId; passive: PassiveId; role: string }> = {
+  warrior: { resource: 'rage', starting: 'heroicStrike', passive: 'autoTaunt', role: 'Tank — holds enemies with threat' },
+  priest: { resource: 'mana', starting: 'heal', passive: 'fortitudeAura', role: 'Healer — keeps the party alive' },
+  mage: { resource: 'mana', starting: 'fireball', passive: 'autoPolymorph', role: 'Ranged damage and control' },
+  rogue: { resource: 'energy', starting: 'sinisterStrike', passive: 'stealth', role: 'Melee damage' },
+};
+
 
 
 /** Aggro tuning. */

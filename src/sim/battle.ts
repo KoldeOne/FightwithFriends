@@ -8,6 +8,7 @@ import {
   HERO_KIT,
   HERO_STATS,
   MAX_ABILITY_SLOTS,
+  PASSIVE_TUNING,
   RAGE,
   RESOURCES,
   SHAMAN_MEND,
@@ -67,6 +68,9 @@ export class Battle {
       if (classes.includes(slot.cls)) this.addHero(slot.cls, slot.x, slot.y);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
+    // Priest passive: Power Word: Fortitude is up on the whole party all wave.
+    const priest = this.units.find((u) => u.side === 'hero' && u.passive === 'fortitudeAura');
+    if (priest) this.applyFortitude(priest, Infinity);
   }
 
   get player(): Unit | undefined {
@@ -169,7 +173,7 @@ export class Battle {
     let value = 0;
     for (const [key, v] of Object.entries(enemy.threat ?? {})) {
       const hero = this.unit(Number(key));
-      if (hero?.alive && v > value) {
+      if (hero?.alive && !this.hasEffect(hero, 'stealth') && v > value) {
         id = hero.id;
         value = v;
       }
@@ -216,6 +220,7 @@ export class Battle {
       if (!u.alive) continue;
       if (u.side === 'enemy') this.updateEnemy(u, dt);
       else {
+        this.updatePassive(u, dt);
         if (u.id !== this.playerId || this.playerAuto) this.aiAbilities(u);
         this.updateHero(u);
       }
@@ -252,10 +257,17 @@ export class Battle {
       resource: res.start,
       maxResource: res.max,
       abilities: [{ id: kit.starting, cooldown: 0 }],
+      passive: kit.passive,
+      passiveCooldown: 0,
+      outOfCombat: 0,
       traits: [],
       comboPoints: 0,
-      effects: [],
+      effects: kit.passive === 'stealth' ? [this.stealthEffect()] : [],
     });
+  }
+
+  private stealthEffect(): Effect {
+    return { kind: 'stealth', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: 0 };
   }
 
   private addEnemy(kind: EnemyKind, x: number): void {
@@ -327,13 +339,19 @@ export class Battle {
    * Enemies with no threat yet go for the nearest hero; runners go for the gate.
    */
   private chooseEnemyTarget(e: Unit): Unit | null {
-    const livingHeroes = this.units.filter((u) => u.side === 'hero' && u.alive);
+    // Stealthed heroes can't be seen, so they can't be targeted.
+    const livingHeroes = this.units.filter((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'stealth'));
     if (!livingHeroes.length) return null;
 
     if (e.tauntTime && e.tauntedBy !== undefined) {
       const taunter = this.unit(e.tauntedBy);
       if (taunter?.alive) return taunter;
     }
+    const isVisible = (id: number | null) => {
+      const u = id !== null && id >= 0 ? this.unit(id) : undefined;
+      return !!u && !this.hasEffect(u, 'stealth');
+    };
+    if (e.targetId !== null && e.targetId >= 0 && !isVisible(e.targetId)) e.targetId = null;
 
     const top = this.topThreat(e);
     if (e.goesForGate) {
@@ -430,15 +448,82 @@ export class Battle {
     return e.side === 'enemy' && e.alive && !e.isBoss && !this.isSheep(e) && dist(h, e) - h.radius - e.radius <= ABILITY_TUNING.polymorph.range;
   }
 
-  /** AI: sheep an enemy that is beating on a non-tank, if it isn't the last one. */
+  /**
+   * Who Polymorph should sheep when there are several enemies: elites first,
+   * then casters, then anything beating on a non-tank. Never the last enemy.
+   */
   private polymorphCandidate(h: Unit): Unit | undefined {
     const active = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u));
     if (active.length < 2) return undefined;
-    return active.find((e) => {
-      if (e.goesForGate || !this.canPolymorph(h, e)) return false;
+    const valid = active.filter((e) => !e.goesForGate && this.canPolymorph(h, e));
+    const onNonTank = (e: Unit) => {
       const victim = e.targetId !== null && e.targetId >= 0 ? this.unit(e.targetId) : undefined;
       return victim?.side === 'hero' && !victim.isTank;
-    });
+    };
+    return valid.find((e) => e.isElite) ?? valid.find((e) => e.isCaster) ?? valid.find(onNonTank);
+  }
+
+  private applyPolymorph(h: Unit, to: Unit): void {
+    if (to.casting) this.endCast(to, true);
+    to.targetId = null;
+    to.tauntTime = 0;
+    this.addEffect(to, { kind: 'sheep', remaining: ABILITY_TUNING.polymorph.duration, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+    for (const hero of this.units) if (hero.side === 'hero' && hero.targetId === to.id) hero.targetId = null;
+    // Don't let your own auto attacks break the sheep you just made.
+    if (this.focusId === to.id) this.focusId = null;
+    this.events.push({ type: 'ability', from: h.id, ability: 'polymorph', to: to.id });
+  }
+
+  /** +20% max health for every living hero (refreshes rather than stacks). */
+  private applyFortitude(source: Unit, duration: number): void {
+    const bonusFrac = ABILITY_TUNING.fortitude.bonus;
+    for (const ally of this.units) {
+      if (ally.side !== 'hero' || !ally.alive) continue;
+      const existing = ally.effects?.find((e) => e.kind === 'fortitude');
+      if (existing) {
+        existing.remaining = Math.max(existing.remaining, duration);
+        continue;
+      }
+      const bonus = Math.round(ally.maxHp * bonusFrac);
+      ally.maxHp += bonus;
+      ally.hp += bonus;
+      this.addEffect(ally, { kind: 'fortitude', remaining: duration, tickEvery: 0, tickTimer: 0, amount: bonus, sourceId: source.id });
+    }
+  }
+
+  // --- passives ------------------------------------------------------------
+
+  /** Each class's always-on passive. Runs even when the player has AUTO off. */
+  private updatePassive(h: Unit, dt: number): void {
+    if (h.passiveCooldown) h.passiveCooldown = Math.max(0, h.passiveCooldown - dt);
+    switch (h.passive) {
+      case 'autoTaunt': {
+        if (h.passiveCooldown) return;
+        const loose = this.looseEnemies(h);
+        if (!loose.length) return;
+        this.applyTaunt(h, nearest(h, loose));
+        h.passiveCooldown = PASSIVE_TUNING.autoTaunt.cooldown;
+        return;
+      }
+      case 'autoPolymorph': {
+        if (h.passiveCooldown) return;
+        const target = this.polymorphCandidate(h);
+        if (!target) return;
+        this.applyPolymorph(h, target);
+        h.passiveCooldown = PASSIVE_TUNING.autoPolymorph.cooldown;
+        return;
+      }
+      case 'stealth': {
+        if (this.hasEffect(h, 'stealth')) return;
+        h.outOfCombat = (h.outOfCombat ?? 0) + dt;
+        const hunted = this.units.some((e) => e.side === 'enemy' && e.alive && e.targetId === h.id);
+        if (h.outOfCombat >= PASSIVE_TUNING.stealth.restealthAfter && !hunted) {
+          this.addEffect(h, this.stealthEffect());
+          this.events.push({ type: 'notice', id: h.id, text: 'Stealth', tone: 'info' });
+        }
+        return;
+      }
+    }
   }
 
   /** Enemies within an interrupt's range. */
@@ -517,6 +602,8 @@ export class Battle {
       const f = this.unit(this.focusId);
       if (f?.side === 'enemy' && f.alive && this.inReach(h, f)) return f;
     }
+    // An ambush from stealth hits twice as hard — careful AI must account for that.
+    if (this.hasEffect(h, 'stealth')) hitSize *= PASSIVE_TUNING.stealth.ambushMultiplier;
     let inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && this.inReach(h, u));
     // Sheep are the lowest priority: only attacked when nothing else is left anywhere.
     const othersAlive = this.units.some((u) => u.side === 'enemy' && u.alive && !this.isSheep(u));
@@ -556,6 +643,8 @@ export class Battle {
         return !!this.pickEnemyTarget(h, t.fireball.damage);
       case 'sinisterStrike':
         return !!this.pickEnemyTarget(h, t.sinisterStrike.damage);
+      case 'heroicStrike':
+        return !!this.pickEnemyTarget(h, t.heroicStrike.damage);
       case 'polymorph':
         return !!this.polymorphCandidate(h);
       case 'kick':
@@ -608,9 +697,10 @@ export class Battle {
       case 'fortitude':
         return h; // party-wide; always has a target
       case 'fireball':
-      case 'sinisterStrike': {
+      case 'sinisterStrike':
+      case 'heroicStrike': {
         if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
-        const size = id === 'fireball' ? t.fireball.damage : t.sinisterStrike.damage;
+        const size = id === 'fireball' ? t.fireball.damage : id === 'heroicStrike' ? t.heroicStrike.damage : t.sinisterStrike.damage;
         return this.pickEnemyTarget(h, byPlayer ? 0 : size);
       }
       case 'polymorph': {
@@ -668,22 +758,15 @@ export class Battle {
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
         break;
       }
-      case 'fortitude': {
-        for (const ally of this.units) {
-          if (ally.side !== 'hero' || !ally.alive) continue;
-          const existing = ally.effects?.find((e) => e.kind === 'fortitude');
-          if (existing) {
-            existing.remaining = t.fortitude.duration; // refresh, don't stack
-            continue;
-          }
-          const bonus = Math.round(ally.maxHp * t.fortitude.bonus);
-          ally.maxHp += bonus;
-          ally.hp += bonus;
-          this.addEffect(ally, { kind: 'fortitude', remaining: t.fortitude.duration, tickEvery: 0, tickTimer: 0, amount: bonus, sourceId: h.id });
-        }
+      case 'fortitude':
+        this.applyFortitude(h, t.fortitude.duration);
         this.events.push({ type: 'ability', from: h.id, ability: id });
         break;
-      }
+      case 'heroicStrike':
+        h.targetId = to.id;
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        this.damage(h, to, this.roll(t.heroicStrike.damage), { ability: id, threatScale: t.heroicStrike.threatBonus });
+        break;
       case 'fireball':
       case 'sinisterStrike': {
         let size = id === 'fireball' ? t.fireball.damage : t.sinisterStrike.damage;
@@ -700,17 +783,9 @@ export class Battle {
         }
         break;
       }
-      case 'polymorph': {
-        if (to.casting) this.endCast(to, true);
-        to.targetId = null;
-        to.tauntTime = 0;
-        this.addEffect(to, { kind: 'sheep', remaining: t.polymorph.duration, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
-        for (const hero of this.units) if (hero.side === 'hero' && hero.targetId === to.id) hero.targetId = null;
-        // Don't let your own auto attacks break the sheep you just made.
-        if (this.focusId === to.id) this.focusId = null;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+      case 'polymorph':
+        this.applyPolymorph(h, to);
         break;
-      }
       case 'kick':
       case 'counterspell': {
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
@@ -791,6 +866,19 @@ export class Battle {
       if (opts.aoe) return; // sheep ignore AoE
       to.effects = to.effects!.filter((e) => e.kind !== 'sheep');
       this.events.push({ type: 'notice', id: to.id, text: 'Sheep broke!', tone: 'bad' });
+    }
+    // Stealth: the first hit out of stealth is an ambush.
+    if (this.hasEffect(from, 'stealth')) {
+      from.effects = from.effects!.filter((e) => e.kind !== 'stealth');
+      if (!opts.tick) {
+        amount = Math.round(amount * PASSIVE_TUNING.stealth.ambushMultiplier);
+        this.events.push({ type: 'notice', id: from.id, text: 'Ambush!', tone: 'good' });
+      }
+    }
+    if (from.side === 'hero') from.outOfCombat = 0;
+    if (to.side === 'hero') {
+      to.outOfCombat = 0;
+      if (this.hasEffect(to, 'stealth')) to.effects = to.effects!.filter((e) => e.kind !== 'stealth');
     }
     // Rage trait: more rage, more damage.
     if (this.hasTrait(from, 'rage') && !opts.tick) {

@@ -21,12 +21,12 @@ Steps 1–4 of the first playable version are done:
    Fireball, Sinister Strike) using rage / mana / energy; AUTO toggle; pause.
    Orange/red `!` aggro warnings show on your hero.
 
-4. **Class kits (part 1)** — each class starts with one ability (Warrior
-   Taunt, Priest Heal, Mage Fireball, Rogue Sinister Strike) and has five
-   ability slots; the other four are earned in step 5. Earnable abilities
-   already work in the simulation: Thunderclap, Renew, Power Word:
-   Fortitude, Polymorph, Counterspell, Kick. Buttons get a red outline when
-   nothing is in range.
+4. **Class kits (part 1)** — each class starts with one active ability and
+   one always-on passive: Warrior Heroic Strike + Taunt, Priest Heal +
+   Power Word: Fortitude, Mage Fireball + Polymorph (elites/casters first),
+   Rogue Sinister Strike + Stealth. Five large ability slots sit right under
+   the gate; four are earned in step 5. Earnable abilities already work in
+   the simulation: Thunderclap, Renew, Counterspell, Kick.
 
 Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**
 (ON = AI damage dealers hold back before pulling aggro; OFF = they don't).
