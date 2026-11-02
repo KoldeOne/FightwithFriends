@@ -216,6 +216,53 @@ export class Battle {
     return (1 + LEVEL_SCALING * ((h.level ?? 1) - 1)) * (h.might ?? 1) * (1 + UPGRADE.powerPerRank * (slot.power ?? 0));
   }
 
+  /** Plain-language numbers for an ability on this hero (includes level and upgrades). */
+  abilityEffectText(h: Unit, slot: AbilitySlot): string {
+    const t = ABILITY_TUNING;
+    const k = this.abilityScale(h, slot);
+    const r = (n: number) => Math.round(n * k);
+    switch (slot.id) {
+      case 'taunt':
+        return 'Forces an enemy to attack this hero.';
+      case 'heroicStrike':
+        return `Deals ${r(t.heroicStrike.damage)} damage with extra threat.`;
+      case 'thunderclap':
+        return `Deals ${r(t.thunderclap.damage)} damage to every nearby enemy (high threat) and slows their attacks for ${t.thunderclap.slow}s.`;
+      case 'whirlwind':
+        return `Deals ${r(t.whirlwind.damage)} damage to every nearby enemy.`;
+      case 'shieldBlock':
+        return `Takes ${t.shieldBlock.reduction * 100}% less damage for ${t.shieldBlock.duration}s.`;
+      case 'heal':
+        return `Heals one ally for ${r(t.heal.amount)}.`;
+      case 'renew':
+        return `Heals one ally for ${r(t.renew.total)} over ${t.renew.duration}s.`;
+      case 'fortitude':
+        return `Party gains +${t.fortitude.bonus * 100}% max health for ${t.fortitude.duration}s.`;
+      case 'powerShield':
+        return `Shields an ally from ${r(t.powerShield.absorb)} damage for ${t.powerShield.duration}s.`;
+      case 'prayerOfHealing':
+        return `Heals every ally for ${r(t.prayerOfHealing.amount)}.`;
+      case 'fireball':
+        return `Deals ${r(t.fireball.damage)} damage, then ${r(t.fireball.burnPerSecond * t.fireball.burnDuration)} burn damage over ${t.fireball.burnDuration}s.`;
+      case 'iceLance':
+        return `Deals ${r(t.iceLance.damage)} damage.`;
+      case 'blizzard':
+        return `Deals ${r(t.blizzard.damagePerSecond * t.blizzard.duration)} damage over ${t.blizzard.duration}s to enemies in the storm and slows them.`;
+      case 'polymorph':
+        return `Turns an enemy into a sheep for ${t.polymorph.duration}s.`;
+      case 'counterspell':
+        return `Interrupts a cast; silences for ${t.counterspell.silence}s.`;
+      case 'kick':
+        return `Interrupts a cast; silences for ${t.kick.silence}s and deals ${t.kick.damage} damage.`;
+      case 'sinisterStrike':
+        return `Deals ${r(t.sinisterStrike.damage)} damage.`;
+      case 'eviscerate':
+        return `Deals ${r(t.eviscerate.damage)} damage.`;
+      case 'evasion':
+        return `Dodges ${t.evasion.dodge * 100}% of attacks for ${t.evasion.duration}s.`;
+    }
+  }
+
   abilityCooldown(slot: AbilitySlot): number {
     return ABILITIES[slot.id].cooldown * Math.pow(UPGRADE.hastePerRank, slot.haste ?? 0);
   }

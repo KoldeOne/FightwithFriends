@@ -8,6 +8,7 @@ import {
   CHOICE_EVERY,
   DEFAULT_TEAM,
   HERO_KIT,
+  HERO_MOVE,
   heroTileAt,
   makeRound,
   MAX_ABILITY_SLOTS,
@@ -146,6 +147,9 @@ const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string; color:
   evasion: { name: 'Evasion', letter: 'E', color: 0xf1c40f, debuff: false, text: (e) => `Dodging ${Math.round(e.amount * 100)}% of attacks.` },
 };
 const MAX_BUFF_ICONS = 12;
+/** Buff icons on units: up to this many, this size (px). */
+const UNIT_ICONS = 4;
+const UNIT_ICON = 10;
 const BUFF_ICON = 22;
 const TARGET_BAR_X = 200;
 /** Party panel layout (bottom of the screen): one frame per hero, sized to fit 3-5 heroes. */
@@ -190,8 +194,10 @@ interface UnitView {
   top: number;
   /** Cast bar label (enemies that cast). */
   castLabel?: Phaser.GameObjects.Text;
-  /** Aggro warning badge (shown on the player's hero only). */
+  /** Aggro warning badge. */
   aggroIcon?: { container: Phaser.GameObjects.Container; disc: Phaser.GameObjects.Arc };
+  /** Tiny buff/debuff icons just under the health bar. */
+  effectIcons: { bg: Phaser.GameObjects.Rectangle; letter: Phaser.GameObjects.Text }[];
   dead: boolean;
 }
 
@@ -298,6 +304,9 @@ export class BattleScene extends Phaser.Scene {
     this.acc = 0;
     this.overlay = undefined;
     this.tooltip = undefined;
+    this.inspectUi = undefined;
+    this.inspectId = null;
+    this.pauseBanner = undefined;
     this.run = data?.run ?? null;
     this.teamPicks = data?.teamPicks ?? '';
     this.selectedSlot = null;
@@ -365,6 +374,11 @@ export class BattleScene extends Phaser.Scene {
     }
     this.syncViews();
     this.updateHud();
+    this.inspectRefresh -= deltaMs;
+    if (this.inspectRefresh <= 0) {
+      this.inspectRefresh = 200;
+      this.refreshInspect();
+    }
     this.drawFocus(time);
     this.drawZones(time);
     this.drawTiles();
@@ -639,14 +653,17 @@ export class BattleScene extends Phaser.Scene {
 
   // --- input ------------------------------------------------------------------
 
-  /** Tap any unit to inspect it (name and health along the bottom). It doesn't change what the AI does. */
+  /**
+   * Tap any unit to inspect it (works while paused too). Tapping empty ground
+   * closes the inspect window. It doesn't change what the AI does.
+   */
   private onFieldTap(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
     if (over.length || pointer.y > WORLD.hudTop) return;
     if (this.state === 'placing') {
       this.placementTap(pointer);
       return;
     }
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' && this.state !== 'paused') return;
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.battle.units) {
@@ -658,29 +675,121 @@ export class BattleScene extends Phaser.Scene {
         bestD = d;
       }
     }
-    this.battle.setFocus(!best || best.id === this.battle.focusId ? null : best.id);
+    if (!best || best.id === this.inspectId) {
+      this.closeInspect();
+      this.battle.setFocus(null);
+      return;
+    }
+    this.battle.setFocus(best.id);
+    this.openInspect(best.id);
   }
 
+  // --- inspect window -------------------------------------------------------
+
+  /** Unit shown in the inspect window, if open. */
+  private inspectId: number | null = null;
+  private inspectUi?: { box: Phaser.GameObjects.Rectangle; body: Phaser.GameObjects.Text; title: Phaser.GameObjects.Text; container: Phaser.GameObjects.Container };
+  private inspectRefresh = 0;
+
+  private openInspect(id: number): void {
+    this.closeInspect();
+    const u = this.battle.unit(id);
+    if (!u) return;
+    this.inspectId = id;
+    const x = 16;
+    const y = 134;
+    const w = WORLD.width - 32;
+    const box = this.add.rectangle(x, y, w, 100, 0x0e131d, 0.96).setOrigin(0, 0).setStrokeStyle(2, u.side === 'hero' ? COLORS[u.kind] : 0xe74c3c).setInteractive();
+    const title = this.text(x + 14, y + 12, '', 18, '#ffd166').setFontStyle('bold');
+    const body = this.text(x + 14, y + 42, '', 13, '#ffffff').setWordWrapWidth(w - 28).setLineSpacing(3);
+    const close = this.text(x + w - 10, y + 8, '✕', 20, '#c9d1e0')
+      .setOrigin(1, 0)
+      .setPadding(8, 2, 8, 2)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        this.closeInspect();
+        this.battle.setFocus(null);
+      });
+    const container = this.add.container(0, 0, [box, title, body, close]).setDepth(95);
+    this.inspectUi = { box, body, title, container };
+    this.refreshInspect();
+  }
+
+  private closeInspect(): void {
+    this.inspectUi?.container.destroy();
+    this.inspectUi = undefined;
+    this.inspectId = null;
+  }
+
+  /** Rebuild the inspect text (a few times a second, so health stays live). */
+  private refreshInspect(): void {
+    const ui = this.inspectUi;
+    if (!ui || this.inspectId === null) return;
+    const u = this.battle.unit(this.inspectId);
+    if (!u?.alive) {
+      this.closeInspect();
+      return;
+    }
+    const lines: string[] = [];
+    lines.push(`Health: ${Math.ceil(u.hp)} / ${u.maxHp}`);
+    if (u.side === 'hero' && u.resourceKind) lines.push(`${RESOURCES[u.resourceKind].label}: ${Math.floor(u.resource ?? 0)} / ${u.maxResource}`);
+    lines.push(`Attack: ${Math.round(u.damage)} damage every ${u.attackInterval}s (${u.attackStyle}, range ${u.range})`);
+    if (u.heal) lines.push(`Auto-heal: ${Math.round(u.heal)} on the most hurt ally`);
+    lines.push(`Move speed: ${u.side === 'hero' ? HERO_MOVE.speed : u.speed}`);
+    if (u.side === 'hero') {
+      if (u.isTank) lines.push(`Role: tank (threat x${u.threatMultiplier ?? 1})`);
+      const passive = u.passive ? PASSIVES[u.passive] : undefined;
+      if (passive) lines.push('', `Passive — ${passive.name}: ${passive.description}`);
+      lines.push('', 'Abilities:');
+      for (const a of u.abilities ?? []) {
+        const def = ABILITIES[a.id];
+        const cost = this.battle.abilityCost(u, a.id);
+        const costText = cost ? `${cost} ${RESOURCES[u.resourceKind!].label.toLowerCase()}` : 'free';
+        const cd = this.battle.abilityCooldown(a);
+        const ups = [a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(', ');
+        lines.push(`• ${def.name}${ups ? ` (${ups})` : ''} — cost ${costText}, ${cd % 1 ? cd.toFixed(1) : cd}s cooldown`);
+        lines.push(`   ${this.battle.abilityEffectText(u, a)}`);
+      }
+      for (const t of u.traits ?? []) lines.push(`• ${TRAITS[t].name} (passive) — ${TRAITS[t].description}`);
+    } else {
+      const notes = [u.isElite ? 'Elite' : '', u.isCaster ? 'Caster (can be interrupted)' : ''].filter(Boolean);
+      if (notes.length) lines.push(notes.join(' · '));
+      if (u.casting) lines.push(`Casting: ${u.casting.spell} (${u.casting.remaining.toFixed(1)}s)`);
+    }
+    const effects = (u.effects ?? []).filter((e) => e.remaining > 0);
+    if (effects.length) {
+      lines.push('', 'Effects:');
+      for (const e of effects) {
+        const info = EFFECT_INFO[e.kind];
+        lines.push(`• ${info.name}${Number.isFinite(e.remaining) ? ` (${Math.ceil(e.remaining)}s)` : ''} — ${info.text(e)}`);
+      }
+    }
+    ui.title
+      .setText(`${u.label}${u.side === 'hero' ? ` — level ${u.level ?? 1}` : ''}`)
+      .setColor(u.side === 'hero' ? '#' + COLORS[u.kind].toString(16).padStart(6, '0') : '#ff8a8a');
+    ui.body.setText(lines.join('\n'));
+    ui.box.setSize(ui.box.width, 42 + ui.body.height + 14);
+  }
+
+  /** Pause stops the fight, but everything stays interactive (inspect, tooltips, panels). */
   private togglePause(): void {
     if (this.state === 'playing') {
       this.state = 'paused';
       this.tweens.pauseAll();
-      const cx = WORLD.width / 2;
-      const resume = this.button(cx, 470, 'Resume', 22, '#2e86de', () => this.togglePause());
-      this.overlay = this.add
-        .container(0, 0, [
-          this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.6).setOrigin(0, 0).setInteractive(),
-          this.text(cx, 400, 'Paused', 40, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
-          resume,
-        ])
-        .setDepth(100);
+      this.pauseBanner = this.text(WORLD.width / 2, 112, 'PAUSED — tap units or panels to inspect', 14, '#ffffff')
+        .setOrigin(0.5)
+        .setPadding(12, 6, 12, 6)
+        .setBackgroundColor('#2e86de')
+        .setDepth(96);
     } else if (this.state === 'paused') {
-      this.overlay?.destroy();
-      this.overlay = undefined;
+      this.pauseBanner?.destroy();
+      this.pauseBanner = undefined;
       this.tweens.resumeAll();
       this.state = 'playing';
     }
   }
+
+  private pauseBanner?: Phaser.GameObjects.Text;
 
   // --- static scenery -----------------------------------------------------
 
@@ -749,7 +858,16 @@ export class BattleScene extends Phaser.Scene {
         .setOrigin(0, 0)
         .setStrokeStyle(1, 0x2b3445)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.showHeroTooltip(i));
+        .on('pointerdown', () => {
+          const h = this.heroInSlot(i);
+          if (!h) return;
+          if (!h.alive) {
+            this.showHeroTooltip(i);
+            return;
+          }
+          this.battle.setFocus(h.id);
+          this.openInspect(h.id);
+        });
       const name = this.text(x + 6, y + 4, '', frames > 4 ? 10 : 12, '#ffffff').setFontStyle('bold');
       const hpText = this.text(x + 6, y + 22, '', 10, '#ffffff').setFontStyle('bold').setDepth(2);
       hpText.setStroke('#000000', 3);
@@ -889,10 +1007,16 @@ export class BattleScene extends Phaser.Scene {
     if (a) {
       const def = ABILITIES[a.id];
       const cost = this.battle.abilityCost(h, a.id);
-      const costText = cost ? `${cost} ${RESOURCES[h.resourceKind!].label.toLowerCase()}` : 'No cost';
+      const costText = cost ? `${cost} ${RESOURCES[h.resourceKind!].label.toLowerCase()}` : 'free';
       const ups = [a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(' · ');
       const cd = this.battle.abilityCooldown(a);
-      this.showTooltip(`${h.label}: ${def.name}`, def.description, `${costText} · ${cd % 1 ? cd.toFixed(1) : cd}s cooldown${ups ? ` · ${ups}` : ''}`, COLORS[h.kind], true);
+      this.showTooltip(
+        `${h.label}: ${def.name}`,
+        this.battle.abilityEffectText(h, a),
+        `Cost: ${costText} · Cooldown: ${cd % 1 ? cd.toFixed(1) : cd}s${ups ? ` · ${ups}` : ''}`,
+        COLORS[h.kind],
+        true,
+      );
     } else if (trait) {
       this.showTooltip(`${h.label}: ${TRAITS[trait].name}`, TRAITS[trait].description, 'Passive — always on', 0xb57bff, true);
     } else {
@@ -915,20 +1039,24 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
-  /** A small box just above the HUD. */
+  /** A small box just above the HUD, sized to fit its text. */
   private showTooltip(titleText: string, bodyText: string, metaText: string, color: number, autoHide: boolean, bad = false): void {
     this.tooltip?.destroy();
-    const w = 380;
+    const w = 420;
     const x = 16;
-    const y = WORLD.hudTop - 96;
-    const title = this.text(x + 12, y + 10, titleText, 15, bad ? '#ff8a8a' : '#ffd166').setFontStyle('bold');
-    const body = this.text(x + 12, y + 32, bodyText, 13, '#ffffff').setWordWrapWidth(w - 24);
-    const meta = this.text(x + 12, y + 62, metaText, 12, '#8f9bb3').setWordWrapWidth(w - 24);
-    const box = this.add.rectangle(x, y, w, 86, 0x111723, 0.95).setOrigin(0, 0).setStrokeStyle(2, color);
+    const title = this.text(x + 12, 0, titleText, 15, bad ? '#ff8a8a' : '#ffd166').setFontStyle('bold');
+    const body = this.text(x + 12, 0, bodyText, 13, '#ffffff').setWordWrapWidth(w - 24);
+    const meta = this.text(x + 12, 0, metaText, 12, '#9ad1ff').setWordWrapWidth(w - 24);
+    const h = 18 + title.height + 6 + body.height + (metaText ? 6 + meta.height : 0) + 10;
+    const y = WORLD.hudTop - h - 8;
+    title.setY(y + 10);
+    body.setY(title.y + title.height + 6);
+    meta.setY(body.y + body.height + 6);
+    const box = this.add.rectangle(x, y, w, h, 0x111723, 0.96).setOrigin(0, 0).setStrokeStyle(2, color);
     this.tooltip = this.add.container(0, 0, [box, title, body, meta]).setDepth(90);
     const tip = this.tooltip;
     if (autoHide) {
-      this.time.delayedCall(3000, () => {
+      this.time.delayedCall(4000, () => {
         if (this.tooltip === tip) this.hideTooltip();
       });
     }
@@ -1010,7 +1138,14 @@ export class BattleScene extends Phaser.Scene {
       castLabel.setStroke('#000000', 3);
       container.add(castLabel);
     }
-    this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, dead: false });
+    const effectIcons: UnitView['effectIcons'] = [];
+    for (let i = 0; i < UNIT_ICONS; i++) {
+      const bg = this.add.rectangle(0, 0, UNIT_ICON, UNIT_ICON, 0xffffff).setStrokeStyle(1, 0x000000).setVisible(false);
+      const l = this.text(0, 0, '', 8, '#111').setOrigin(0.5).setFontStyle('bold').setVisible(false);
+      container.add([bg, l]);
+      effectIcons.push({ bg, letter: l });
+    }
+    this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, effectIcons, dead: false });
   }
 
   /** Brief push of a unit's figure (lunges and knockback); returns to rest. */
@@ -1036,11 +1171,24 @@ export class BattleScene extends Phaser.Scene {
       const color = u.side === 'enemy' ? 0xe74c3c : pct > 0.5 ? 0x2ecc71 : pct > 0.25 ? 0xf39c12 : 0xe74c3c;
       v.hpBar.fillStyle(color).fillRect(-w / 2, y, w * pct, 5);
 
-      // Small effect pips next to the health bar: green = heal over time, orange = burning.
-      let pip = 0;
-      if (this.battle.hasEffect(u, 'hot')) v.hpBar.fillStyle(0x7dff9b).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
-      if (this.battle.hasEffect(u, 'dot')) v.hpBar.fillStyle(0xff8c1a).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
-      if (this.battle.hasEffect(u, 'fortitude')) v.hpBar.fillStyle(0xfff3b0).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
+      // Tiny buff/debuff icons just under the health bar (buffs first; debuffs have a red edge).
+      const shown = (u.effects ?? [])
+        .filter((e) => e.remaining > 0 && e.kind !== 'sheep')
+        .sort((a, b) => Number(EFFECT_INFO[a.kind].debuff) - Number(EFFECT_INFO[b.kind].debuff))
+        .filter((e, i, list) => list.findIndex((o) => o.kind === e.kind) === i)
+        .slice(0, UNIT_ICONS);
+      const startX = -((shown.length - 1) * (UNIT_ICON + 2)) / 2;
+      v.effectIcons.forEach((icon, i) => {
+        const e = shown[i];
+        icon.bg.setVisible(!!e);
+        icon.letter.setVisible(!!e);
+        if (!e) return;
+        const info = EFFECT_INFO[e.kind];
+        const ix = startX + i * (UNIT_ICON + 2);
+        const iy = y + 6 + UNIT_ICON / 2 + 1;
+        icon.bg.setPosition(ix, iy).setFillStyle(info.color).setStrokeStyle(1, info.debuff ? 0xe74c3c : 0x000000);
+        icon.letter.setPosition(ix, iy).setText(info.letter);
+      });
       if (u.side === 'hero') v.container.setAlpha(this.battle.hasEffect(u, 'stealth') ? 0.45 : 1);
       if (u.side === 'enemy') {
         const sheep = this.battle.isSheep(u);
