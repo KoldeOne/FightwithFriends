@@ -1,6 +1,6 @@
 # First Playable Version — Plan
 
-> Companion to [GAME_DESIGN.md](GAME_DESIGN.md). Status: **steps 1–4 done** (the rest of each class's ability pool arrives with step 5's level-up choices).
+> Companion to [GAME_DESIGN.md](GAME_DESIGN.md). Status: **steps 1–4 done; step 5 part 1 done** (level-up rewards, Choose for me, autosave). Next: loot/gear.
 
 ## Goal
 

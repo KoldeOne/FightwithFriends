@@ -9,7 +9,7 @@ against waves of enemies. Built to play on a phone.
 
 ## Status
 
-Steps 1–4 of the first playable version are done:
+Steps 1–5 (part 1) of the first playable version are done:
 
 1. **Battlefield** — heroes hold positions, goblins march down, auto attacks,
    gate HP, victory or the gate falling.
@@ -28,6 +28,15 @@ Steps 1–4 of the first playable version are done:
    the gate; four are earned in step 5. Earnable abilities already work in
    the simulation: Thunderclap, Renew, Counterspell, Kick.
 
+5. **Between waves (part 1)** — a 10-wave run. After each wave everyone
+   levels up (+6% health & damage) and you pick 1 of 3 rewards: a new
+   ability, a passive trait, or an upgrade (+25% effect or −20% cooldown).
+   AI teammates pick their own. "Choose for me" (top bar) picks for you and
+   starts the next wave after a 3-second countdown. Dead heroes are revived
+   between waves. The run autosaves after each pick (Continue on the hero
+   screen). Loot/gear comes next.
+
+Top bar: **AUTO** (the AI plays your hero) and **Pause**; **Choose for me**.
 Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**
 (ON = AI damage dealers hold back before pulling aggro; OFF = they don't).
 

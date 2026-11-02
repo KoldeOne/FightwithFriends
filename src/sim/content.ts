@@ -1,4 +1,4 @@
-import type { AbilityId, EnemyKind, HeroClass, PassiveId, ResourceKind, TraitId, Unit, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroClass, PassiveId, ResourceKind, SpawnDef, TraitId, Unit, WaveDef } from './types';
 
 /** World is a fixed portrait canvas; the renderer scales it to the screen. */
 export const WORLD = {
@@ -73,6 +73,22 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   counterspell: { id: 'counterspell', name: 'Counterspell', cls: 'mage', cost: 0, cooldown: 12, description: 'Interrupts an enemy cast and locks it out of casting.' },
   sinisterStrike: { id: 'sinisterStrike', name: 'Sinister Strike', cls: 'rogue', cost: 40, cooldown: 1.5, description: 'A fast, heavy strike.' },
   kick: { id: 'kick', name: 'Kick', cls: 'rogue', cost: 0, cooldown: 10, description: 'Interrupts an enemy cast and locks it out of casting.' },
+  whirlwind: { id: 'whirlwind', name: 'Whirlwind', cls: 'warrior', cost: 25, cooldown: 6, description: 'Hits every nearby enemy.' },
+  shieldBlock: { id: 'shieldBlock', name: 'Shield Block', cls: 'warrior', cost: 15, cooldown: 12, description: 'Take 50% less damage for 5s.' },
+  powerShield: { id: 'powerShield', name: 'Power Shield', cls: 'priest', cost: 20, cooldown: 6, description: 'Shields an ally from 60 damage.' },
+  prayerOfHealing: { id: 'prayerOfHealing', name: 'Prayer of Healing', cls: 'priest', cost: 40, cooldown: 10, description: 'Heals the whole party.' },
+  iceLance: { id: 'iceLance', name: 'Ice Lance', cls: 'mage', cost: 12, cooldown: 2, description: 'A quick, cheap ranged hit.' },
+  blizzard: { id: 'blizzard', name: 'Blizzard', cls: 'mage', cost: 35, cooldown: 12, description: 'Ice storm on the biggest group of enemies: damage over time and slow.' },
+  eviscerate: { id: 'eviscerate', name: 'Eviscerate', cls: 'rogue', cost: 35, cooldown: 6, description: 'A big finishing strike.' },
+  evasion: { id: 'evasion', name: 'Evasion', cls: 'rogue', cost: 0, cooldown: 20, description: 'Dodge 75% of attacks for 6s.' },
+};
+
+/** Abilities each class can earn from level-up rewards (in AI preference order). */
+export const CLASS_POOL: Record<HeroClass, AbilityId[]> = {
+  warrior: ['thunderclap', 'shieldBlock', 'whirlwind'],
+  priest: ['renew', 'powerShield', 'prayerOfHealing'],
+  mage: ['iceLance', 'blizzard', 'counterspell'],
+  rogue: ['eviscerate', 'kick', 'evasion'],
 };
 
 /** Max ability slots per hero: the starting ability + 4 earned during a run. */
@@ -91,9 +107,23 @@ export const ABILITY_TUNING = {
   sinisterStrike: { damage: 32 },
   /** Kick has its own range, separate from the Rogue's melee reach. */
   kick: { damage: 8, silence: 4, range: 420 },
+  whirlwind: { radius: 110, damage: 20 },
+  shieldBlock: { duration: 5, reduction: 0.5 },
+  powerShield: { absorb: 60, duration: 15 },
+  prayerOfHealing: { amount: 35 },
+  iceLance: { damage: 28 },
+  blizzard: { radius: 85, duration: 6, damagePerSecond: 9 },
+  eviscerate: { damage: 55 },
+  evasion: { duration: 6, dodge: 0.75 },
   /** Slowed units attack this much slower. */
   slowFactor: 1.3,
 };
+
+/** Per-rank upgrade effects. */
+export const UPGRADE = { powerPerRank: 0.25, hastePerRank: 0.8 };
+
+/** Per level after 1: +6% max health, damage and healing. */
+export const LEVEL_SCALING = 0.06;
 
 export interface TraitDef {
   id: TraitId;
@@ -175,13 +205,40 @@ export const AGGRO = {
   tauntRange: 420,
 };
 
-export const WAVE_1: WaveDef = {
-  number: 1,
-  spawns: [
-    { time: 0, kind: 'grunt', x: 210 },
-    { time: 0.6, kind: 'grunt', x: 330 },
-    { time: 3, kind: 'archer', x: 270 },
-    { time: 6, kind: 'runner', x: 110 },
-    { time: 9, kind: 'grunt', x: 420 },
-  ],
-};
+/** Waves in a run (the first playable is chapter 1: 10 waves). */
+export const RUN_WAVES = 10;
+
+/**
+ * Wave N: enemies arrive in tight groups. Counts and stats grow each wave;
+ * shamans (casters) appear from wave 3; reinforcements from wave 6.
+ */
+export function makeWave(n: number): WaveDef {
+  // Small deterministic generator so a wave is the same every time.
+  let seed = n * 9301 + 49297;
+  const rand = () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+  const group = (time: number, kinds: EnemyKind[]): SpawnDef[] => {
+    const cx = 170 + rand() * 200;
+    return kinds.map((kind, i) => ({ time: time + i * 0.35, kind, x: cx + (rand() - 0.5) * 110 }));
+  };
+  const mainCount = [3, 4, 4, 5, 5, 4, 5, 5, 6, 6][n - 1] ?? 6;
+  const main: EnemyKind[] = [];
+  for (let i = 0; i < mainCount; i++) main.push('grunt');
+  main[1 % mainCount] = 'archer';
+  if (n >= 2) main[2 % mainCount] = 'runner';
+  if (n >= 3) main[mainCount - 1] = 'shaman';
+  if (n >= 7) main[0] = 'archer';
+  const spawns = group(0, main);
+  const reinforcements = [0, 0, 0, 0, 0, 2, 2, 3, 3, 3][n - 1] ?? 3;
+  if (reinforcements) {
+    const extra: EnemyKind[] = [];
+    for (let i = 0; i < reinforcements; i++) extra.push(i === 1 ? 'runner' : 'grunt');
+    if (n >= 9) extra[extra.length - 1] = 'shaman';
+    spawns.push(...group(22, extra));
+  }
+  return { number: n, spawns, strength: 1 + (n - 1) * 0.18 };
+}
+
+export const WAVE_1: WaveDef = makeWave(1);

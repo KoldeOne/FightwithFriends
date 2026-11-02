@@ -364,7 +364,14 @@ Appears after every wave:
 
 A **"Choose for me"** button makes all choices automatically.
 
-### Auto controls
+### Auto controls (as built)
+
+- **AUTO** (top bar, next to Pause): the AI plays your hero.
+- **Choose for me** (top bar toggle): the reward is picked for you (highlighted)
+  and the next wave starts after a 3-second countdown. Turning it off during
+  the countdown lets you pick yourself.
+
+### Auto controls (original plan)
 
 - **One Full Auto toggle** covers both combat and between-wave choices.
 - In Full Auto, a **5-second countdown** ("Next wave in 5… tap to stop") runs on

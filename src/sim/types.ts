@@ -14,7 +14,15 @@ export type AbilityId =
   | 'polymorph'
   | 'counterspell'
   | 'sinisterStrike'
-  | 'kick';
+  | 'kick'
+  | 'whirlwind'
+  | 'shieldBlock'
+  | 'powerShield'
+  | 'prayerOfHealing'
+  | 'iceLance'
+  | 'blizzard'
+  | 'eviscerate'
+  | 'evasion';
 
 /** Each class's always-on starting passive. */
 export type PassiveId = 'autoTaunt' | 'fortitudeAura' | 'autoPolymorph' | 'stealth';
@@ -24,13 +32,28 @@ export interface AbilitySlot {
   id: AbilityId;
   /** Seconds until it's ready again. */
   cooldown: number;
+  /** Upgrade ranks from level-up rewards: +25% effect each / -20% cooldown each. */
+  power?: number;
+  haste?: number;
+}
+
+/** A ground area effect (e.g. Blizzard). */
+export interface Zone {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  remaining: number;
+  tickTimer: number;
+  damage: number;
+  sourceId: number;
 }
 /** Passive traits: not part of the starting kit — saved as future reward options. */
 export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints';
 
 /** A timed buff/debuff on a unit. */
 export interface Effect {
-  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence' | 'stealth';
+  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence' | 'stealth' | 'block' | 'shield' | 'evasion';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */
@@ -95,6 +118,8 @@ export interface Unit {
   /** Enemy: elite (tougher) and caster flags, used by auto-Polymorph priority. */
   isElite?: boolean;
   isCaster?: boolean;
+  /** Hero: level (1 at the start of a run; +1 per wave cleared). */
+  level?: number;
   /** Hero: passive traits earned so far (none at the start). */
   traits?: TraitId[];
   /** Rogue: combo points (0-5), only used with the Combo Points trait. */
@@ -135,4 +160,13 @@ export interface SpawnDef {
 export interface WaveDef {
   number: number;
   spawns: SpawnDef[];
+  /** Enemy health and damage multiplier (1 = base). */
+  strength?: number;
+}
+
+/** What carries over between waves for one hero. */
+export interface HeroBuild {
+  level: number;
+  abilities: { id: AbilityId; power: number; haste: number }[];
+  traits: TraitId[];
 }

@@ -7,16 +7,18 @@ import {
   GATE_MAX_HP,
   HERO_KIT,
   HERO_STATS,
+  LEVEL_SCALING,
   MAX_ABILITY_SLOTS,
   PASSIVE_TUNING,
   RAGE,
   RESOURCES,
   SHAMAN_MEND,
   TRAIT_TUNING,
+  UPGRADE,
   WORLD,
 } from './content';
 import { createRng } from './rng';
-import type { AbilityId, AggroLevel, BattleEvent, Effect, EnemyKind, HeroClass, Outcome, SpawnDef, TraitId, Unit, WaveDef } from './types';
+import type { AbilityId, AbilitySlot, AggroLevel, BattleEvent, Effect, EnemyKind, HeroBuild, HeroClass, Outcome, SpawnDef, TraitId, Unit, WaveDef, Zone } from './types';
 import { GATE_ID } from './types';
 
 /** Fixed simulation step in seconds. The renderer calls step() with this. */
@@ -31,6 +33,8 @@ export interface BattleOptions {
   carefulAI?: boolean;
   /** The class the player controls (can also be set later with setPlayer). */
   playerClass?: HeroClass;
+  /** Levels, abilities and traits carried over from earlier waves. */
+  builds?: Partial<Record<HeroClass, HeroBuild>>;
 }
 
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
@@ -52,6 +56,8 @@ export class Battle {
   playerAuto = true;
   /** Player's focus: an enemy (or, for healers, an ally). */
   focusId: number | null = null;
+  /** Ground effects such as Blizzard. */
+  zones: Zone[] = [];
 
   private nextId = 1;
   private pending: SpawnDef[];
@@ -65,7 +71,7 @@ export class Battle {
     this.pending = [...opts.wave.spawns].sort((a, b) => a.time - b.time);
     const classes = opts.heroes ?? FORMATION.map((f) => f.cls);
     for (const slot of FORMATION) {
-      if (classes.includes(slot.cls)) this.addHero(slot.cls, slot.x, slot.y);
+      if (classes.includes(slot.cls)) this.addHero(slot.cls, slot.x, slot.y, opts.builds?.[slot.cls]);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
     // Priest passive: Power Word: Fortitude is up on the whole party all wave.
@@ -127,9 +133,23 @@ export class Battle {
   /** Give a hero an ability in the next free slot (used by level-ups). */
   learnAbility(h: Unit, id: AbilityId): boolean {
     h.abilities ??= [];
-    if (h.abilities.length >= MAX_ABILITY_SLOTS || h.abilities.some((a) => a.id === id)) return false;
-    h.abilities.push({ id, cooldown: 0 });
+    if (this.slotsUsed(h) >= MAX_ABILITY_SLOTS || h.abilities.some((a) => a.id === id)) return false;
+    h.abilities.push({ id, cooldown: 0, power: 0, haste: 0 });
     return true;
+  }
+
+  /** Abilities and traits both take a slot. */
+  slotsUsed(h: Unit): number {
+    return (h.abilities?.length ?? 0) + (h.traits?.length ?? 0);
+  }
+
+  /** Effect multiplier for an ability: hero level x upgrade ranks. */
+  abilityScale(h: Unit, slot: AbilitySlot): number {
+    return (1 + LEVEL_SCALING * ((h.level ?? 1) - 1)) * (1 + UPGRADE.powerPerRank * (slot.power ?? 0));
+  }
+
+  abilityCooldown(slot: AbilitySlot): number {
+    return ABILITIES[slot.id].cooldown * Math.pow(UPGRADE.hastePerRank, slot.haste ?? 0);
   }
 
   hasEffect(u: Unit, kind: Effect['kind']): boolean {
@@ -206,7 +226,7 @@ export class Battle {
 
     while (this.pending.length && this.pending[0].time <= this.time) {
       const s = this.pending.shift()!;
-      this.addEnemy(s.kind, s.x + (this.rng() - 0.5) * 40);
+      this.addEnemy(s.kind, s.x + (this.rng() - 0.5) * 16);
     }
 
     for (const u of this.units) {
@@ -225,6 +245,7 @@ export class Battle {
         this.updateHero(u);
       }
     }
+    this.updateZones(dt);
     this.separate();
     this.units = this.units.filter((u) => u.alive || u.side === 'hero');
 
@@ -238,29 +259,38 @@ export class Battle {
 
   // --- spawning -----------------------------------------------------------
 
-  private addHero(cls: HeroClass, x: number, y: number): void {
+  private addHero(cls: HeroClass, x: number, y: number, build?: HeroBuild): void {
     const s = HERO_STATS[cls];
     const kit = HERO_KIT[cls];
     const res = RESOURCES[kit.resource];
+    const level = build?.level ?? 1;
+    const scale = 1 + LEVEL_SCALING * (level - 1);
+    const abilities: AbilitySlot[] = build
+      ? build.abilities.map((a) => ({ id: a.id, cooldown: 0, power: a.power, haste: a.haste }))
+      : [{ id: kit.starting, cooldown: 0, power: 0, haste: 0 }];
     this.addUnit({
       ...s,
+      maxHp: Math.round(s.maxHp * scale),
+      damage: s.damage * scale,
+      heal: s.heal ? s.heal * scale : undefined,
+      level,
       id: 0,
       side: 'hero',
       kind: cls,
       x,
       y,
-      hp: s.maxHp,
+      hp: Math.round(s.maxHp * scale),
       cooldown: 0.3 * this.rng(),
       targetId: null,
       alive: true,
       resourceKind: kit.resource,
       resource: res.start,
       maxResource: res.max,
-      abilities: [{ id: kit.starting, cooldown: 0 }],
+      abilities,
       passive: kit.passive,
       passiveCooldown: 0,
       outOfCombat: 0,
-      traits: [],
+      traits: [...(build?.traits ?? [])],
       comboPoints: 0,
       effects: kit.passive === 'stealth' ? [this.stealthEffect()] : [],
     });
@@ -272,8 +302,10 @@ export class Battle {
 
   private addEnemy(kind: EnemyKind, x: number): void {
     const s = ENEMY_STATS[kind];
+    const strength = this.wave.strength ?? 1;
     const clampedX = Math.min(WORLD.width - s.radius, Math.max(s.radius, x));
-    this.addUnit({ ...s, id: 0, side: 'enemy', kind, x: clampedX, y: WORLD.spawnY, hp: s.maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [] });
+    const maxHp = Math.round(s.maxHp * strength);
+    this.addUnit({ ...s, maxHp, damage: s.damage * strength, id: 0, side: 'enemy', kind, x: clampedX, y: WORLD.spawnY, hp: maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [] });
   }
 
   private addUnit(u: Unit): void {
@@ -650,7 +682,56 @@ export class Battle {
       case 'kick':
       case 'counterspell':
         return this.interruptTargets(h, this.interruptRange(id)).some((u) => u.casting);
+      case 'whirlwind':
+        return this.enemiesNear(h, t.whirlwind.radius).length >= 2 || (this.enemiesNear(h, t.whirlwind.radius).length >= 1 && h.isTank === true);
+      case 'shieldBlock':
+        return !this.hasEffect(h, 'block') && this.attackersOf(h) >= 1 && h.hp < h.maxHp * 0.85;
+      case 'powerShield':
+        return this.units.some((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'shield') && this.attackersOf(u) > 0);
+      case 'prayerOfHealing':
+        return this.units.filter((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.8).length >= 2;
+      case 'iceLance':
+        return !!this.pickEnemyTarget(h, t.iceLance.damage);
+      case 'blizzard':
+        return this.blizzardSpot(h).count >= 2;
+      case 'eviscerate':
+        return !!this.pickEnemyTarget(h, t.eviscerate.damage);
+      case 'evasion':
+        return !this.hasEffect(h, 'evasion') && this.attackersOf(h) >= 1;
     }
+  }
+
+  private attackersOf(u: Unit): number {
+    return this.units.filter((e) => e.side === 'enemy' && e.alive && e.targetId === u.id).length;
+  }
+
+  /** Best place for a Blizzard: the enemy with the most other enemies around it, in range. */
+  private blizzardSpot(h: Unit): { x: number; y: number; count: number } {
+    const r = ABILITY_TUNING.blizzard.radius;
+    let best = { x: 0, y: 0, count: 0 };
+    for (const e of this.units) {
+      if (e.side !== 'enemy' || !e.alive || this.isSheep(e) || !this.inReach(h, e)) continue;
+      const count = this.units.filter((o) => o.side === 'enemy' && o.alive && !this.isSheep(o) && dist(o, e) <= r).length;
+      if (count > best.count) best = { x: e.x, y: e.y, count };
+    }
+    return best;
+  }
+
+  private updateZones(dt: number): void {
+    for (const z of this.zones) {
+      z.remaining -= dt;
+      z.tickTimer -= dt;
+      if (z.tickTimer > 1e-6) continue;
+      z.tickTimer += 1;
+      const source = this.unit(z.sourceId);
+      if (!source) continue;
+      for (const e of this.units) {
+        if (e.side !== 'enemy' || !e.alive || Math.hypot(e.x - z.x, e.y - z.y) > z.radius) continue;
+        this.damage(source, e, Math.round(z.damage), { aoe: true, tick: true });
+        this.addEffect(e, { kind: 'slow', remaining: 1.5, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: source.id });
+      }
+    }
+    this.zones = this.zones.filter((z) => z.remaining > 1e-6);
   }
 
   /**
@@ -718,6 +799,29 @@ export class Battle {
         if (focusEnemy) return targets.includes(focusEnemy) ? focusEnemy : null;
         return targets.find((u) => u.casting) ?? (targets.length ? nearest(h, targets) : null);
       }
+      case 'whirlwind':
+        return this.enemiesNear(h, t.whirlwind.radius).length ? h : null;
+      case 'shieldBlock':
+      case 'evasion':
+        return h;
+      case 'powerShield': {
+        if (focusAlly) return focusAlly;
+        const allies = this.units.filter((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'shield'));
+        return allies.sort((a, b) => this.attackersOf(b) - this.attackersOf(a) || a.hp / a.maxHp - b.hp / b.maxHp)[0] ?? this.lowestAlly() ?? null;
+      }
+      case 'prayerOfHealing':
+        return h;
+      case 'iceLance':
+      case 'eviscerate': {
+        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
+        return this.pickEnemyTarget(h, byPlayer ? 0 : id === 'iceLance' ? t.iceLance.damage : t.eviscerate.damage);
+      }
+      case 'blizzard': {
+        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
+        const spot = this.blizzardSpot(h);
+        if (!spot.count) return null;
+        return this.units.find((u) => u.side === 'enemy' && u.alive && u.x === spot.x && u.y === spot.y) ?? null;
+      }
     }
   }
 
@@ -725,10 +829,10 @@ export class Battle {
   private cast(h: Unit, slot: number, byPlayer: boolean): boolean {
     const slotState = h.abilities![slot];
     const id = slotState.id;
-    const def = ABILITIES[id];
     const t = ABILITY_TUNING;
     const to = this.abilityTarget(h, id, byPlayer);
     if (!to) return false;
+    const k = this.abilityScale(h, slotState);
 
     switch (id) {
       case 'taunt':
@@ -738,13 +842,13 @@ export class Battle {
         const hit = this.enemiesNear(h, t.thunderclap.radius);
         this.events.push({ type: 'ability', from: h.id, ability: id });
         for (const e of hit) {
-          this.damage(h, e, this.roll(t.thunderclap.damage), { threatScale: t.thunderclap.threatBonus, ability: id, aoe: true });
+          this.damage(h, e, this.roll(t.thunderclap.damage * k), { threatScale: t.thunderclap.threatBonus, ability: id, aoe: true });
           this.addEffect(e, { kind: 'slow', remaining: t.thunderclap.slow, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
         }
         break;
       }
       case 'heal': {
-        const amount = Math.min(to.maxHp - to.hp, this.roll(t.heal.amount));
+        const amount = Math.min(to.maxHp - to.hp, this.roll(t.heal.amount * k));
         to.hp += amount;
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
         this.events.push({ type: 'heal', from: h.id, to: to.id, amount });
@@ -754,7 +858,7 @@ export class Battle {
       case 'renew': {
         const ticks = t.renew.duration / t.renew.tick;
         to.effects = (to.effects ?? []).filter((e) => e.kind !== 'hot');
-        this.addEffect(to, { kind: 'hot', remaining: t.renew.duration, tickEvery: t.renew.tick, tickTimer: t.renew.tick, amount: t.renew.total / ticks, sourceId: h.id });
+        this.addEffect(to, { kind: 'hot', remaining: t.renew.duration, tickEvery: t.renew.tick, tickTimer: t.renew.tick, amount: (t.renew.total * k) / ticks, sourceId: h.id });
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
         break;
       }
@@ -765,7 +869,7 @@ export class Battle {
       case 'heroicStrike':
         h.targetId = to.id;
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.damage(h, to, this.roll(t.heroicStrike.damage), { ability: id, threatScale: t.heroicStrike.threatBonus });
+        this.damage(h, to, this.roll(t.heroicStrike.damage * k), { ability: id, threatScale: t.heroicStrike.threatBonus });
         break;
       case 'fireball':
       case 'sinisterStrike': {
@@ -776,10 +880,10 @@ export class Battle {
         }
         h.targetId = to.id;
         this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.damage(h, to, this.roll(size), { ability: id });
+        this.damage(h, to, this.roll(size * k), { ability: id });
         if (id === 'fireball' && to.alive) {
           const f = t.fireball;
-          this.addEffect(to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: f.burnPerSecond, sourceId: h.id });
+          this.addEffect(to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: f.burnPerSecond * k, sourceId: h.id });
         }
         break;
       }
@@ -798,6 +902,51 @@ export class Battle {
         if (id === 'kick') this.damage(h, to, t.kick.damage);
         break;
       }
+      case 'whirlwind':
+        this.events.push({ type: 'ability', from: h.id, ability: id });
+        for (const e of this.enemiesNear(h, t.whirlwind.radius)) this.damage(h, e, this.roll(t.whirlwind.damage * k), { ability: id, aoe: true });
+        break;
+      case 'shieldBlock':
+        this.addEffect(h, { kind: 'block', remaining: t.shieldBlock.duration, tickEvery: 0, tickTimer: 0, amount: t.shieldBlock.reduction, sourceId: h.id });
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: h.id });
+        break;
+      case 'evasion':
+        this.addEffect(h, { kind: 'evasion', remaining: t.evasion.duration, tickEvery: 0, tickTimer: 0, amount: t.evasion.dodge, sourceId: h.id });
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: h.id });
+        break;
+      case 'powerShield':
+        this.addEffect(to, { kind: 'shield', remaining: t.powerShield.duration, tickEvery: 0, tickTimer: 0, amount: Math.round(t.powerShield.absorb * k), sourceId: h.id });
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        break;
+      case 'prayerOfHealing':
+        this.events.push({ type: 'ability', from: h.id, ability: id });
+        for (const ally of this.units) {
+          if (ally.side !== 'hero' || !ally.alive) continue;
+          const amount = Math.min(ally.maxHp - ally.hp, this.roll(t.prayerOfHealing.amount * k));
+          if (amount <= 0) continue;
+          ally.hp += amount;
+          this.events.push({ type: 'heal', from: h.id, to: ally.id, amount });
+          this.addHealThreat(h, amount);
+        }
+        break;
+      case 'iceLance':
+      case 'eviscerate': {
+        let size = (id === 'iceLance' ? t.iceLance.damage : t.eviscerate.damage) * k;
+        if (id === 'eviscerate' && this.hasTrait(h, 'comboPoints') && h.comboPoints) {
+          size *= 1 + h.comboPoints * TRAIT_TUNING.comboBonusPerPoint;
+          h.comboPoints = 0;
+        }
+        h.targetId = to.id;
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        this.damage(h, to, this.roll(size), { ability: id });
+        break;
+      }
+      case 'blizzard': {
+        const b = t.blizzard;
+        this.zones.push({ id: this.nextId++, x: to.x, y: to.y, radius: b.radius, remaining: b.duration, tickTimer: 0.5, damage: b.damagePerSecond * k, sourceId: h.id });
+        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        break;
+      }
     }
 
     let cost = this.abilityCost(h, id);
@@ -806,7 +955,7 @@ export class Battle {
       this.events.push({ type: 'notice', id: h.id, text: 'Arcane Surge!', tone: 'info' });
     }
     h.resource = h.resource! - cost;
-    slotState.cooldown = def.cooldown;
+    slotState.cooldown = this.abilityCooldown(slotState);
     return true;
   }
 
@@ -873,6 +1022,27 @@ export class Battle {
       if (!opts.tick) {
         amount = Math.round(amount * PASSIVE_TUNING.stealth.ambushMultiplier);
         this.events.push({ type: 'notice', id: from.id, text: 'Ambush!', tone: 'good' });
+      }
+    }
+    // Defensive effects on the target.
+    if (to.side === 'hero') {
+      const evasion = to.effects?.find((e) => e.kind === 'evasion');
+      if (evasion && !opts.tick && this.rng() < evasion.amount) {
+        this.events.push({ type: 'notice', id: to.id, text: 'Dodge', tone: 'info' });
+        return;
+      }
+      const block = to.effects?.find((e) => e.kind === 'block');
+      if (block) amount = Math.round(amount * (1 - block.amount));
+      const shield = to.effects?.find((e) => e.kind === 'shield');
+      if (shield) {
+        const absorbed = Math.min(shield.amount, amount);
+        shield.amount -= absorbed;
+        amount -= absorbed;
+        if (shield.amount <= 0) shield.remaining = 0;
+        if (absorbed > 0 && amount === 0) {
+          this.events.push({ type: 'notice', id: to.id, text: 'Absorbed', tone: 'info' });
+          return;
+        }
       }
     }
     if (from.side === 'hero') from.outOfCombat = 0;
