@@ -4,14 +4,15 @@ A portrait-mode browser game: manage a guild of heroes fighting round after
 round in an arena. Built to play on a phone.
 
 - **Design:** [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)
-- **Current plan:** [docs/FIRST_PLAYABLE.md](docs/FIRST_PLAYABLE.md)
+- **Old castle-gate design and plan:** [docs/archive/](docs/archive/)
 - **Play:** https://koldeone.github.io/FightwithFriends/ (once GitHub Pages is enabled)
 
 ## Status
 
 A playable arena auto-battler:
 
-- **Start with 3 heroes** (classes can repeat): Warrior, Priest, Mage, Rogue.
+- **Start with 3 heroes** (classes can repeat): Warrior, Paladin, Priest, Mage,
+  Warlock, Rogue.
   A 4th joins after the round 10 boss, a 5th after the round 20 boss.
 - **Placement before every round:** the enemy line-up is on the board; tap a
   hero, then a tile on your 4x3 grid to move them. Then press Fight.
@@ -26,7 +27,8 @@ A playable arena auto-battler:
 - **Rewards every 5 rounds:** pick one new ability or upgrade for each hero,
   or use "Choose for me" / Auto picks. Autosave between rounds.
 - **Feel:** smooth motion, projectiles, hit feedback, merged numbers, round
-  intros, slow-mo finish, synthesized sound, pixel-art hero sprites.
+  intros, slow-mo finish, synthesized sound, pixel-art sprites for heroes and
+  enemies (the enemy ones are temporary).
 
 Top bar: **Speed** (testing aid), **Sound**, **Auto picks**, **Pause**.
 
@@ -38,6 +40,7 @@ Requires [Node.js](https://nodejs.org/) 20+.
 npm install
 npm run dev      # opens a local server; also reachable from a phone on the same Wi-Fi
 npm test         # simulation tests
+npm run balance  # batch-simulate runs and print a balance summary (scripts/balance-parallel.sh uses every core)
 npm run build    # production build into dist/
 ```
 

@@ -1,6 +1,7 @@
 # FightwithFriends — Game Design Document
 
-> **Status:** Playable prototype, drafted from the code on 2026-11-02.
+> **Status:** Playable prototype, drafted from the code on 2026-11-02 (updated
+> the same day for the Paladin, Warlock, sprites and balance pass).
 > **Platform:** Mobile browser (tested on Android), portrait, 540x960 canvas.
 > **Play it:** https://koldeone.github.io/FightwithFriends/
 
@@ -36,7 +37,7 @@ and systems are our own.
    every run.
 4. **Readable at a glance.** Cast bars, aggro warnings, buff icons and an
    inspect window explain why things happen.
-5. **Start small, build up.** Four classes and simple pixel art for now, with
+5. **Start small, build up.** Six classes and simple pixel art for now, with
    the structure in place for more classes, enemies and meta progression.
 
 ### Design rules
@@ -91,7 +92,7 @@ can pick **any class** for it, including one you already have.
 
 ### Team builder
 
-At the start of a run you fill **3 slots** from the 4 classes. Classes can
+At the start of a run you fill **3 slots** from the 6 classes. Classes can
 repeat, and duplicates are labeled "Mage", "Mage 2" and so on. The default
 team is Warrior, Priest and Mage.
 
@@ -117,12 +118,15 @@ team is Warrior, Priest and Mage.
 
 | Class | Role | HP | Attack | Range | Resource | Notes |
 |---|---|--:|---|--:|---|---|
-| **Warrior** | Tank / melee | 340 | 9 every 1.0s | 14 | Rage | Threat ×1.5; the party's tank |
-| **Rogue** | Melee DPS | 210 | 10 every 0.6s | 120 | Energy | Threat ×0.7 |
+| **Warrior** | Tank / melee | 420 | 12 every 1.0s | 14 | Rage | Threat ×1.5; **armor 25%** |
+| **Paladin** | Tank / support | 380 | 13 every 1.2s | 14 | Mana | Threat ×1.3; **armor 20%** |
+| **Rogue** | Melee DPS | 210 | 10 every 0.6s | 30 | Energy | Threat ×0.7 |
 | **Mage** | Ranged DPS and control | 170 | 20 every 1.8s | 380 | Mana | |
+| **Warlock** | Ranged DPS, curses | 180 | 14 every 1.6s | 360 | Mana | |
 | **Priest** | Healer | 190 | 5 every 1.5s | 340 | Mana | Each auto attack also heals an ally for 22 |
 
-Hero movement speed is 60.
+Hero movement speed is 60. **Armor** stops that fraction of every hit; it's
+what lets a tank survive holding several enemies.
 
 ### Resources
 
@@ -144,6 +148,8 @@ always-on **starting passive**, which doesn't take a slot.
 | Priest | Heal | **Power Word: Fortitude:** the whole party has +20% max HP | Renew, Power Shield, Prayer of Healing | **Inner Focus:** Renew costs half while the whole party is above 80% HP |
 | Mage | Fireball | **Polymorph:** every 15s, turns an enemy into a sheep (elites first, then casters; never bosses) | Ice Lance, Blizzard, Counterspell | **Arcane Surge:** 25% chance that Fireball costs no mana |
 | Rogue | Sinister Strike | **Stealth:** starts hidden; the first hit deals double damage; re-stealths after 5s out of combat | Eviscerate, Kick, Evasion | **Combo Points:** auto attacks build up to 5 points; Sinister Strike spends them for +15% damage each |
+| Paladin | Judgement | **Aegis Aura:** while the Paladin stands, the party takes 10% less damage | Radiant Light, Hallowed Ground, Mercy | **Zeal:** Judgement heals for all the damage dealt, not half |
+| Warlock | Hex Bolt | **Soul Harvest:** whenever an enemy dies, the Warlock regains 20 mana and the most injured ally is healed for 30 | Wither, Soul Drain, Enfeeble | **Agony:** Wither deals 50% more damage |
 
 ### Ability numbers (base, before level and upgrades)
 
@@ -156,15 +162,23 @@ always-on **starting passive**, which doesn't take a slot.
 | Heal | 25 | 3s | Heals 80 |
 | Renew | 20 | 3s | Heals 60 over 9s |
 | Power Shield | 20 | 6s | Absorbs 60 damage |
-| Prayer of Healing | 40 | 10s | Heals the whole party for 35 |
+| Prayer of Healing | 30 | 10s | Heals the whole party for 35, and the most injured ally for 50 more |
 | Fireball | 30 | 4s | 45 damage plus a 15 burn over 3s |
 | Ice Lance | 12 | 2s | 28 damage |
 | Blizzard | 35 | 12s | 9 damage per second for 6s on the biggest enemy group; slows |
 | Counterspell | 0 | 12s | Interrupts a cast and locks the enemy out of casting |
 | Sinister Strike | 40 | 1.5s | 32 damage |
 | Eviscerate | 35 | 6s | 55 damage |
-| Kick | 0 | 10s | 8 damage; interrupts a cast (range 420) |
+| Kick | 0 | 10s | 8 damage; interrupts a cast (range 300) |
 | Evasion | 0 | 20s | Dodge 75% of attacks for 6s |
+| Judgement | 15 | 4s | 40 damage at range 220; the most injured ally is healed for half |
+| Radiant Light | 30 | 4s | Heals 70 |
+| Hallowed Ground | 25 | 10s | 8 damage per second for 6s in a 95 radius around the Paladin; threat ×2 |
+| Mercy | 0 | 30s | Heals 160, only on an ally below 35% |
+| Hex Bolt | 20 | 3s | 46 damage |
+| Wither | 15 | 2s | 78 damage over 12s; the AI spreads it across enemies |
+| Soul Drain | 25 | 6s | 40 damage; the most injured ally is healed for the same |
+| Enfeeble | 15 | 12s | The most dangerous enemy (winding-up smasher, boss, elite, then hardest hitter) deals 30% less damage for 8s |
 
 Taunt, Fortitude and Polymorph still exist as ability definitions, but they're
 only used through the passives now.
@@ -204,7 +218,8 @@ only used through the passives now.
   between steps. A round is **won** when every enemy is down and **lost** when
   every hero is down.
 - **Sudden death.** After **60 seconds**, all damage increases by 5% per
-  second, so healer-heavy fights can't stall.
+  second, and enemies speed up (up to double speed), so neither healer-heavy
+  fights nor a hero who outruns the enemies can stall a fight.
 
 ### Aggro (threat)
 
@@ -216,7 +231,9 @@ only used through the passives now.
 - **Warning icon** (orange) at **80%** of the top threat; red when the hero has
   aggro.
 - **Careful AI:** non-tank heroes hold back attacks that would put them over
-  **90%** of the tank's threat. This includes the Rogue's ×2 ambush hit.
+  **95%** of the tank's threat. This includes the Rogue's ×2 ambush hit.
+  (It used to be 90%; the balance sweep showed holding back cost more than an
+  occasional pull.)
 - **Taunt** forces an enemy to attack the Warrior (range 420).
 
 ### Hero AI and movement
@@ -224,7 +241,8 @@ only used through the passives now.
 - Heroes steer with easing (they speed up and slow down on arrival) and stop
   just inside their attack range.
 - **Melee heroes** close in and **flank** instead of blocking each other.
-- **Ranged heroes** step up when nothing is in range.
+- **Ranged heroes** step up when nothing is in range, and shoot the **back
+  line first** (archers, imps and casters, which the tank can't hold).
 - Heroes stay within **140px** of the party's anchor point (the leash). When
   it's quiet, they drift back toward their start tile.
 - Heroes use abilities on their own when it makes sense:
@@ -232,6 +250,10 @@ only used through the passives now.
   - interrupts on enemy casts
   - Blizzard on the biggest group
   - Shield Block when taking hits
+  - Enfeeble on the most dangerous enemy; Wither spread across enemies
+- **Mana discipline:** cheap filler spells (Renew, Power Shield, Ice Lance,
+  Judgement, Hex Bolt) keep enough mana for the hero's big spells. Heal waits
+  when a ready Prayer of Healing would do more.
 
 ### Enemy AI
 
@@ -244,7 +266,9 @@ only used through the passives now.
 
 - **Elites** (Brute, Abomination, Pit Brute) are the Mage's first Polymorph
   targets. Casters are next.
-- **Bosses** are immune to Polymorph.
+- **Bosses** are immune to Polymorph, and **resist interrupts**: after one is
+  interrupted, its next heavy cast is **unstoppable** (orange cast bar). Two
+  interrupters used to cancel every boss slam.
 
 ---
 
@@ -254,9 +278,9 @@ only used through the passives now.
 
 | Rounds | Faction | Melee | Ranged | Healer | Fast | Elite | Boss |
 |---|---|---|---|---|---|---|---|
-| 1–10 | **Goblins** | Grunt 220 HP / 22 | Archer 130 / 16 | Shaman 150 | — | Brute 620 / 24 | **Goblin Warchief** 1100, *Skull Crack* |
-| 11–20 | **Undead** | Skeleton 260 / 24 | Bone Archer 150 / 18 | Death Cultist 170 | Ghoul 180 / 18 (speed 60) | Abomination 760 / 28 | **The Bone King** 1700, *Grave Cleave* |
-| 21+ | **Demons** | Fiend 320 / 28 | Fire Imp 160 / 20 | Shadow Caller 200 | Hellhound 220 / 22 (speed 65) | Pit Brute 900 / 32 | **Demon Lord** 1800, *Hellfire Slam* (every 10th round) |
+| 1–10 | **Goblins** | Grunt 220 HP / 22 | Archer 130 / 16 | Shaman 150 | — | Brute 570 / 24 | **Goblin Warchief** 1100, *Skull Crack* |
+| 11–20 | **Undead** | Skeleton 260 / 24 | Bone Archer 150 / 18 | Death Cultist 170 | Ghoul 180 / 18 (speed 60) | Abomination 680 / 25 | **The Bone King** 1700, *Grave Cleave* |
+| 21+ | **Demons** | Fiend 320 / 28 | Fire Imp 160 / 13 (every 1.6s) | Shadow Caller 200 | Hellhound 220 / 22 (speed 65) | Pit Brute 900 / 32 | **Demon Lord** 1800, *Hellfire Slam* (every 10th round) |
 
 (These are base numbers. The round's strength multiplier scales enemy HP and
 damage.)
@@ -279,10 +303,28 @@ damage.)
 |---|---|
 | 1–10 | 1.6 + 0.08 per round (about 1.7 → 2.4) |
 | 11–20 | 3.2 + 0.14 per round (about 4.7 → 6.0) |
-| 21+ | 4.9 + 0.25 per round, with no cap |
+| 21–30 | 5.2 + 0.3 per round (about 5.2 → 7.9) |
+| 31+ | Round 30's strength, then **+6% a round, compounding**, so every run ends |
 
-The bosses are the big difficulty spikes. In simulation, AI-only runs (with no
-placement changes) usually end **between rounds 26 and 36**.
+The bosses are the big difficulty spikes.
+
+### Balance targets and results
+
+Measured with the balance tool (`scripts/balance-parallel.sh`: every starting
+team of 3, 12 seeds each, AI picks, no placement changes; recruits fill a
+missing tank, then a missing healer, then the least-picked damage class).
+Players who place heroes and choose rewards should do better than these.
+
+| Target | Result (2026-11-02) |
+|---|---|
+| Classic teams (1 tank + 1 healer + 1 damage) are a safe choice: average 30+, worst 15+ | Average 31.6, worst 22 |
+| No class is a trap: each class's average within ~5 rounds of the others | Spread 3.3 rounds |
+| The first act is forgiving: at most ~8% of rounds 1–10 lost | 5.2% |
+| Every run ends (no endless farming) | Median run ends at round 30; 90% by round 37 |
+
+The hardest rounds for AI-only runs: the round 30 Demon Lord, rounds 32 and
+36–37 (demon line-ups at the compounding curve), round 27, and the round 20
+Bone King.
 
 ---
 
@@ -298,9 +340,11 @@ placement changes) usually end **between rounds 26 and 36**.
 - **Numbers.** Rapid hits on the same target merge into one number.
 - **Sound.** All sound effects are synthesized in the browser, with no audio
   files. You can mute in the top bar, and the setting is remembered.
-- **Art.** Heroes use 32x32 pixel-art sprites drawn at 2x
-  (`art/heroes/make-sprites.ps1`). Enemies are still coloured discs with
-  letters.
+- **Art.** 32x32 pixel-art sprites drawn at 2x. Bailey's four heroes
+  (`art/heroes/make-sprites.ps1`); temporary sprites for every enemy and the
+  Paladin and Warlock, in the same style and palette (`art/sprites.py` writes
+  `src/render/pixelArt.ts` and a preview sheet). Elites are drawn 25% larger,
+  bosses 45%.
 
 ---
 
@@ -327,7 +371,8 @@ placement changes) usually end **between rounds 26 and 36**.
 - **Pause** doesn't block anything. While paused you can still inspect units
   and open tooltips.
 - **Aggro icons:** orange "!" for a warning, red when the hero has aggro.
-- **Cast bars:** shown above enemies that are casting.
+- **Cast bars:** shown above enemies that are casting, with the spell name; an
+  unstoppable boss cast is orange and says "(unstoppable)".
 
 ---
 
@@ -345,6 +390,12 @@ placement changes) usually end **between rounds 26 and 36**.
   - `screens/`: team builder, recruit, placement, results and rewards
 
   New screens (for example story scenes) go in `screens/`.
+- **Balance tool:** `scripts/simlib.ts` plays whole runs headlessly with the
+  game's rules and checks invariants every step (health range, arena bounds,
+  NaN, fights that never end). `npm run balance` or
+  `scripts/balance-parallel.sh [seeds] [outdir]` summarises reach per team,
+  class shares, round loss rates, ability use and enemy damage.
+  `tests/sweep.test.ts` runs a few full runs on every test run.
 - GitHub Actions deploys to GitHub Pages.
 - A debug handle (`window.__game`) is used for automated browser checks.
 
@@ -354,14 +405,13 @@ placement changes) usually end **between rounds 26 and 36**.
 
 Ideas that fit the arena game and haven't been built yet:
 
-- **More classes and synergies**, for example a Paladin (tank/healer hybrid),
-  Hunter or Warlock. Possibly party bonuses for class or role combinations.
+- **More classes and synergies**, for example a Hunter, Druid or Shaman.
+  Possibly party bonuses for class or role combinations.
 - **Gear** found during a run: weapon, armor and trinket, picked from 1 of 3.
 - **Meta progression between runs**, a lighter version of the old castle idea
   (§12).
-- **Enemy and boss sprites.**
+- **Final enemy and boss art** (the current sprites are temporary).
 - **Unique boss abilities** beyond the heavy slam.
-- **Balance tool:** batch-simulate runs and report where they end.
 - **Multiplayer:** the sim still supports a player-controlled hero (tests use
   it), so a friend could take a hero later.
 
@@ -384,7 +434,8 @@ These come from the original castle-gate design (see
 | Difficulty tiers (5-tier ladder with rules) | **Parked** | Endless rounds plus a best-round score cover this for now |
 | Starting-ability unlocks (3 options per class) | **Parked** | |
 | Gear and loot | **Parked** | See §11 |
-| Paladin, Druid, Shaman, Warlock, Hunter | **Parked** | See §11 |
+| Paladin, Warlock | **Built** | 2026-11-02, new designs for the arena |
+| Druid, Shaman, Hunter | **Parked** | See §11 |
 | ~8 abilities per class pool | **Reduced** | 3 earnable abilities per class, plus a trait |
 | Out-of-range red outline on ability buttons | **Dropped** | There are no ability buttons |
 
@@ -397,21 +448,29 @@ These come from the original castle-gate design (see
 1. **Recruits:** keep free picks, or offer a choice of 1 from 3?
 2. **Bench:** allow more than 5 heroes, with a bench?
 3. **Bosses:** give bosses unique abilities beyond the heavy slam?
-4. **Enemy and boss sprites.**
-5. **Rogue reach:** the Rogue is "melee" but has a 120 range. Kick's 420 range
-   is also long. Both were workarounds from when heroes stood still. Should we
-   shorten them now that heroes move?
+4. **Enemy and boss art:** replace the temporary sprites? Bailey's setting
+   work may change how enemies should look.
+5. **Rogue reach (decided, 2026-11-02):** shortened to a real melee range (30)
+   and Kick to 300, now that heroes move. Revisit if the Rogue feels bad.
 6. **Pool size:** 3 earnable abilities plus a trait fill the 5 slots by round
    20. After that, rewards are only upgrades. Should the pools grow, or should
    players be able to swap abilities?
 7. **Placement depth:** the board sets only starting positions. Should tiles
    matter more, for example front-row damage reduction or adjacency bonuses?
+8. **Tankless teams:** a Priest with damage dealers (no tank) is still among
+   the strongest starts in simulation, because spreading damage across the
+   party beats one tank absorbing it. Is that OK, or should tanking matter
+   more (more armor, enemies that punish squishies)?
+9. **New class names and lore:** Paladin and Warlock ability names are generic
+   working names (Judgement, Radiant Light, Hallowed Ground, Mercy, Hex Bolt,
+   Wither, Soul Drain, Enfeeble; Aegis Aura, Soul Harvest). Bailey may want to
+   rename them to fit the setting.
 
 **Carried over**
 
-8. **Exact numbers:** damage, HP, threat and costs, to be tuned in playtests.
-9. **Final ability names and art:** rename the working names taken from WoW
+10. **Exact numbers:** damage, HP, threat and costs, to be tuned in playtests.
+11. **Final ability names and art:** rename the working names taken from WoW
    before any public release. Use original or properly licensed art only.
-10. **Later classes:** full designs.
-11. **Race per class (parked for later):** let players change the race of each
+12. **Later classes:** full designs.
+13. **Race per class (parked for later):** let players change the race of each
     class. Set aside on 2026-11-01 to revisit later.
