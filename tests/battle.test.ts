@@ -31,6 +31,25 @@ describe('Battle', () => {
     }
   });
 
+  it('sudden death speeds enemies up, so a hero who outruns them cannot stall a fight', () => {
+    // (Found by the balance sweep: a lone Priest kited a Demon Lord around the walls forever.)
+    const moved = (time: number) => {
+      const b = new Battle({ seed: 8, wave: { number: 1, spawns: [{ time: 0, kind: 'grunt', x: 270 }] }, heroes: ['mage'] });
+      const g = b.enemies[0];
+      g.x = 270;
+      g.y = 200;
+      b.time = time;
+      for (let i = 0; i < 10; i++) b.step(STEP); // get up to speed
+      const y0 = g.y;
+      for (let i = 0; i < 10; i++) b.step(STEP);
+      return Math.abs(g.y - y0) / 0.5; // px per second
+    };
+    const normal = moved(0);
+    const late = moved(120);
+    expect(normal).toBeLessThanOrEqual(38 + 1);
+    expect(late).toBeGreaterThan(normal * 1.6);
+  });
+
   it('is deterministic for the same seed', () => {
     const a = new Battle({ seed: 7, wave: ROUND_1 });
     const b = new Battle({ seed: 7, wave: ROUND_1 });

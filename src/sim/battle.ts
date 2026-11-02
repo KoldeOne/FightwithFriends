@@ -511,14 +511,22 @@ export class Battle {
     // Melee enemies spread around their target instead of stacking up.
     if (e.attackStyle === 'melee') {
       const spot = this.surroundSpot(e, target);
-      steer(e, spot.x, spot.y, e.speed, 0, dt);
+      steer(e, spot.x, spot.y, this.enemySpeed(e), 0, dt);
       return;
     }
     // Otherwise walk straight in, easing to a stop at attack range.
     const len = Math.hypot(tx - e.x, ty - e.y) || 1;
     // Aim a little inside attack range so easing can't leave it just short.
     const stopAt = Math.max(0, len - (gap - e.range) - 3);
-    steer(e, tx, ty, e.speed, stopAt, dt);
+    steer(e, tx, ty, this.enemySpeed(e), stopAt, dt);
+  }
+
+  /**
+   * Sudden death also speeds enemies up (to double), so a hero who outruns
+   * melee enemies (a lone healer backing away) can't stall a fight forever.
+   */
+  private enemySpeed(e: Unit): number {
+    return e.speed * Math.min(2, this.damageRamp);
   }
 
   /** A free spot around `target` for a melee enemy, so attackers form a ring. */
@@ -634,7 +642,7 @@ export class Battle {
     const gap = dist(e, hurt) - e.radius - hurt.radius;
     if (gap > SHAMAN_MEND.range) {
       const len = dist(e, hurt) || 1;
-      const move = Math.min(e.speed * dt, gap - SHAMAN_MEND.range + 0.5);
+      const move = Math.min(this.enemySpeed(e) * dt, gap - SHAMAN_MEND.range + 0.5);
       e.x += ((hurt.x - e.x) / len) * move;
       e.y += ((hurt.y - e.y) / len) * move;
       e.targetId = null;

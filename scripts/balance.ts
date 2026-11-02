@@ -142,9 +142,9 @@ export function summarise(runs: RunRecord[]): Summary {
   const fielded: Record<string, number> = {};
   for (const r of runs)
     for (const rd of r.rounds) {
-      for (const [k, v] of Object.entries(rd.owned)) owned[k] = (owned[k] ?? 0) + v;
+      for (const [k, v] of Object.entries(rd.owned ?? {})) owned[k] = (owned[k] ?? 0) + v;
       for (const [k, v] of Object.entries(rd.abilities)) uses[k] = (uses[k] ?? 0) + v;
-      for (const [k, v] of Object.entries(rd.abilityDamage)) dmg[k] = (dmg[k] ?? 0) + v;
+      for (const [k, v] of Object.entries(rd.abilityDamage ?? {})) dmg[k] = (dmg[k] ?? 0) + v;
       for (const [k, v] of Object.entries(rd.enemyDamage)) enemyDmg[k] = (enemyDmg[k] ?? 0) + v;
       for (const [k, v] of Object.entries(rd.enemyCount ?? {})) fielded[k] = (fielded[k] ?? 0) + v;
     }
