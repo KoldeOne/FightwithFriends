@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
 import { ABILITIES, ABILITY_TUNING, HERO_KIT, RESOURCES, SIGNATURES, WAVE_1, WORLD } from '../sim/content';
-import type { AbilityId, BattleEvent, HeroClass, ResourceKind, Unit } from '../sim/types';
+import type { AbilityId, BattleEvent, Effect, HeroClass, ResourceKind, Unit } from '../sim/types';
 import { GATE_ID } from '../sim/types';
 
 const COLORS: Record<string, number> = {
@@ -44,6 +44,19 @@ const GOLD = 0xffd166;
 const OUT_OF_RANGE = 0xff3b3b;
 const ENEMY_STROKE = 0x8b1a1a;
 const SLOW_STROKE = 0x5dade2;
+
+/** How each buff/debuff is shown in the HUD and its tooltip. */
+const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string; color: number; debuff: boolean; text: (e: Effect) => string }> = {
+  fortitude: { name: 'Power Word: Fortitude', letter: 'F', color: 0xfff3b0, debuff: false, text: (e) => `Maximum health increased by ${e.amount}.` },
+  hot: { name: 'Renew', letter: 'R', color: 0x7dff9b, debuff: false, text: (e) => `Heals ${Math.round(e.amount)} health every ${e.tickEvery}s.` },
+  dot: { name: 'Burning', letter: 'B', color: 0xff8c1a, debuff: true, text: (e) => `Takes ${Math.round(e.amount)} damage every second.` },
+  slow: { name: 'Slowed', letter: 'S', color: 0x5dade2, debuff: true, text: () => 'Attacks 30% slower.' },
+  sheep: { name: 'Polymorphed', letter: '~', color: 0xf4f1e8, debuff: true, text: () => 'Turned into a sheep. Breaks when hit directly.' },
+  silence: { name: 'Silenced', letter: 'X', color: 0xb57bff, debuff: true, text: () => 'Cannot cast spells.' },
+};
+const MAX_BUFF_ICONS = 6;
+const BUFF_ICON = 26;
+const TARGET_BAR_X = 200;
 
 interface UnitView {
   container: Phaser.GameObjects.Container;
@@ -98,6 +111,12 @@ export class BattleScene extends Phaser.Scene {
   private resourceBar!: Phaser.GameObjects.Graphics;
   private resourceText!: Phaser.GameObjects.Text;
   private focusText!: Phaser.GameObjects.Text;
+  private healthBar!: Phaser.GameObjects.Graphics;
+  private healthText!: Phaser.GameObjects.Text;
+  private buffIcons: { bg: Phaser.GameObjects.Rectangle; letter: Phaser.GameObjects.Text; time: Phaser.GameObjects.Text }[] = [];
+  /** Effects currently shown in the buff row (index matches buffIcons). */
+  private shownEffects: Effect[] = [];
+  private tooltip?: Phaser.GameObjects.Container;
   /** Target frame: focused unit's name, health bar and numbers. */
   private targetName!: Phaser.GameObjects.Text;
   private targetBar!: Phaser.GameObjects.Graphics;
@@ -371,15 +390,35 @@ export class BattleScene extends Phaser.Scene {
     this.abilityCooldownText = this.text(ax0 + s / 2, by + s / 2, '', 24, '#ffffff').setOrigin(0.5).setFontStyle('bold');
     this.abilityCooldownText.setStroke('#000000', 4);
 
-    // Resource bar, focus info and messages.
+    // Right column: health bar, resource bar, buff icons.
     const rx = ax0 + s + 12;
+    this.healthBar = this.add.graphics();
+    this.healthText = this.text(rx + 8, by + 1, '', 13, '#ffffff').setFontStyle('bold');
+    this.healthText.setStroke('#000000', 3);
     this.resourceBar = this.add.graphics();
-    this.resourceText = this.text(rx + 8, by + 3, '', 13, '#ffffff').setFontStyle('bold');
+    this.resourceText = this.text(rx + 8, by + 23, '', 13, '#ffffff').setFontStyle('bold');
     this.resourceText.setStroke('#000000', 3);
-    this.focusText = this.text(rx, by + 32, '', 13, '#8f9bb3').setWordWrapWidth(WORLD.width - rx - AUTO_BTN.w - 28);
-    this.targetName = this.text(rx, by + 30, '', 14, '#ffffff').setFontStyle('bold');
+    this.buffIcons = [];
+    for (let i = 0; i < MAX_BUFF_ICONS; i++) {
+      const x = rx + i * (BUFF_ICON + 6) + BUFF_ICON / 2;
+      const y = by + 46 + BUFF_ICON / 2;
+      const bg = this.add
+        .rectangle(x, y, BUFF_ICON, BUFF_ICON, 0x2b3445)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this.showEffectTooltip(i))
+        .setVisible(false);
+      const letter = this.text(x, y - 1, '', 14, '#111').setOrigin(0.5).setFontStyle('bold').setVisible(false);
+      const time = this.text(x + BUFF_ICON / 2 - 1, y + BUFF_ICON / 2 - 1, '', 10, '#ffffff').setOrigin(1, 1).setFontStyle('bold').setVisible(false);
+      time.setStroke('#000000', 3);
+      this.buffIcons.push({ bg, letter, time });
+    }
+
+    // Bottom row (full width): target frame, or a hint.
+    const ty = top + 122;
+    this.focusText = this.text(16, ty + 2, '', 13, '#8f9bb3');
+    this.targetName = this.text(16, ty + 1, '', 14, '#ffffff').setFontStyle('bold');
     this.targetBar = this.add.graphics();
-    this.targetHp = this.text(rx + 6, by + 53, '', 12, '#ffffff').setFontStyle('bold');
+    this.targetHp = this.text(TARGET_BAR_X + 8, ty + 3, '', 12, '#ffffff').setFontStyle('bold');
     this.targetHp.setStroke('#000000', 3);
     this.toast = this.text(WORLD.width / 2, WORLD.hudTop - 30, '', 16, '#ff9f1a').setOrigin(0.5).setFontStyle('bold').setDepth(60);
     this.toast.setStroke('#000000', 4);
@@ -432,6 +471,7 @@ export class BattleScene extends Phaser.Scene {
     this.abilityCooldown.clear();
     this.sigCooldown.clear();
     this.resourceBar.clear();
+    this.healthBar.clear();
     if (!p?.ability || !p.resourceKind || !p.signature) {
       this.sigName.setText('');
       this.sigCooldownText.setText('');
@@ -439,8 +479,10 @@ export class BattleScene extends Phaser.Scene {
       this.abilityCost.setText('');
       this.abilityCooldownText.setText('');
       this.resourceText.setText('');
+      this.healthText.setText('');
       this.focusText.setText('');
       this.clearTargetFrame();
+      this.updateBuffIcons(undefined);
       return;
     }
 
@@ -481,26 +523,77 @@ export class BattleScene extends Phaser.Scene {
       this.abilityCooldownText.setText('');
     }
 
+    // Health bar (red), with numbers.
+    const hpFrac = Math.max(0, p.hp / p.maxHp);
+    this.healthBar.fillStyle(0x2b3445).fillRect(rx, by, rw, 19);
+    this.healthBar.fillStyle(0xc0392b).fillRect(rx, by, rw * hpFrac, 19);
+    this.healthText.setText(`Health ${Math.ceil(p.hp)} / ${p.maxHp}`);
+
     // Resource bar.
+    const ry = by + 22;
     const frac = (p.resource ?? 0) / (p.maxResource ?? 1);
-    this.resourceBar.fillStyle(0x2b3445).fillRect(rx, by, rw, 22);
-    this.resourceBar.fillStyle(RESOURCE_COLORS[p.resourceKind]).fillRect(rx, by, rw * frac, 22);
+    this.resourceBar.fillStyle(0x2b3445).fillRect(rx, ry, rw, 19);
+    this.resourceBar.fillStyle(RESOURCE_COLORS[p.resourceKind]).fillRect(rx, ry, rw * frac, 19);
     // Tick showing the ability cost.
-    this.resourceBar.fillStyle(0xffffff, 0.7).fillRect(rx + rw * (cost / (p.maxResource ?? 100)) - 1, by, 2, 22);
+    this.resourceBar.fillStyle(0xffffff, 0.7).fillRect(rx + rw * (cost / (p.maxResource ?? 100)) - 1, ry, 2, 19);
     const cp = p.comboPoints ?? 0;
     const combo = this.battle.hasTrait(p, 'comboPoints') ? `  ${'●'.repeat(cp)}${'○'.repeat(5 - cp)}` : '';
     this.resourceText.setText(`${res.label} ${Math.floor(p.resource ?? 0)}${combo}`);
 
-    // Focus info.
+    this.updateBuffIcons(p);
+
+    // Bottom row: target frame or hint.
     const focus = this.battle.focusId !== null ? this.battle.unit(this.battle.focusId) : undefined;
+    const ty = WORLD.hudTop + 122;
     if (focus?.alive) {
       this.focusText.setText('');
-      this.drawTargetFrame(focus, rx, by + 50, rw);
+      this.drawTargetFrame(focus, TARGET_BAR_X, ty, WORLD.width - 16 - TARGET_BAR_X);
     } else {
       this.clearTargetFrame();
       if (!p.alive) this.focusText.setText('Your hero is down.');
-      else this.focusText.setText(p.heal ? 'Tap an enemy to focus it,\nor an ally to focus heals.' : 'Tap an enemy to focus it.');
+      else this.focusText.setText(p.heal ? 'Tap an enemy to focus it, or an ally to focus heals.' : 'Tap an enemy to focus it.');
     }
+  }
+
+  /** Your hero's buffs and debuffs as small tappable icons. */
+  private updateBuffIcons(p: Unit | undefined): void {
+    const effects = p?.alive ? (p.effects ?? []).filter((e) => e.remaining > 0).slice(0, MAX_BUFF_ICONS) : [];
+    this.shownEffects = effects;
+    this.buffIcons.forEach((icon, i) => {
+      const e = effects[i];
+      const visible = !!e;
+      icon.bg.setVisible(visible);
+      icon.letter.setVisible(visible);
+      icon.time.setVisible(visible);
+      if (!e) return;
+      const info = EFFECT_INFO[e.kind];
+      icon.bg.setFillStyle(info.color).setStrokeStyle(2, info.debuff ? 0xe74c3c : 0x111111);
+      icon.letter.setText(info.letter);
+      icon.time.setText(`${Math.ceil(e.remaining)}`);
+    });
+  }
+
+  private showEffectTooltip(index: number): void {
+    const e = this.shownEffects[index];
+    if (!e) return;
+    const info = EFFECT_INFO[e.kind];
+    const source = this.battle.unit(e.sourceId);
+    this.tooltip?.destroy();
+    const w = 330;
+    const x = 16;
+    const y = WORLD.hudTop - 92;
+    const title = this.text(x + 12, y + 10, info.name, 15, info.debuff ? '#ff8a8a' : '#ffd166').setFontStyle('bold');
+    const body = this.text(x + 12, y + 32, info.text(e), 13, '#ffffff').setWordWrapWidth(w - 24);
+    const meta = this.text(x + 12, y + 56, `${Math.ceil(e.remaining)}s left${source ? ` · from ${source.label}` : ''}`, 12, '#8f9bb3');
+    const box = this.add.rectangle(x, y, w, 80, 0x111723, 0.95).setOrigin(0, 0).setStrokeStyle(2, info.color);
+    this.tooltip = this.add.container(0, 0, [box, title, body, meta]).setDepth(90);
+    const tip = this.tooltip;
+    this.time.delayedCall(3000, () => {
+      if (this.tooltip === tip) {
+        tip.destroy();
+        this.tooltip = undefined;
+      }
+    });
   }
 
   /** Name + health bar of the focused unit, like an MMO target frame. */
@@ -681,15 +774,21 @@ export class BattleScene extends Phaser.Scene {
   private showAttack(fromId: number, toId: number, style: 'melee' | 'ranged', amount: number, ability?: AbilityId): void {
     const from = this.battle.unit(fromId);
     if (!from) return;
-    const to = toId === GATE_ID ? null : this.battle.unit(toId);
-    const tx = to ? to.x : from.x;
-    const ty = to ? to.y : WORLD.gateY + 4;
-    const hitColor = to?.side === 'hero' || !to ? '#ff6b6b' : ability ? '#ffd166' : '#ffffff';
+    const atGate = toId === GATE_ID;
+    // A unit killed by this hit is already gone from the battle, so fall back
+    // to where it was last drawn. (Bug fix: killing blows used to show at the gate.)
+    const to = atGate ? undefined : this.battle.unit(toId);
+    const lastSeen = atGate ? undefined : this.views.get(toId)?.container;
+    if (!atGate && !to && !lastSeen) return;
+    const tx = atGate ? from.x : (to?.x ?? lastSeen!.x);
+    const ty = atGate ? WORLD.gateY + 4 : (to?.y ?? lastSeen!.y);
+    const hitHero = to?.side === 'hero';
+    const hitColor = atGate || hitHero ? '#ff6b6b' : ability ? '#ffd166' : '#ffffff';
     const size = ability ? 18 : 15;
 
     const land = () => {
       this.floatText(tx, ty - 18, `${amount}`, hitColor, size);
-      if (!to) this.flashGate();
+      if (atGate) this.flashGate();
     };
 
     if (ability === 'thunderclap') {
