@@ -510,7 +510,10 @@ All professions can be owned; tokens decide which grow first.
 
 1. **Difficulty tiers:** exact stat ramp and later tiers beyond 5.
 2. **Endless mode:** token rewards per group; whether bosses appear in it.
-3. *(reserved)*
+3. **Hero movement (revisit later):** heroes currently hold fixed positions.
+   Options under consideration: (A) drag your own hero, (B) AI heroes move on
+   their own, (C) both, (D) tap a zone (front/middle/back) to move. Also open:
+   free roam vs. lower half of the field only.
 4. **Bosses:** specific bosses, abilities, and cast-bar spells.
 5. **Enemy abilities:** details per archetype and faction.
 6. **Starting-ability options:** the 2 unlockable options for Paladin, Priest,
