@@ -283,7 +283,7 @@ export interface UnitView {
 }
 
 /** choosing: team builder. recruit: picking a new hero. placing: arranging heroes before the fight. */
-export type SceneState = 'choosing' | 'recruit' | 'ready' | 'playing' | 'paused' | 'reward' | 'over';
+export type SceneState = 'title' | 'camp' | 'choosing' | 'recruit' | 'ready' | 'playing' | 'paused' | 'reward' | 'over';
 
 export const DPR = Math.min(window.devicePixelRatio || 1, 3);
 export const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';

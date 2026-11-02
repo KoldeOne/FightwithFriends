@@ -145,7 +145,7 @@ export class Hud {
     const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
     const w = this.s.battle.wave;
     this.waveText.setText(`ROUND ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
-    const lives = this.s.run ? ` · ${'♥'.repeat(this.s.run.lives)}` : '';
+    const lives = !this.s.run ? '' : this.s.run.mode === 'camp' ? ' · Camp Mode' : ` · ${'♥'.repeat(this.s.run.lives)}`;
     if (this.s.state === 'ready' || this.s.state === 'recruit' || this.s.state === 'choosing') {
       this.hudText.setText(`${w.name ?? ''}${lives}`);
     } else {

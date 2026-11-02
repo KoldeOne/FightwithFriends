@@ -1,8 +1,9 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
-import { CHOICE_EVERY, WORLD } from '../../sim/content';
+import { CAMP, CHOICE_EVERY, WORLD } from '../../sim/content';
 import { sound } from '../sound';
 import { autoChoose, bestRound, clearRun, completeWave, describeReward, isChoiceWave, loseRound, recordRound, rewardOptions, rewardPreview, saveRun, type Reward } from '../../sim/run';
+import { bankRound, campRunOver, emptyLoot, loadCamp, lootFor, lootText, saveCamp } from '../../sim/camp';
 import { COLORS, LETTERS, DARK_LETTER, GOLD, needsRecruitAfter, abilityIcon, traitIcon, ICON_PX } from '../theme';
 
 /** The icon for a reward card: the ability it adds or upgrades, the passive, or a stat. */
@@ -33,12 +34,28 @@ export class Results {
 
   // --- end of round -------------------------------------------------------
 
+  /** Camp Mode: this round's loot (already banked at the camp), shown on the next screens. */
+  roundLoot = '';
+
   showEnd(): void {
     const run = this.s.run;
     const win = this.s.battle.outcome === 'victory';
     const cx = WORLD.width / 2;
+    if (run?.mode === 'camp') {
+      // Loot goes home straight away, win or lose.
+      const camp = loadCamp();
+      const loot = lootFor(this.s.battle.kills, run.wave, run.seed + run.wave);
+      bankRound(camp, run, loot, win);
+      saveCamp(camp);
+      this.roundLoot = `Loot: ${lootText(loot)}`;
+      if (campRunOver(run, win)) {
+        this.showCampEnd(win);
+        return;
+      }
+      saveRun(run);
+    }
     if (run && win) {
-      recordRound(run.wave);
+      if (run.mode !== 'camp') recordRound(run.wave);
       sound.play('levelUp');
       if (isChoiceWave(run)) this.showRewards();
       else this.showLevelUp();
@@ -72,8 +89,28 @@ export class Results {
         this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.65).setOrigin(0, 0).setInteractive(),
         this.s.text(cx, 360, title, 36, win ? '#ffd166' : '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
         this.s.text(cx, 418, sub, 18, '#c9d1e0').setOrigin(0.5),
-        // Pass {} — restart() with no data would reuse the finished run's data.
-        this.s.button(cx, 500, 'New run', 22, '#2e86de', () => this.s.scene.restart({})),
+        // Pass data — restart() with no data would reuse the finished run's data.
+        this.s.button(cx, 500, 'New run', 22, '#2e86de', () => this.s.scene.restart({ screen: 'arena' })),
+      ])
+      .setDepth(100);
+  }
+
+  /** Camp Mode: the run is over (a defeat, or the final round beaten). Everything looted is already home. */
+  showCampEnd(win: boolean): void {
+    const run = this.s.run!;
+    const cx = WORLD.width / 2;
+    this.s.state = 'over';
+    clearRun('camp');
+    sound.play(win ? 'levelUp' : 'click');
+    const title = win ? `Round ${CAMP.finalRound} beaten!` : 'Your party has fallen';
+    this.s.overlay = this.s.add
+      .container(0, 0, [
+        this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.7).setOrigin(0, 0).setInteractive(),
+        this.s.text(cx, 320, title, 34, win ? '#ffd166' : '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
+        this.s.text(cx, 370, win ? 'Camp Mode cleared (for now).' : `The run ended at round ${run.wave} (started at round ${run.startRound ?? 1}).`, 16, '#ffffff').setOrigin(0.5),
+        this.s.text(cx, 408, `Brought home: ${lootText(run.loot ?? emptyLoot())}`, 14, '#ffd166').setOrigin(0.5).setAlign('center').setWordWrapWidth(470),
+        this.s.text(cx, 446, 'Spend it at the camp, then go again.', 13, '#c9d1e0').setOrigin(0.5),
+        this.s.button(cx, 520, 'Return to camp', 22, '#2e86de', () => this.s.scene.restart({ screen: 'camp' })),
       ])
       .setDepth(100);
   }
@@ -183,6 +220,7 @@ export class Results {
       this.s.text(cx, 330, `Round ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
       this.s.text(cx, 378, `Level up! Everyone is now level ${level}.`, 18, '#ffffff').setOrigin(0.5),
       this.s.text(cx, 408, needsRecruitAfter(run) ? 'A new hero joins your guild next!' : `Next reward choice after round ${next}`, 13, '#9ad1ff').setOrigin(0.5),
+      this.s.text(cx, 434, this.roundLoot, 14, '#ffd166').setOrigin(0.5),
       countdown,
       this.s.button(cx, 530, 'Continue', 20, '#2e86de', () => {
         if (this.rewardToken === token) this.takeReward(null);
@@ -211,7 +249,8 @@ export class Results {
     const chosen = completeWave(run, picks ?? []);
     saveRun(run);
     const names = this.s.battle.heroes.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0)).map((h) => h.label);
-    const teamPicks = chosen.length ? 'Rewards: ' + chosen.map((r, i) => `${names[i] ?? run.team[i]} → ${describeReward(r).title}`).join(' · ') : '';
+    const rewards = chosen.length ? 'Rewards: ' + chosen.map((r, i) => `${names[i] ?? run.team[i]} → ${describeReward(r).title}`).join(' · ') : '';
+    const teamPicks = [this.roundLoot, rewards].filter(Boolean).join('\n');
     this.s.scene.restart({ run, teamPicks });
   }
 }

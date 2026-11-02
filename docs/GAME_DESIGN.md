@@ -2,7 +2,7 @@
 
 > **Status:** Playable prototype, drafted from the code on 2026-11-02 (updated
 > the same day for the Paladin, Warlock, sprites, balance pass, the ability and
-> upgrade overhaul, boss moves and removing the grid).
+> upgrade overhaul, boss moves and removing the grid; then Camp Mode, §2b).
 > **Platform:** Mobile browser (tested on Android), portrait, 540x960 canvas.
 > **Play it:** https://koldeone.github.io/FightwithFriends/
 
@@ -95,6 +95,55 @@ can pick **any class** for it, including one you already have.
 At the start of a run you fill **3 slots** from the 6 classes. Classes can
 repeat, and duplicates are labeled "Mage", "Mage 2" and so on. The default
 team is Warrior, Priest and Mage.
+
+---
+
+## 2b. Camp Mode (new, for testing)
+
+A second mode on the title screen, built 2026-11-02 from Bailey's proposal so
+Kolde can compare it with the Arena. Combat, classes and enemies are shared;
+its code is `src/sim/camp.ts` and `src/render/screens/camp.ts`. Every number
+below is a first placeholder.
+
+| Rule | Value |
+|---|---|
+| Losing | **One defeat ends the run.** No lives, no retries. |
+| Loot | Every fight's loot (win or lose) goes straight to the camp. Dying costs nothing. |
+| What resets | In-run levels and reward picks. Gear, Drills and loot are kept. |
+| Heroes | The 6 classes, **once each** (no duplicates). Pick 3 at camp; a 4th and 5th join after the round 10 and 20 bosses, from the heroes still at camp. |
+| Difficulty | Arena line-ups and strength curve, **×1.6** (`CAMP.difficulty`). Strength follows the round, not the heroes. |
+| Camps | Start from round 1; beating the round 10 boss unlocks a round 11 start, round 20 unlocks round 21. A later start begins at that round's level with auto-picked rewards. |
+| Cap | Beating round **30** ends the run as a win. |
+| Saves | `fightwithfriends.camp.v1` (the camp) and `fightwithfriends.campRun.v1` (a run in progress), separate from the Arena. |
+
+**Loot** (`lootFor`): Spoils (currency), three placeholder materials (Ore, Hide,
+Gems) and boss Trophies. Rounds 11–20 pay 2× Spoils and 21–30 pay 3×.
+
+| Enemy | Drop |
+|---|---|
+| Basic | 2 Spoils × tier; 12% × tier chance of a random material |
+| Elite | 6 Spoils × tier, 1 random material |
+| Boss | 25 Spoils × tier, 1 of each material, 1 Trophy |
+| Raised minion | Nothing |
+
+**Stations** (per hero, levels 0–10; next level costs 10n + 3n² Spoils and n of
+the station's material, and every 5th level also a Trophy):
+
+| Station | Gear | Per level |
+|---|---|---|
+| Blacksmith | Weapon (Ore) | +8% damage and healing |
+| Armorer | Armor (Hide) | +8% maximum health |
+| Jeweler | Trinket (Gems) | +8% mana/energy regen, 4% faster cooldowns |
+| Training station (whole guild, placeholder) | Drills, 0–5 | Heroes start each run +1 level; 60(n+1) Spoils and a Trophy |
+
+The Training station is a placeholder until Kolde and Bailey design progression
+together. Real item drops are also still to be designed.
+
+**Balance check** (`npm run camp-sim`: the AI plays one guild's runs back to back
+with a tank/healer/mage trio and spends all loot on the cheapest upgrade):
+the first run ends around round 5–9 (often at the round 5 Brute), the round 11
+camp opens after about 5 runs, round 21 after about 10, and round 30 falls
+after about 14 runs (6 guilds, 2026-11-02).
 
 ---
 

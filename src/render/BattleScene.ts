@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { Battle, STEP } from '../sim/battle';
-import { ARENA, ENEMY_LAYOUT, HERO_LINES, DEFAULT_TEAM, makeRound, ROUND_1, SUDDEN_DEATH, WORLD } from '../sim/content';
+import { ARENA, ENEMY_LAYOUT, HERO_LINES, DEFAULT_TEAM, campRound, makeRound, ROUND_1, SUDDEN_DEATH, WORLD } from '../sim/content';
 import { sound } from './sound';
-import { needsRecruit, recruit, type RunState } from '../sim/run';
+import { needsRecruit, type GameMode, type RunState } from '../sim/run';
+import { loadCamp, withGear } from '../sim/camp';
 import { type Unit } from '../sim/types';
 import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, DPR, FONT, HUD } from './theme';
 import { Hud } from './hud';
@@ -11,6 +12,7 @@ import { UnitLayer } from './units';
 import { TeamScreens } from './screens/team';
 import { ReadyScreen } from './screens/ready';
 import { Results } from './screens/results';
+import { CampScreen } from './screens/camp';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
 export class BattleScene extends Phaser.Scene {
@@ -21,6 +23,7 @@ export class BattleScene extends Phaser.Scene {
   teamScreens!: TeamScreens;
   ready!: ReadyScreen;
   results!: Results;
+  campScreen!: CampScreen;
 
   battle!: Battle;
   acc = 0;
@@ -53,13 +56,18 @@ export class BattleScene extends Phaser.Scene {
     for (const [cls, url] of Object.entries(HERO_SPRITES)) this.load.image(`hero-${cls}`, url);
   }
 
-  create(data?: { run?: RunState; teamPicks?: string }): void {
+  /**
+   * `run`: a run to play. Without one, `screen` picks what to show: the Arena
+   * team builder, the Camp, or (neither) the mode select.
+   */
+  create(data?: { run?: RunState; teamPicks?: string; screen?: GameMode }): void {
     this.hud = new Hud(this);
     this.inspect = new Inspect(this);
     this.units = new UnitLayer(this);
     this.teamScreens = new TeamScreens(this);
     this.ready = new ReadyScreen(this);
     this.results = new Results(this);
+    this.campScreen = new CampScreen(this);
     // (Fresh modules each restart, so their own state starts clean.)
     this.acc = 0;
     this.overlay = undefined;
@@ -68,14 +76,16 @@ export class BattleScene extends Phaser.Scene {
     this.teamPicks = data?.teamPicks ?? '';
     this.suddenDeathShown = false;
     const run = this.run;
+    const camp = run?.mode === 'camp';
     this.battle = run
       ? new Battle({
           // Retries (fewer lives) get a different seed, so a rematch isn't an exact replay.
           seed: run.seed * 100 + run.wave + run.lives * 7,
-          wave: makeRound(run.wave),
+          // Camp Mode: tougher enemies, and each hero wears their camp gear.
+          wave: camp ? campRound(run.wave) : makeRound(run.wave),
           carefulAI: this.careful,
           team: run.team,
-          builds: run.builds,
+          builds: camp ? withGear(run, loadCamp()) : run.builds,
         })
       : new Battle({ seed: Date.now() % 1_000_000, wave: ROUND_1, carefulAI: this.careful, team: DEFAULT_TEAM });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
@@ -93,9 +103,13 @@ export class BattleScene extends Phaser.Scene {
     this.input.on('pointerdown', () => sound.unlock());
     this.endingLeft = -1;
     this.tweens.timeScale = 1;
-    if (!run) {
+    if (!run && data?.screen === 'arena') {
       this.state = 'choosing';
       this.teamScreens.showTeamBuilder();
+    } else if (!run && data?.screen === 'camp') {
+      this.campScreen.show();
+    } else if (!run) {
+      this.teamScreens.showModes();
     } else if (needsRecruit(run)) {
       this.state = 'recruit';
       this.teamScreens.showRecruit();

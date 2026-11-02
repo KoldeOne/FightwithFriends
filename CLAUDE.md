@@ -10,6 +10,8 @@ Vitest). Design doc: `docs/GAME_DESIGN.md` (keep it in sync with the code).
 - `src/render/BattleScene.ts` — scene state, update loop, input; delegates to
   `hud.ts`, `inspect.ts`, `units.ts`, `theme.ts` and `screens/*`.
 - `scripts/balance.ts` — batch-simulates runs (`npm run balance`; `scripts/balance-parallel.sh [seeds] [dir] [ai|random]` uses every core; random picks measure each pick's value).
+- Camp Mode (the second mode): `src/sim/camp.ts` (loot, stations, camp save),
+  `src/render/screens/camp.ts` (camp screen), `scripts/camp-sim.ts` (`npm run camp-sim`).
 - Ability numbers live in `content.ts` (ABILITY_TUNING); their player-facing text in `src/sim/abilityText.ts` — change both together.
 - Collaborators: the repo owner and Bailey (GitHub: bweeks).
 

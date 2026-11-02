@@ -220,6 +220,8 @@ export interface Unit {
   might?: number;
   /** Hero: resource regeneration multiplier from Focus upgrades. */
   focus?: number;
+  /** Hero: how fast ability cooldowns recover (1 = normal; Camp Mode trinkets raise it). */
+  cooldownRate?: number;
   /** Hero: passive traits earned so far (none at the start). */
   traits?: TraitId[];
   /** Rogue: combo points (0-5), only used with the Combo Points trait. */
@@ -283,6 +285,15 @@ export interface WaveDef {
   boss?: boolean;
 }
 
+/** Camp Mode loot: the currency, three placeholder materials and boss trophies. */
+export interface Loot {
+  spoils: number;
+  ore: number;
+  hide: number;
+  gems: number;
+  trophies: number;
+}
+
 /** What carries over between waves for one hero. */
 export interface HeroBuild {
   level: number;
@@ -292,4 +303,6 @@ export interface HeroBuild {
   vitality?: number;
   might?: number;
   focus?: number;
+  /** Camp Mode: gear levels from the camp's stations. */
+  gear?: { weapon: number; armor: number; trinket: number };
 }

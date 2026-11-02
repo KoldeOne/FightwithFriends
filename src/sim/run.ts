@@ -1,7 +1,7 @@
 import { abilityText } from './abilityText';
 import { ABILITIES, CHOICE_EVERY, CLASS_POOL, DEFAULT_TEAM, HERO_KIT, HERO_STATS, MAX_ABILITY_SLOTS, partySize, RESOURCES, START_LIVES, TRAITS, UPGRADE, LEVEL_SCALING } from './content';
 import { createRng } from './rng';
-import type { AbilityId, HeroBuild, HeroClass, TraitId } from './types';
+import type { AbilityId, HeroBuild, HeroClass, Loot, TraitId } from './types';
 
 /** Everything that carries over between rounds in a run. */
 export interface RunState {
@@ -15,7 +15,15 @@ export interface RunState {
   builds: HeroBuild[];
   /** Losing a round costs a life; the run ends at zero. */
   lives: number;
+  /** Camp Mode run (absent = Arena). One life; loot goes home to the camp. */
+  mode?: 'camp';
+  /** Camp Mode: the round this run started from. */
+  startRound?: number;
+  /** Camp Mode: loot collected on this run so far (already banked at the camp). */
+  loot?: Loot;
 }
+
+export type GameMode = 'arena' | 'camp';
 
 export type Reward =
   | { kind: 'ability'; id: AbilityId }
@@ -264,22 +272,24 @@ export function rewardPreview(run: RunState, slot: number, r: Reward): { now?: s
 const SAVE_KEY = 'fightwithfriends.run.v4';
 /** Runs saved before the grid was removed and the ability pools grew. */
 const OLD_SAVE_KEY = 'fightwithfriends.run.v3';
+/** Camp Mode's run in progress (the camp itself is saved by camp.ts). */
+const CAMP_RUN_KEY = 'fightwithfriends.campRun.v1';
 const BEST_KEY = 'fightwithfriends.bestRound';
 
 export function saveRun(run: RunState): void {
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(run));
+    localStorage.setItem(run.mode === 'camp' ? CAMP_RUN_KEY : SAVE_KEY, JSON.stringify(run));
   } catch {
     /* storage unavailable: the run just won't persist */
   }
 }
 
-export function loadRun(): RunState | null {
+export function loadRun(mode: GameMode = 'arena'): RunState | null {
   try {
-    const raw = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(OLD_SAVE_KEY);
+    const raw = mode === 'camp' ? localStorage.getItem(CAMP_RUN_KEY) : localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(OLD_SAVE_KEY);
     if (!raw) return null;
     const run = migrateRun(JSON.parse(raw));
-    const ok = !!run && Array.isArray(run.team) && Array.isArray(run.builds) && run.team.length === run.builds.length && run.lives > 0;
+    const ok = !!run && Array.isArray(run.team) && Array.isArray(run.builds) && run.team.length === run.builds.length && run.lives > 0 && (run.mode === 'camp') === (mode === 'camp');
     return ok ? run : null;
   } catch {
     return null;
@@ -302,8 +312,12 @@ export function migrateRun(data: unknown): RunState | null {
   return { version: 4, seed: run.seed ?? 1, team: run.team, wave: run.wave ?? 1, builds, lives: run.lives ?? 1 };
 }
 
-export function clearRun(): void {
+export function clearRun(mode: GameMode = 'arena'): void {
   try {
+    if (mode === 'camp') {
+      localStorage.removeItem(CAMP_RUN_KEY);
+      return;
+    }
     localStorage.removeItem(SAVE_KEY);
     localStorage.removeItem(OLD_SAVE_KEY);
   } catch {

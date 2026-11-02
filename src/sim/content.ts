@@ -675,3 +675,30 @@ export function makeRound(n: number): WaveDef {
 }
 
 export const ROUND_1: WaveDef = makeRound(1);
+
+// --- Camp Mode ---------------------------------------------------------------
+
+/**
+ * Camp Mode: runs end at the first defeat, loot comes home, and the camp's
+ * stations make the guild stronger. Enemies are tougher than in the Arena so
+ * an unupgraded guild falls early. Numbers are first placeholders to tune.
+ */
+export const CAMP = {
+  /** Enemy health and damage on top of the Arena curve. */
+  difficulty: 1.6,
+  /** Rounds a run can start from, once unlocked by beating the boss before it. */
+  starts: [1, 11, 21],
+  /** Beating this round wins Camp Mode (for now). */
+  finalRound: 30,
+  maxGearLevel: 10,
+  maxDrills: 5,
+};
+
+/** Per gear level: Blacksmith (weapon), Armorer (armor), Jeweler (trinket). */
+export const GEAR_BONUS = { weapon: 0.08, armor: 0.08, trinketRegen: 0.08, trinketCooldown: 0.04 };
+
+/** A Camp Mode round: the Arena line-up, with tougher enemies. */
+export function campRound(n: number): WaveDef {
+  const w = makeRound(n);
+  return { ...w, strength: (w.strength ?? 1) * CAMP.difficulty };
+}

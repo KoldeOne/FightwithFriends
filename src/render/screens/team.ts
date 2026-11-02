@@ -3,12 +3,54 @@ import Phaser from 'phaser';
 import { ABILITIES, DEFAULT_TEAM, HERO_KIT, partySize, PASSIVES, WORLD } from '../../sim/content';
 import { sound } from '../sound';
 import { ALL_CLASSES, bestRound, loadRun, newRun, recruit, saveRun } from '../../sim/run';
+import { loadCamp } from '../../sim/camp';
 import { type HeroClass } from '../../sim/types';
 import { COLORS, LETTERS, DARK_LETTER, spriteKey, spriteOriginY } from '../theme';
 
 /** Team builder and recruit screens. */
 export class TeamScreens {
   constructor(readonly s: BattleScene) {}
+
+  // --- mode select ----------------------------------------------------------
+
+  /** The first screen: the Arena (endless, 3 lives) or Camp Mode (die, bring loot home, upgrade). */
+  showModes(): void {
+    this.s.state = 'title';
+    this.s.overlay?.destroy();
+    const cx = WORLD.width / 2;
+    const camp = loadCamp();
+    const best = bestRound();
+    const card = (y: number, title: string, color: number, lines: string[], onTap: () => void): Phaser.GameObjects.GameObject[] => {
+      const bg = this.s.add
+        .rectangle(cx, y, 470, 150, 0x1c2433)
+        .setStrokeStyle(3, color)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerover', () => bg.setFillStyle(0x26314a))
+        .on('pointerout', () => bg.setFillStyle(0x1c2433))
+        .on('pointerdown', () => {
+          sound.unlock();
+          sound.play('click');
+          onTap();
+        });
+      return [
+        bg,
+        this.s.text(cx - 210, y - 56, title, 24, '#ffffff').setFontStyle('bold'),
+        ...lines.map((l, i) => this.s.text(cx - 210, y - 18 + i * 20, l, 13, i === lines.length - 1 ? '#ffd166' : '#c9d1e0').setWordWrapWidth(420)),
+      ];
+    };
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
+      this.s.text(cx, 170, 'FightwithFriends', 38, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
+      this.s.text(cx, 214, 'Choose a mode', 16, '#c9d1e0').setOrigin(0.5),
+      ...card(350, 'Arena', 0x2e86de, ['Any 3 classes, 3 lives, endless rounds.', 'Lose a round, retry it. How far can you go?', best ? `Best: round ${best}` : 'No runs yet'], () =>
+        this.s.scene.restart({ screen: 'arena' }),
+      ),
+      ...card(530, 'Camp Mode (new, testing)', 0xffd166, ['A hard run: one defeat sends you home.', 'Bring the loot back to camp and upgrade.', camp.best ? `Best: round ${camp.best} of 30` : 'No runs yet'], () =>
+        this.s.scene.restart({ screen: 'camp' }),
+      ),
+    ];
+    this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
+  }
 
   // --- hero select ----------------------------------------------------------
 
@@ -34,6 +76,12 @@ export class TeamScreens {
     }
     const best = bestRound();
     if (best) items.push(this.s.text(cx, 186, `Best: round ${best}`, 12, '#ffd166').setOrigin(0.5));
+    items.push(
+      this.s.button(30, 26, '◀', 14, '#2b3445', () => {
+        sound.play('click');
+        this.s.scene.restart({});
+      }),
+    );
 
     // The team slots.
     const slotW = 120;
@@ -105,12 +153,12 @@ export class TeamScreens {
     ];
   }
 
-  classCards(top: number, onPick: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
+  classCards(top: number, onPick: (cls: HeroClass) => void, classes: HeroClass[] = ALL_CLASSES): Phaser.GameObjects.GameObject[] {
     const cx = WORLD.width / 2;
     // Six classes have to fit between the slots and the buttons.
     const cardH = 68;
     const items: Phaser.GameObjects.GameObject[] = [];
-    ALL_CLASSES.forEach((cls, i) => {
+    classes.forEach((cls, i) => {
       const y = top + i * (cardH + 6);
       const kit = HERO_KIT[cls];
       const bg = this.s.add
@@ -151,11 +199,16 @@ export class TeamScreens {
         .setWordWrapWidth(480),
       this.s.text(cx, 204, `They join at level ${level}, with rewards picked for them so far.`, 12, '#8f9bb3').setOrigin(0.5),
       this.s.text(cx, 236, `Your party: ${run.team.map((c) => c[0].toUpperCase() + c.slice(1)).join(', ')}`, 13, '#c9d1e0').setOrigin(0.5),
-      ...this.classCards(320, (cls) => {
-        recruit(run, cls);
-        saveRun(run);
-        this.s.scene.restart({ run, teamPicks: `${cls[0].toUpperCase() + cls.slice(1)} joins the guild!` });
-      }),
+      ...this.classCards(
+        320,
+        (cls) => {
+          recruit(run, cls);
+          saveRun(run);
+          this.s.scene.restart({ run, teamPicks: `${cls[0].toUpperCase() + cls.slice(1)} joins the guild!` });
+        },
+        // Camp Mode: each hero exists once, so only those still at camp can join.
+        run.mode === 'camp' ? ALL_CLASSES.filter((c) => !run.team.includes(c)) : ALL_CLASSES,
+      ),
     ];
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }

@@ -35,6 +35,11 @@ A playable arena auto-battler:
   intros, slow-mo finish, synthesized sound, pixel-art sprites for heroes and
   enemies (the enemy ones are temporary).
 
+**Camp Mode (new, for testing):** a second mode on the title screen. One
+defeat ends the run, but every fight's loot comes home to the camp, where the
+Blacksmith, Armorer, Jeweler and Training station make the guild stronger for
+the next run. Each hero once, rounds 1–30. See §2b of the design doc.
+
 Top bar: **Speed** (testing aid), **Sound**, **Auto picks**, **Pause**.
 
 ## Running locally
@@ -46,6 +51,7 @@ npm install
 npm run dev      # opens a local server; also reachable from a phone on the same Wi-Fi
 npm test         # simulation tests
 npm run balance  # batch-simulate runs and print a balance summary (scripts/balance-parallel.sh uses every core)
+npm run camp-sim # simulate Camp Mode: guilds' runs back to back with camp upgrades
 npm run build    # production build into dist/
 ```
 
