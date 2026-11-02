@@ -590,6 +590,8 @@ All professions can be owned; tokens decide which grow first.
 11. **Later classes:** full design for Druid, Shaman, Warlock, Hunter.
 12. **Exact numbers:** damage, HP, threat values, costs — set during testing.
 13. **Final ability names and art** (rename WoW-derived working names).
+14. **Race per class (parked for later):** let players change the race of each
+    class. Set aside on 2026-11-01 to revisit later.
 
 ---
 
