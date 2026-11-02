@@ -16,7 +16,7 @@ import {
   WORLD,
 } from './content';
 import { createRng } from './rng';
-import type { AbilityId, AggroLevel, BattleEvent, Effect, EnemyKind, HeroClass, Outcome, SpawnDef, Unit, WaveDef } from './types';
+import type { AbilityId, AggroLevel, BattleEvent, Effect, EnemyKind, HeroClass, Outcome, SpawnDef, TraitId, Unit, WaveDef } from './types';
 import { GATE_ID } from './types';
 
 /** Fixed simulation step in seconds. The renderer calls step() with this. */
@@ -87,7 +87,7 @@ export class Battle {
   /** Current resource cost of a hero's ability (traits can change it). */
   abilityCost(h: Unit): number {
     const base = h.ability ? ABILITIES[h.ability].cost : 0;
-    if (h.ability === 'renew') {
+    if (h.ability === 'renew' && this.hasTrait(h, 'innerFocus')) {
       const healthy = this.units.filter((u) => u.side === 'hero' && u.alive).every((u) => u.hp >= u.maxHp * TRAIT_TUNING.innerFocusThreshold);
       if (healthy) return Math.ceil(base / 2);
     }
@@ -127,6 +127,25 @@ export class Battle {
 
   hasEffect(u: Unit, kind: Effect['kind']): boolean {
     return !!u.effects?.some((e) => e.kind === kind);
+  }
+
+  hasTrait(h: Unit, id: TraitId): boolean {
+    return !!h.traits?.includes(id);
+  }
+
+  /**
+   * Would the player's ability find a target right now? False when the focus
+   * is out of range, or nothing is in range. Drives the red "out of range" outline.
+   */
+  abilityInRange(h: Unit | undefined = this.player): boolean {
+    if (!h?.alive || !h.ability) return false;
+    return this.abilityTarget(h, true) !== null;
+  }
+
+  /** Same as abilityInRange, for the signature button. */
+  signatureInRange(h: Unit | undefined = this.player): boolean {
+    if (!h?.alive || !h.signature) return false;
+    return this.signatureTarget(h, true) !== null;
   }
 
   /** Polymorphed enemies are out of the fight until hit directly. */
@@ -252,6 +271,7 @@ export class Battle {
       abilityCooldown: 0,
       signature: kit.signature,
       signatureCooldown: 0,
+      traits: [],
       comboPoints: 0,
       effects: [],
     });
@@ -432,8 +452,8 @@ export class Battle {
       case 'taunt':
         if (this.looseEnemies(h).length) this.castSignature(h, false);
         break;
-      case 'guardianSpirit':
-        if (this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.35 && !this.hasEffect(u, 'guardian'))) this.castSignature(h, false);
+      case 'fortitude':
+        if (this.units.some((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'fortitude'))) this.castSignature(h, false);
         break;
       case 'polymorph':
         if (this.polymorphCandidate(h)) this.castSignature(h, false);
@@ -464,38 +484,68 @@ export class Battle {
     return this.units.filter((u) => u.side === 'enemy' && u.alive && dist(h, u) - h.radius - u.radius <= reach);
   }
 
+  /**
+   * Who the signature would hit right now, without casting it. With a focus
+   * set, the player's taunt / polymorph / kick only go to that focus.
+   */
+  private signatureTarget(h: Unit, byPlayer: boolean): Unit | null {
+    const focus = byPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
+    const focusEnemy = focus?.side === 'enemy' && focus.alive ? focus : undefined;
+    switch (h.signature) {
+      case 'taunt': {
+        const inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) <= AGGRO.tauntRange);
+        if (focusEnemy) return inRange.includes(focusEnemy) ? focusEnemy : null;
+        const loose = this.looseEnemies(h);
+        return loose.length ? nearest(h, loose) : inRange.length ? nearest(h, inRange) : null;
+      }
+      case 'fortitude':
+        return h; // party-wide; always has a target
+      case 'polymorph': {
+        if (focusEnemy) return this.canPolymorph(h, focusEnemy) ? focusEnemy : null;
+        if (!byPlayer) return this.polymorphCandidate(h) ?? null;
+        return (
+          this.polymorphCandidate(h) ??
+          this.units.filter((u) => this.canPolymorph(h, u) && !u.goesForGate).sort((a, b) => b.y - a.y)[0] ??
+          null
+        );
+      }
+      case 'kick': {
+        const targets = this.kickTargets(h);
+        if (focusEnemy) return targets.includes(focusEnemy) ? focusEnemy : null;
+        return targets.find((u) => u.casting) ?? (targets.length ? nearest(h, targets) : null);
+      }
+      default:
+        return null;
+    }
+  }
+
   /** Perform the hero's signature. Returns false if there was no valid target. */
   private castSignature(h: Unit, byPlayer: boolean): boolean {
     const id = h.signature!;
-    const focus = byPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
-    let to: Unit | undefined;
+    const to = this.signatureTarget(h, byPlayer) ?? undefined;
+    if (!to) return false;
 
     switch (id) {
-      case 'taunt': {
-        const inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) <= AGGRO.tauntRange);
-        if (focus && inRange.includes(focus)) to = focus;
-        else {
-          const loose = this.looseEnemies(h);
-          to = loose.length ? nearest(h, loose) : inRange.length ? nearest(h, inRange) : undefined;
-        }
-        if (!to) return false;
+      case 'taunt':
         this.applyTaunt(h, to);
         break;
-      }
-      case 'guardianSpirit': {
-        const allies = this.units.filter((u) => u.side === 'hero' && u.alive);
-        to = focus?.side === 'hero' && focus.alive ? focus : allies.filter((u) => !this.hasEffect(u, 'guardian')).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
-        if (!to) return false;
-        this.addEffect(to, { kind: 'guardian', remaining: SIGNATURE_TUNING.guardianSpirit.duration, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+      case 'fortitude': {
+        const t = SIGNATURE_TUNING.fortitude;
+        for (const ally of this.units) {
+          if (ally.side !== 'hero' || !ally.alive) continue;
+          const existing = ally.effects?.find((e) => e.kind === 'fortitude');
+          if (existing) {
+            existing.remaining = t.duration; // refresh, don't stack
+            continue;
+          }
+          const bonus = Math.round(ally.maxHp * t.bonus);
+          ally.maxHp += bonus;
+          ally.hp += bonus;
+          this.addEffect(ally, { kind: 'fortitude', remaining: t.duration, tickEvery: 0, tickTimer: 0, amount: bonus, sourceId: h.id });
+        }
         break;
       }
       case 'polymorph': {
-        to = focus && this.canPolymorph(h, focus) ? focus : byPlayer ? undefined : this.polymorphCandidate(h);
-        if (!to && byPlayer) {
-          // No valid focus: sheep whatever is beating on a non-tank, else the most advanced enemy.
-          to = this.polymorphCandidate(h) ?? this.units.filter((u) => this.canPolymorph(h, u) && !u.goesForGate).sort((a, b) => b.y - a.y)[0];
-        }
-        if (!to) return false;
         if (to.casting) this.endCast(to, true);
         to.targetId = null;
         to.tauntTime = 0;
@@ -506,9 +556,6 @@ export class Battle {
         break;
       }
       case 'kick': {
-        const targets = this.kickTargets(h);
-        to = focus && targets.includes(focus) ? focus : (targets.find((u) => u.casting) ?? (targets.length ? nearest(h, targets) : undefined));
-        if (!to) return false;
         if (to.casting) {
           this.endCast(to, true);
           this.addEffect(to, { kind: 'silence', remaining: SIGNATURE_TUNING.kick.silence, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
@@ -519,7 +566,7 @@ export class Battle {
       }
     }
     h.signatureCooldown = SIGNATURES[id].cooldown;
-    this.events.push({ type: 'signature', from: h.id, signature: id, to: to?.id });
+    this.events.push({ type: 'signature', from: h.id, signature: id, to: id === 'fortitude' ? undefined : to.id });
     return true;
   }
 
@@ -568,7 +615,7 @@ export class Battle {
     h.targetId = target.id;
     h.cooldown = h.attackInterval;
     this.damage(h, target, this.roll(h.damage));
-    if (h.comboPoints !== undefined && h.kind === 'rogue') h.comboPoints = Math.min(TRAIT_TUNING.maxComboPoints, h.comboPoints + 1);
+    if (this.hasTrait(h, 'comboPoints')) h.comboPoints = Math.min(TRAIT_TUNING.maxComboPoints, (h.comboPoints ?? 0) + 1);
   }
 
   /** Is this hero controlled by careful AI right now? */
@@ -639,17 +686,42 @@ export class Battle {
     return this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) <= radius);
   }
 
+  /**
+   * Who the ability would hit right now, without casting it. With an enemy
+   * focus set, the player's targeted abilities only go to that focus.
+   */
+  private abilityTarget(h: Unit, byPlayer: boolean): Unit | null {
+    const focus = byPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
+    switch (h.ability) {
+      case 'thunderclap':
+        return this.enemiesNear(h, ABILITY_TUNING.thunderclap.radius).length ? h : null;
+      case 'renew': {
+        if (focus?.side === 'hero' && focus.alive) return focus;
+        const allies = this.units.filter((u) => u.side === 'hero' && u.alive);
+        return this.renewCandidates()[0] ?? allies.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0] ?? null;
+      }
+      case 'fireball':
+      case 'sinisterStrike': {
+        if (focus?.side === 'enemy' && focus.alive) return this.inReach(h, focus) ? focus : null;
+        const size = h.ability === 'fireball' ? ABILITY_TUNING.fireball.damage : ABILITY_TUNING.sinisterStrike.damage;
+        return this.pickEnemyTarget(h, byPlayer ? 0 : size);
+      }
+      default:
+        return null;
+    }
+  }
+
   /** Perform the hero's ability. Returns false if there was no valid target. */
   private cast(h: Unit, byPlayer: boolean): boolean {
     const id = h.ability!;
     const def = ABILITIES[id];
     const t = ABILITY_TUNING;
-    let to: Unit | undefined;
+    let to: Unit | undefined = this.abilityTarget(h, byPlayer) ?? undefined;
+    if (!to) return false;
 
     switch (id) {
       case 'thunderclap': {
         const hit = this.enemiesNear(h, t.thunderclap.radius);
-        if (!hit.length) return false;
         this.events.push({ type: 'ability', from: h.id, ability: id });
         for (const e of hit) {
           this.damage(h, e, this.roll(t.thunderclap.damage), { threatScale: t.thunderclap.threatBonus, ability: id, aoe: true });
@@ -658,13 +730,6 @@ export class Battle {
         break;
       }
       case 'renew': {
-        const focus = byPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
-        const allies = this.units.filter((u) => u.side === 'hero' && u.alive);
-        to =
-          focus?.side === 'hero' && focus.alive
-            ? focus
-            : (this.renewCandidates()[0] ?? allies.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0]);
-        if (!to) return false;
         const ticks = t.renew.duration / t.renew.tick;
         to.effects = (to.effects ?? []).filter((e) => e.kind !== 'hot');
         this.addEffect(to, { kind: 'hot', remaining: t.renew.duration, tickEvery: t.renew.tick, tickTimer: t.renew.tick, amount: t.renew.total / ticks, sourceId: h.id });
@@ -674,9 +739,7 @@ export class Battle {
       case 'fireball':
       case 'sinisterStrike': {
         let size = id === 'fireball' ? t.fireball.damage : t.sinisterStrike.damage;
-        to = this.pickEnemyTarget(h, byPlayer ? 0 : size) ?? undefined;
-        if (!to) return false;
-        if (id === 'sinisterStrike' && h.comboPoints) {
+        if (id === 'sinisterStrike' && this.hasTrait(h, 'comboPoints') && h.comboPoints) {
           size *= 1 + h.comboPoints * TRAIT_TUNING.comboBonusPerPoint;
           h.comboPoints = 0;
         }
@@ -691,7 +754,7 @@ export class Battle {
       }
     }
     let cost = this.abilityCost(h);
-    if (id === 'fireball' && this.rng() < TRAIT_TUNING.arcaneSurgeChance) {
+    if (id === 'fireball' && this.hasTrait(h, 'arcaneSurge') && this.rng() < TRAIT_TUNING.arcaneSurgeChance) {
       cost = 0;
       this.events.push({ type: 'notice', id: h.id, text: 'Arcane Surge!', tone: 'info' });
     }
@@ -730,7 +793,13 @@ export class Battle {
       }
       if (!u.alive) break;
     }
+    for (const e of u.effects) if (e.remaining <= 1e-6 && e.kind === 'fortitude') this.removeFortitude(u, e);
     u.effects = u.effects.filter((e) => e.remaining > 1e-6);
+  }
+
+  private removeFortitude(u: Unit, e: Effect): void {
+    u.maxHp -= e.amount;
+    u.hp = Math.min(u.hp, u.maxHp);
   }
 
   private addHealThreat(healer: Unit, amount: number): void {
@@ -751,16 +820,9 @@ export class Battle {
       to.effects = to.effects!.filter((e) => e.kind !== 'sheep');
       this.events.push({ type: 'notice', id: to.id, text: 'Sheep broke!', tone: 'bad' });
     }
-    // Warrior trait: more rage, more damage.
-    if (from.resourceKind === 'rage' && !opts.tick) {
+    // Rage trait: more rage, more damage.
+    if (this.hasTrait(from, 'rage') && !opts.tick) {
       amount = Math.round(amount * (1 + TRAIT_TUNING.rageDamageAtMax * (from.resource! / from.maxResource!)));
-    }
-    // Guardian Spirit: the killing blow leaves them at 30% instead.
-    if (to.hp - amount <= 0 && this.hasEffect(to, 'guardian')) {
-      to.effects = to.effects!.filter((e) => e.kind !== 'guardian');
-      to.hp = Math.round(to.maxHp * SIGNATURE_TUNING.guardianSpirit.saveTo);
-      amount = 0;
-      this.events.push({ type: 'notice', id: to.id, text: 'Saved!', tone: 'good' });
     }
     to.hp -= amount;
     if (from.side === 'hero' && to.side === 'enemy') {
@@ -774,6 +836,7 @@ export class Battle {
     if (to.hp <= 0 && to.alive) {
       to.hp = 0;
       to.alive = false;
+      for (const e of to.effects ?? []) if (e.kind === 'fortitude') this.removeFortitude(to, e);
       to.effects = [];
       if (this.focusId === to.id) this.focusId = null;
       this.events.push({ type: 'death', id: to.id });

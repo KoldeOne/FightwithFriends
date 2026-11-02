@@ -232,6 +232,25 @@ describe('Player controls and abilities', () => {
 });
 
 describe('Signatures and traits', () => {
+  it('heroes start with no traits', () => {
+    const b = new Battle({ seed: 1, wave: WAVE_1 });
+    for (const h of b.heroes) expect(h.traits).toEqual([]);
+  });
+
+  it('shows out of range for a focused target that is too far, then in range', () => {
+    const b = new Battle({ seed: 1, wave: { number: 1, spawns: [{ time: 0, kind: 'grunt', x: 300 }] }, playerClass: 'mage' });
+    b.playerAuto = false;
+    b.step(STEP);
+    const e = b.enemies[0];
+    e.y = -20; // far beyond Fireball range
+    b.setFocus(e.id);
+    expect(b.abilityInRange()).toBe(false);
+    expect(b.useAbility()).toBe('target');
+    e.y = 400;
+    expect(b.abilityInRange()).toBe(true);
+    expect(b.useAbility()).toBe('ok');
+  });
+
   const wave = (kinds: ('grunt' | 'shaman' | 'archer')[]) => ({
     number: 1,
     spawns: kinds.map((kind, i) => ({ time: 0, kind, x: 200 + i * 50 })),
@@ -255,22 +274,23 @@ describe('Signatures and traits', () => {
     expect(b.useSignature()).toBe('cooldown');
   });
 
-  it('Guardian Spirit prevents one death', () => {
+  it('Power Word: Fortitude raises the whole party\'s max health, then wears off', () => {
     const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'priest' });
     b.playerAuto = false;
     b.step(STEP);
-    const rogue = hero(b, 'rogue');
-    b.setFocus(rogue.id);
+    const before = b.heroes.map((h) => h.maxHp);
     expect(b.useSignature()).toBe('ok');
-    rogue.hp = 5;
-    const e = b.enemies[0];
-    e.damage = 500; // one hit is lethal
-    e.x = rogue.x;
-    e.y = rogue.y - 40;
-    e.threat = { [rogue.id]: 999 };
-    run(b, 3);
-    expect(rogue.alive).toBe(true);
-    expect(b.hasEffect(rogue, 'guardian')).toBe(false);
+    b.heroes.forEach((h, i) => {
+      expect(h.maxHp).toBe(before[i] + Math.round(before[i] * 0.2));
+      expect(b.hasEffect(h, 'fortitude')).toBe(true);
+    });
+    b.enemies[0].y = -1000; // keep the goblin away
+    b.enemies[0].speed = 0;
+    run(b, 31);
+    b.heroes.forEach((h, i) => {
+      expect(h.maxHp).toBe(before[i]);
+      expect(h.hp).toBeLessThanOrEqual(h.maxHp);
+    });
   });
 
   it('Polymorph: sheep do not attack, ignore AoE, and break on a direct hit', () => {
@@ -367,6 +387,7 @@ describe('Signatures and traits', () => {
     b.playerAuto = false;
     b.step(STEP);
     const r = b.player!;
+    r.traits = ['comboPoints'];
     const e = b.enemies[0];
     e.x = r.x;
     e.y = r.y - 60;
@@ -380,6 +401,8 @@ describe('Signatures and traits', () => {
   it('Renew costs half while the party is healthy (Inner Focus)', () => {
     const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'priest' });
     const p = b.player!;
+    expect(b.abilityCost(p)).toBe(20); // no trait yet
+    p.traits = ['innerFocus'];
     expect(b.abilityCost(p)).toBe(10);
     hero(b, 'warrior').hp = 100;
     expect(b.abilityCost(p)).toBe(20);
@@ -390,6 +413,7 @@ describe('Signatures and traits', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const b = new Battle({ seed, wave: wave(['grunt']), playerClass: 'mage', heroes: ['mage'] });
       b.playerAuto = false;
+      b.player!.traits = ['arcaneSurge'];
       b.step(STEP);
       b.enemies[0].y = 400;
       b.useAbility();
@@ -404,6 +428,7 @@ describe('Signatures and traits', () => {
       const b = new Battle({ seed: 9, wave: wave(['grunt']), playerClass: 'warrior', heroes: ['warrior'] });
       b.step(STEP);
       const w = b.player!;
+      w.traits = ['rage'];
       const e = b.enemies[0];
       e.x = w.x;
       e.y = w.y - 45;

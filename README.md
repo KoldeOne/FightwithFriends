@@ -21,11 +21,12 @@ Steps 1–4 of the first playable version are done:
    Fireball, Sinister Strike) using rage / mana / energy; AUTO toggle; pause.
    Orange/red `!` aggro warnings show on your hero.
 
-4. **Class kits (part 1)** — each class has a signature ability button
-   (Taunt, Guardian Spirit, Polymorph, Kick) and a class trait (Rage, Inner
-   Focus, Arcane Surge, Combo Points). The Goblin Shaman casts Mend (with a
-   cast bar) for Kick to interrupt. The class select screen shows each
-   signature and trait.
+4. **Class kits (part 1)** — each class has a starting-ability button
+   (★ Taunt, Power Word: Fortitude, Polymorph, Kick) next to its regular
+   ability. The Goblin Shaman casts Mend (with a cast bar) for Kick to
+   interrupt. Buttons get a red outline when nothing is in range. Class
+   traits exist in code but start switched off — they become reward
+   options in step 5.
 
 Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**
 (ON = AI damage dealers hold back before pulling aggro; OFF = they don't).

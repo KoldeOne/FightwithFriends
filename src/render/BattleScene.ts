@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING, HERO_KIT, RESOURCES, SIGNATURES, TRAITS, WAVE_1, WORLD } from '../sim/content';
+import { ABILITIES, ABILITY_TUNING, HERO_KIT, RESOURCES, SIGNATURES, WAVE_1, WORLD } from '../sim/content';
 import type { AbilityId, BattleEvent, HeroClass, ResourceKind, Unit } from '../sim/types';
 import { GATE_ID } from '../sim/types';
 
@@ -41,6 +41,7 @@ const RESOURCE_COLORS: Record<ResourceKind, number> = {
 };
 
 const GOLD = 0xffd166;
+const OUT_OF_RANGE = 0xff3b3b;
 const ENEMY_STROKE = 0x8b1a1a;
 const SLOW_STROKE = 0x5dade2;
 
@@ -151,38 +152,31 @@ export class BattleScene extends Phaser.Scene {
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 160, 'Choose your hero', 34, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
-      this.text(cx, 202, 'The other three are played by AI.', 16, '#c9d1e0').setOrigin(0.5),
+      this.text(cx, 168, 'Choose your hero', 34, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 210, 'The other three are played by AI.', 16, '#c9d1e0').setOrigin(0.5),
     ];
     const classes: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
-    const cardH = 132;
+    const cardH = 112;
     classes.forEach((cls, i) => {
-      const y = 232 + cardH / 2 + i * (cardH + 10);
+      const y = 240 + cardH / 2 + i * (cardH + 12);
       const left = cx - 225;
       const bg = this.add.rectangle(cx, y, 470, cardH, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
-      const disc = this.add.circle(left + 34, y - 30, 24, COLORS[cls]).setStrokeStyle(2, 0x111111);
-      const letter = this.text(left + 34, y - 30, LETTERS[cls], 22, DARK_LETTER.includes(cls) ? '#222' : '#fff')
+      const disc = this.add.circle(left + 34, y - 18, 24, COLORS[cls]).setStrokeStyle(2, 0x111111);
+      const letter = this.text(left + 34, y - 18, LETTERS[cls], 22, DARK_LETTER.includes(cls) ? '#222' : '#fff')
         .setOrigin(0.5)
         .setFontStyle('bold');
       const kit = HERO_KIT[cls];
       const tx = left + 72;
-      const top = y - cardH / 2 + 10;
+      const top = y - cardH / 2 + 12;
       const name = this.text(tx, top, cls[0].toUpperCase() + cls.slice(1), 20, '#ffffff').setFontStyle('bold');
       const role = this.text(tx + 104, top + 4, kit.role, 13, '#c9d1e0');
-      const sig = this.text(tx, top + 30, `★ Signature: ${SIGNATURES[kit.signature].name}`, 14, '#ffd166').setFontStyle('bold');
-      const sigDesc = this.text(tx + 14, top + 49, SIGNATURES[kit.signature].description, 12, '#c9d1e0').setWordWrapWidth(370);
-      const trait = this.text(tx, top + 70, `◆ Trait: ${TRAITS[cls].name}`, 13, '#9ad1ff').setFontStyle('bold');
-      const ability = this.text(
-        tx,
-        top + 90,
-        `Ability: ${ABILITIES[kit.ability].name} · ${RESOURCES[kit.resource].label}`,
-        12,
-        '#8f9bb3',
-      );
+      const sig = this.text(tx, top + 32, `★ Starting ability: ${SIGNATURES[kit.signature].name}`, 14, '#ffd166').setFontStyle('bold');
+      const sigDesc = this.text(tx + 14, top + 52, SIGNATURES[kit.signature].description, 12, '#c9d1e0').setWordWrapWidth(370);
+      const ability = this.text(tx, top + 72, `Ability: ${ABILITIES[kit.ability].name}`, 12, '#8f9bb3');
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
       bg.on('pointerdown', () => this.startAs(cls));
-      items.push(bg, disc, letter, name, role, sig, sigDesc, trait, ability);
+      items.push(bg, disc, letter, name, role, sig, sigDesc, ability);
     });
     this.overlay = this.add.container(0, 0, items).setDepth(100);
   }
@@ -245,7 +239,9 @@ export class BattleScene extends Phaser.Scene {
     } else {
       const p = this.battle.player;
       const msg =
-        result === 'target' && p?.signature === 'kick'
+        result === 'target' && this.battle.focusId !== null && p?.signature !== 'fortitude'
+          ? 'Target out of range'
+          : result === 'target' && p?.signature === 'kick'
           ? 'No enemy in range to kick'
           : result === 'target' && p?.signature === 'polymorph'
             ? 'No enemy that can be polymorphed'
@@ -262,7 +258,7 @@ export class BattleScene extends Phaser.Scene {
       case 'resource':
         return `Not enough ${p?.resourceKind ? RESOURCES[p.resourceKind].label.toLowerCase() : 'resource'}`;
       case 'target':
-        return 'No target in range';
+        return this.battle.focusId !== null ? 'Target out of range' : 'No target in range';
       case 'dead':
         return 'Your hero is down';
       default:
@@ -453,6 +449,9 @@ export class BattleScene extends Phaser.Scene {
     const sigReady = this.battle.signatureState(p) === 'ok';
     this.sigName.setText(sig.name);
     this.sigBg.setFillStyle(sigReady ? 0x5a4a1c : 0x2b3445);
+    // Red outline = nothing it could hit is in range right now.
+    if (p.alive && !this.battle.signatureInRange(p)) this.sigBg.setStrokeStyle(4, OUT_OF_RANGE);
+    else this.sigBg.setStrokeStyle(3, GOLD);
     const scd = p.signatureCooldown ?? 0;
     if (scd > 0) {
       this.sigCooldown.fillStyle(0x000000, 0.55).fillRect(ABILITY_BTN.x, by, s, s * (scd / sig.cooldown));
@@ -468,6 +467,8 @@ export class BattleScene extends Phaser.Scene {
     this.abilityName.setText(def.name);
     this.abilityCost.setText(`${cost} ${res.label.toLowerCase()}`);
     this.abilityBg.setFillStyle(state === 'ok' ? COLORS[p.kind] : 0x2b3445);
+    if (p.alive && !this.battle.abilityInRange(p)) this.abilityBg.setStrokeStyle(4, OUT_OF_RANGE);
+    else this.abilityBg.setStrokeStyle(2, 0x3a4660);
     this.abilityName.setColor(state === 'ok' && DARK_LETTER.includes(p.kind) ? '#111' : '#ffffff');
     this.abilityCost.setColor(state === 'ok' && DARK_LETTER.includes(p.kind) ? '#333' : '#c9d1e0');
 
@@ -486,7 +487,8 @@ export class BattleScene extends Phaser.Scene {
     this.resourceBar.fillStyle(RESOURCE_COLORS[p.resourceKind]).fillRect(rx, by, rw * frac, 22);
     // Tick showing the ability cost.
     this.resourceBar.fillStyle(0xffffff, 0.7).fillRect(rx + rw * (cost / (p.maxResource ?? 100)) - 1, by, 2, 22);
-    const combo = p.comboPoints !== undefined && p.kind === 'rogue' ? `  ${'●'.repeat(p.comboPoints)}${'○'.repeat(5 - p.comboPoints)}` : '';
+    const cp = p.comboPoints ?? 0;
+    const combo = this.battle.hasTrait(p, 'comboPoints') ? `  ${'●'.repeat(cp)}${'○'.repeat(5 - cp)}` : '';
     this.resourceText.setText(`${res.label} ${Math.floor(p.resource ?? 0)}${combo}`);
 
     // Focus info.
@@ -579,7 +581,7 @@ export class BattleScene extends Phaser.Scene {
       let pip = 0;
       if (this.battle.hasEffect(u, 'hot')) v.hpBar.fillStyle(0x7dff9b).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
       if (this.battle.hasEffect(u, 'dot')) v.hpBar.fillStyle(0xff8c1a).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
-      if (this.battle.hasEffect(u, 'guardian')) v.hpBar.fillStyle(GOLD).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
+      if (this.battle.hasEffect(u, 'fortitude')) v.hpBar.fillStyle(0xfff3b0).fillCircle(-w / 2 - 7 - pip++ * 9, y + 2, 3.5);
       if (u.side === 'enemy') {
         const sheep = this.battle.isSheep(u);
         v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind]);
@@ -751,8 +753,15 @@ export class BattleScene extends Phaser.Scene {
     const to = toId !== undefined ? this.battle.unit(toId) : undefined;
     if (sig === 'taunt') return; // the taunt event draws it
     const name = SIGNATURES[sig as keyof typeof SIGNATURES].name;
+    if (sig === 'fortitude') {
+      for (const ally of this.battle.heroes) {
+        if (!ally.alive) continue;
+        const ring = this.add.circle(ally.x, ally.y, ally.radius + 4).setStrokeStyle(4, 0xfff3b0).setDepth(30);
+        this.tweens.add({ targets: ring, scale: 1.7, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
+      }
+    }
     if (to) {
-      const color = sig === 'guardianSpirit' ? GOLD : sig === 'polymorph' ? 0xf4f1e8 : 0xffe066;
+      const color = sig === 'polymorph' ? 0xf4f1e8 : 0xffe066;
       const line = this.add.graphics().setDepth(30);
       line.lineStyle(3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
       this.tweens.add({ targets: line, alpha: 0, duration: 400, onComplete: () => line.destroy() });

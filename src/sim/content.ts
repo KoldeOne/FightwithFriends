@@ -1,4 +1,4 @@
-import type { AbilityId, EnemyKind, HeroClass, ResourceKind, SignatureId, Unit, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroClass, ResourceKind, SignatureId, TraitId, Unit, WaveDef } from './types';
 
 /** World is a fixed portrait canvas; the renderer scales it to the screen. */
 export const WORLD = {
@@ -28,10 +28,10 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
 
 /** Fixed formation: tank front, DPS middle, healer back. Heroes never move. */
 export const FORMATION: { cls: HeroClass; x: number; y: number }[] = [
-  { cls: 'warrior', x: 270, y: 570 },
-  { cls: 'rogue', x: 175, y: 630 },
-  { cls: 'mage', x: 365, y: 630 },
-  { cls: 'priest', x: 270, y: 705 },
+  { cls: 'warrior', x: 270, y: 580 },
+  { cls: 'rogue', x: 205, y: 628 },
+  { cls: 'mage', x: 335, y: 628 },
+  { cls: 'priest', x: 270, y: 680 },
 ];
 
 export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
@@ -84,28 +84,34 @@ export interface SignatureDef {
 
 export const SIGNATURES: Record<SignatureId, SignatureDef> = {
   taunt: { id: 'taunt', name: 'Taunt', cooldown: 8, description: 'Forces an enemy to attack you.' },
-  guardianSpirit: { id: 'guardianSpirit', name: 'Guardian Spirit', cooldown: 30, description: 'The next killing blow on an ally leaves them at 30% instead.' },
+  fortitude: { id: 'fortitude', name: 'Power Word: Fortitude', cooldown: 30, description: 'Raises the whole party\'s maximum health by 20% for 30s.' },
   polymorph: { id: 'polymorph', name: 'Polymorph', cooldown: 15, description: 'Turns an enemy (not a boss) into a sheep for 10s.' },
   kick: { id: 'kick', name: 'Kick', cooldown: 10, description: 'Interrupts an enemy cast from range and locks it out of casting.' },
 };
 
 export const SIGNATURE_TUNING = {
-  guardianSpirit: { duration: 12, saveTo: 0.3 },
+  fortitude: { duration: 30, bonus: 0.2 },
   polymorph: { duration: 10, range: 380 },
   /** Kick has its own range, separate from the Rogue's melee reach. */
   kick: { damage: 8, silence: 4, range: 420 },
 };
 
 export interface TraitDef {
+  id: TraitId;
+  cls: HeroClass;
   name: string;
   description: string;
 }
 
-export const TRAITS: Record<HeroClass, TraitDef> = {
-  warrior: { name: 'Rage', description: 'Builds rage from dealing and taking damage, and hits harder the more rage he has.' },
-  priest: { name: 'Inner Focus', description: 'Renew costs half while the whole party is above 80% health.' },
-  mage: { name: 'Arcane Surge', description: 'Fireball has a 25% chance to cost no mana.' },
-  rogue: { name: 'Combo Points', description: 'Auto attacks build combo points; Sinister Strike spends them for bonus damage.' },
+/**
+ * Passive traits. Heroes start without any — these are saved as future
+ * reward options for the level-up choices (step 5).
+ */
+export const TRAITS: Record<TraitId, TraitDef> = {
+  rage: { id: 'rage', cls: 'warrior', name: 'Rage', description: 'Hits up to 20% harder at full rage.' },
+  innerFocus: { id: 'innerFocus', cls: 'priest', name: 'Inner Focus', description: 'Renew costs half while the whole party is above 80% health.' },
+  arcaneSurge: { id: 'arcaneSurge', cls: 'mage', name: 'Arcane Surge', description: 'Fireball has a 25% chance to cost no mana.' },
+  comboPoints: { id: 'comboPoints', cls: 'rogue', name: 'Combo Points', description: 'Auto attacks build combo points; Sinister Strike spends them for bonus damage.' },
 };
 
 export const TRAIT_TUNING = {
@@ -123,7 +129,7 @@ export const SHAMAN_MEND = { name: 'Mend', castTime: 2.5, heal: 70, cooldown: 7,
 
 export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; ability: AbilityId; signature: SignatureId; role: string }> = {
   warrior: { resource: 'rage', ability: 'thunderclap', signature: 'taunt', role: 'Tank — holds enemies with threat' },
-  priest: { resource: 'mana', ability: 'renew', signature: 'guardianSpirit', role: 'Healer — keeps the party alive' },
+  priest: { resource: 'mana', ability: 'renew', signature: 'fortitude', role: 'Healer — keeps the party alive' },
   mage: { resource: 'mana', ability: 'fireball', signature: 'polymorph', role: 'Ranged damage and control' },
   rogue: { resource: 'energy', ability: 'sinisterStrike', signature: 'kick', role: 'Melee damage and interrupts' },
 };

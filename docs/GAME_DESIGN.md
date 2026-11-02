@@ -102,7 +102,7 @@ Every hero has:
 |---|---|---|
 | **Auto attack** | 1 | Always on |
 | **Signature ability** | 1 | Fixed per class, active. The thing only that class does |
-| **Class trait** | 1 | Fixed per class, passive. Shapes how the class plays |
+| **Class traits** | 0 at start | Passive traits are **not** part of the starting kit — they are reward options during a run |
 | **Chosen abilities** | 4 | 1 picked at the start of the run + 3 earned during the run |
 
 - Chosen abilities can be **any mix of active and passive** (e.g. 4 actives, or
@@ -110,6 +110,13 @@ Every hero has:
 - **Buttons on screen:** maximum 5 (signature + up to 4 actives), typically 3–4.
 - All actives can **autocast** (auto mode).
 - Each class has a pool of **~8 choosable abilities** (may expand later).
+
+### Out-of-range indicator
+
+An ability or signature button gets a **red outline** when it has nothing in
+range to hit (e.g. the focused target is too far away). The outline clears as
+soon as a target is in range. With a focus target set, abilities only go to
+that target.
 
 ### Starting abilities
 
@@ -158,7 +165,7 @@ Starting options: Thunderclap (default), Whirlwind, Battle Shout.
 | Beacon of Light | Passive | Healer | Your heals also partly heal the tank |
 
 ### Priest — Healer / DPS
-- **Signature:** Guardian Spirit — the next killing blow on an ally leaves them at 30% instead.
+- **Signature:** Power Word: Fortitude — raises the whole party's maximum health by 20% for 30s.
 - **Trait:** Inner Focus — Renew costs half while the whole party is above 80% health.
 
 | Ability | Type | Leans | Effect |

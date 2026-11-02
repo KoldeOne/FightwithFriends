@@ -4,11 +4,13 @@ export type EnemyKind = 'grunt' | 'archer' | 'runner' | 'shaman';
 export type AttackStyle = 'melee' | 'ranged';
 export type ResourceKind = 'rage' | 'mana' | 'energy';
 export type AbilityId = 'thunderclap' | 'renew' | 'fireball' | 'sinisterStrike';
-export type SignatureId = 'taunt' | 'guardianSpirit' | 'polymorph' | 'kick';
+export type SignatureId = 'taunt' | 'fortitude' | 'polymorph' | 'kick';
+/** Passive traits: not part of the starting kit — saved as future reward options. */
+export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints';
 
 /** A timed buff/debuff on a unit. */
 export interface Effect {
-  kind: 'hot' | 'dot' | 'slow' | 'guardian' | 'sheep' | 'silence';
+  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */
@@ -69,7 +71,9 @@ export interface Unit {
   /** Hero: fixed class signature ability and its cooldown. */
   signature?: SignatureId;
   signatureCooldown?: number;
-  /** Rogue: combo points (0-5). */
+  /** Hero: passive traits earned so far (none at the start). */
+  traits?: TraitId[];
+  /** Rogue: combo points (0-5), only used with the Combo Points trait. */
   comboPoints?: number;
   /** Enemy: spell being cast, if any. */
   casting?: { spell: string; remaining: number; total: number; targetId: number };
