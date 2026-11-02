@@ -6,7 +6,9 @@ import {
   clearRun,
   completeWave,
   describeReward,
+  isAbilityMilestone,
   loadRun,
+  nextAbilityMilestone,
   newRun,
   rewardOptions,
   saveRun,
@@ -127,13 +129,11 @@ export class BattleScene extends Phaser.Scene {
   private speed = 1;
   private careful = true;
   private auto = false;
-  private chooseForMe = false;
 
   /** The current run (null while choosing a hero). */
   private run: RunState | null = null;
   /** What the AI teammates picked after the last wave (shown briefly). */
   private teamPicks = '';
-  private chooseButton!: Phaser.GameObjects.Text;
   private autoButton!: Phaser.GameObjects.Text;
   private zoneLayer!: Phaser.GameObjects.Graphics;
   /** Bumped whenever the reward screen changes, to cancel stale timers. */
@@ -327,6 +327,26 @@ export class BattleScene extends Phaser.Scene {
     else this.battle.setFocus(best.id);
   }
 
+  /** Tooltip for an ability slot: what it does, cost, cooldown, upgrades. */
+  private showSlotTooltip(slot: number, autoHide: boolean): void {
+    const p = this.battle.player;
+    if (!p) return;
+    const a = p.abilities?.[slot];
+    const trait = !a ? p.traits?.[slot - (p.abilities?.length ?? 0)] : undefined;
+    if (a) {
+      const def = ABILITIES[a.id];
+      const cost = this.battle.abilityCost(p, a.id);
+      const costText = cost ? `${cost} ${RESOURCES[p.resourceKind!].label.toLowerCase()}` : 'No cost';
+      const ups = [a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(' · ');
+      const cd = this.battle.abilityCooldown(a);
+      this.showTooltip(def.name, def.description, `${costText} · ${cd % 1 ? cd.toFixed(1) : cd}s cooldown${ups ? ` · ${ups}` : ''}`, COLORS[p.kind], autoHide);
+    } else if (trait) {
+      this.showTooltip(TRAITS[trait].name, TRAITS[trait].description, 'Passive — always on', 0xb57bff, autoHide);
+    } else {
+      this.showTooltip('Empty slot', 'Earn new abilities during the run.', 'New abilities unlock after waves 4 and 9.', 0x3a4660, autoHide);
+    }
+  }
+
   private onSlotTap(slot: number): void {
     if (this.state !== 'playing') return;
     const p = this.battle.player;
@@ -425,14 +445,6 @@ export class BattleScene extends Phaser.Scene {
       this.battle.playerAuto = this.auto;
     }).setOrigin(1, 0);
 
-    // Row 2: "Choose for me" toggle and the wave info.
-    this.chooseButton = small(8, 44, () => {
-      this.chooseForMe = !this.chooseForMe;
-      // Turned on while the reward screen is up? Pick now.
-      if (this.chooseForMe && this.state === 'reward') this.scheduleAutoPick();
-      // Turned off during the countdown? Stop and let the player choose.
-      if (!this.chooseForMe && this.state === 'reward') this.showRewards();
-    });
   }
 
   private drawHud(): void {
@@ -479,7 +491,14 @@ export class BattleScene extends Phaser.Scene {
         .rectangle(cx, sy + s / 2, s, s, 0x151b27)
         .setStrokeStyle(2, 0x3a4660)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.onSlotTap(i));
+        // Tap = use it. Hover with a mouse = tooltip.
+        .on('pointerdown', () => this.onSlotTap(i))
+        .on('pointerout', (pointer: Phaser.Input.Pointer) => {
+          if (!pointer.wasTouch) this.hideTooltip();
+        })
+        .on('pointerover', (pointer: Phaser.Input.Pointer) => {
+          if (!pointer.wasTouch) this.showSlotTooltip(i, false);
+        });
       const name = this.text(cx, sy + s / 2 - 8, '', 13, '#ffffff').setOrigin(0.5).setAlign('center').setFontStyle('bold').setWordWrapWidth(s - 6);
       const sub = this.text(cx, sy + s - 11, '', 10, '#c9d1e0').setOrigin(0.5);
       const plus = this.text(cx, sy + s / 2, '+', 26, '#3f4b63').setOrigin(0.5).setFontStyle('bold');
@@ -522,7 +541,6 @@ export class BattleScene extends Phaser.Scene {
     this.pauseButton.setText(this.state === 'paused' ? '▶ Resume' : '❚❚ Pause');
 
     this.autoButton.setText(`AUTO: ${this.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.auto ? '#1e6f50' : '#2b3445');
-    this.chooseButton.setText(`Choose for me: ${this.chooseForMe ? 'ON' : 'OFF'}`).setBackgroundColor(this.chooseForMe ? '#1e6f50' : '#2b3445');
 
     this.updatePlayerHud();
   }
@@ -637,23 +655,32 @@ export class BattleScene extends Phaser.Scene {
     if (!e) return;
     const info = EFFECT_INFO[e.kind];
     const source = this.battle.unit(e.sourceId);
-    this.tooltip?.destroy();
-    const w = 330;
-    const x = 16;
-    const y = WORLD.hudTop - 92;
-    const title = this.text(x + 12, y + 10, info.name, 15, info.debuff ? '#ff8a8a' : '#ffd166').setFontStyle('bold');
-    const body = this.text(x + 12, y + 32, info.text(e), 13, '#ffffff').setWordWrapWidth(w - 24);
     const timeLeft = Number.isFinite(e.remaining) ? `${Math.ceil(e.remaining)}s left` : 'Passive — always on';
-    const meta = this.text(x + 12, y + 56, `${timeLeft}${source ? ` · from ${source.label}` : ''}`, 12, '#8f9bb3');
-    const box = this.add.rectangle(x, y, w, 80, 0x111723, 0.95).setOrigin(0, 0).setStrokeStyle(2, info.color);
+    this.showTooltip(info.name, info.text(e), `${timeLeft}${source ? ` · from ${source.label}` : ''}`, info.color, true, info.debuff);
+  }
+
+  /** A small box just above the HUD. */
+  private showTooltip(titleText: string, bodyText: string, metaText: string, color: number, autoHide: boolean, bad = false): void {
+    this.tooltip?.destroy();
+    const w = 380;
+    const x = 16;
+    const y = WORLD.hudTop - 96;
+    const title = this.text(x + 12, y + 10, titleText, 15, bad ? '#ff8a8a' : '#ffd166').setFontStyle('bold');
+    const body = this.text(x + 12, y + 32, bodyText, 13, '#ffffff').setWordWrapWidth(w - 24);
+    const meta = this.text(x + 12, y + 62, metaText, 12, '#8f9bb3').setWordWrapWidth(w - 24);
+    const box = this.add.rectangle(x, y, w, 86, 0x111723, 0.95).setOrigin(0, 0).setStrokeStyle(2, color);
     this.tooltip = this.add.container(0, 0, [box, title, body, meta]).setDepth(90);
     const tip = this.tooltip;
-    this.time.delayedCall(3000, () => {
-      if (this.tooltip === tip) {
-        tip.destroy();
-        this.tooltip = undefined;
-      }
-    });
+    if (autoHide) {
+      this.time.delayedCall(3000, () => {
+        if (this.tooltip === tip) this.hideTooltip();
+      });
+    }
+  }
+
+  private hideTooltip(): void {
+    this.tooltip?.destroy();
+    this.tooltip = undefined;
   }
 
   /** Name + health bar of the focused unit, like an MMO target frame. */
@@ -1057,7 +1084,7 @@ export class BattleScene extends Phaser.Scene {
 
   // --- between waves ------------------------------------------------------
 
-  /** Level-up screen: pick 1 of 3 rewards (or let "Choose for me" pick). */
+  /** Level-up screen: pick 1 of 3 rewards, or tap "Choose for me". */
   private showRewards(): void {
     const run = this.run!;
     this.state = 'reward';
@@ -1067,58 +1094,41 @@ export class BattleScene extends Phaser.Scene {
     const cls = run.playerClass;
     const options = rewardOptions(run, cls);
     const level = run.builds[cls].level;
+    const milestone = isAbilityMilestone(run);
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.8).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 140, `Wave ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
-      this.text(cx, 184, `Level up — everyone is now level ${level + 1} (+6% health & damage)`, 15, '#c9d1e0').setOrigin(0.5),
-      this.text(cx, 214, 'Choose a reward for your hero:', 16, '#ffffff').setOrigin(0.5),
+      this.text(cx, 130, `Wave ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 174, `Level up — everyone is now level ${level + 1} (+6% health & damage)`, 15, '#c9d1e0').setOrigin(0.5),
+      this.text(cx, 204, milestone ? '★ New ability unlocked — choose one:' : 'Choose an upgrade for your hero:', 16, milestone ? '#7dff9b' : '#ffffff')
+        .setOrigin(0.5)
+        .setFontStyle(milestone ? 'bold' : 'normal'),
     ];
-    const cards: Phaser.GameObjects.Rectangle[] = [];
     options.forEach((opt, i) => {
       const d = describeReward(opt);
-      const y = 300 + i * 132;
-      const bg = this.add.rectangle(cx, y, 470, 116, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
+      const y = 290 + i * 128;
+      const bg = this.add.rectangle(cx, y, 470, 112, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
       const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
-      const tag = this.text(cx - 215, y - 44, d.tag, 12, tagColor).setFontStyle('bold');
-      const title = this.text(cx - 215, y - 24, d.title, 22, '#ffffff').setFontStyle('bold');
+      const tag = this.text(cx - 215, y - 42, d.tag, 12, tagColor).setFontStyle('bold');
+      const title = this.text(cx - 215, y - 22, d.title, 22, '#ffffff').setFontStyle('bold');
       const text = this.text(cx - 215, y + 8, d.text, 14, '#c9d1e0').setWordWrapWidth(430);
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
       bg.on('pointerdown', () => {
         if (this.rewardToken === token) this.takeReward(opt);
       });
-      cards.push(bg);
       items.push(bg, tag, title, text);
     });
-    const hint = this.text(cx, 720, this.chooseForMe ? 'Choosing for you…' : 'Tip: turn on “Choose for me” at the top to skip this screen.', 13, '#8f9bb3').setOrigin(0.5);
-    items.push(hint);
+    // "Choose for me": picks one of the three shown options and moves on.
+    items.push(
+      this.button(cx, 690, 'Choose for me', 20, '#5a4a1c', () => {
+        if (this.rewardToken === token) this.takeReward(autoChoose(cls, options));
+      }),
+    );
+    const next = nextAbilityMilestone(run);
+    if (!milestone && next) {
+      items.push(this.text(cx, 744, `Next new ability: after wave ${next}`, 13, '#8f9bb3').setOrigin(0.5));
+    }
     this.overlay = this.add.container(0, 0, items).setDepth(100);
-    this.rewardCards = { cards, options, hint };
-    if (this.chooseForMe) this.scheduleAutoPick();
-  }
-
-  private rewardCards?: { cards: Phaser.GameObjects.Rectangle[]; options: Reward[]; hint: Phaser.GameObjects.Text };
-
-  /** "Choose for me": highlight the pick, count down 3 seconds, then continue. */
-  private scheduleAutoPick(): void {
-    const ui = this.rewardCards;
-    if (!ui || !this.run) return;
-    const token = ++this.rewardToken;
-    const pick = autoChoose(this.run.playerClass, ui.options);
-    const idx = ui.options.indexOf(pick);
-    ui.cards.forEach((c, i) => c.setStrokeStyle(i === idx ? 4 : 2, i === idx ? GOLD : 0x3a4660));
-    let left = 3;
-    const tick = () => {
-      if (this.rewardToken !== token || !this.chooseForMe) return;
-      if (left === 0) {
-        this.takeReward(pick);
-        return;
-      }
-      ui.hint.setText(`Chosen for you — next wave in ${left}…  (turn off “Choose for me” to pick yourself)`).setColor('#ffd166');
-      left--;
-      this.time.delayedCall(1000, tick);
-    };
-    tick();
   }
 
   private takeReward(pick: Reward): void {

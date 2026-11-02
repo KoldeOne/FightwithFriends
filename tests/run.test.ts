@@ -13,23 +13,34 @@ describe('Run and rewards', () => {
   it('a new run starts everyone at level 1 with their starting ability', () => {
     const run = newRun('mage', 1);
     expect(run.wave).toBe(1);
-    expect(run.builds.mage).toEqual({ level: 1, abilities: [{ id: 'fireball', power: 0, haste: 0 }], traits: [] });
+    expect(run.builds.mage).toEqual({ level: 1, abilities: [{ id: 'fireball', power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 });
   });
 
-  it('offers 3 options, at least one new while slots are free', () => {
+  it('new abilities only after waves 4 and 9; other waves offer upgrades', () => {
     const run = newRun('warrior', 7);
-    for (let w = 1; w <= 4; w++) {
+    const key = (o: { kind: string; id?: string }) => `${o.kind}:${o.id ?? ''}`;
+    for (let w = 1; w <= 10; w++) {
       const opts = rewardOptions(run, 'warrior');
       expect(opts).toHaveLength(3);
-      expect(opts.some((o) => o.kind === 'ability' || o.kind === 'trait')).toBe(true);
-      expect(new Set(opts.map((o) => `${o.kind}:${o.id}`)).size).toBe(3);
-      completeWave(run, opts.find((o) => o.kind === 'ability' || o.kind === 'trait')!);
+      expect(new Set(opts.map(key)).size).toBe(3);
+      const newOnes = opts.filter((o) => o.kind === 'ability');
+      if (w === 4 || w === 9) expect(newOnes).toHaveLength(3 - (w === 9 ? 1 : 0));
+      else expect(newOnes).toHaveLength(0);
+      completeWave(run, newOnes[0] ?? opts[0]);
     }
     const b = run.builds.warrior;
-    expect(b.abilities.length + b.traits.length).toBe(5);
-    expect(b.level).toBe(5);
-    // Slots full: only upgrades now.
-    expect(rewardOptions(run, 'warrior').every((o) => o.kind === 'power' || o.kind === 'haste')).toBe(true);
+    expect(b.abilities.map((a) => a.id).filter((id) => id !== 'heroicStrike')).toHaveLength(2);
+    expect(b.level).toBe(11);
+  });
+
+  it('Vitality and Might raise health and damage in battle', () => {
+    const run = newRun('mage', 1);
+    applyReward(run.builds.mage, { kind: 'vitality' });
+    applyReward(run.builds.mage, { kind: 'might' });
+    const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage', builds: run.builds });
+    const fresh = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage' });
+    expect(b.player!.maxHp).toBe(Math.round(fresh.player!.maxHp * 1.1));
+    expect(b.player!.damage).toBeCloseTo(fresh.player!.damage * 1.1);
   });
 
   it('options are the same for the same run and wave (no reroll by reloading)', () => {
@@ -153,5 +164,18 @@ describe('New earnable abilities', () => {
     const b = setup('rogue', 'evasion');
     expect(b.useAbility(1)).toBe('ok');
     expect(b.hasEffect(b.player!, 'evasion')).toBe(true);
+  });
+});
+
+describe('Formation', () => {
+  it("the player's hero starts in the center; AI teammates front, left and right", () => {
+    for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
+      const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: cls });
+      expect([b.player!.x, b.player!.y]).toEqual([270, 630]);
+      const others = b.heroes.filter((h) => h.kind !== cls);
+      expect(others).toHaveLength(3);
+      const front = others.find((h) => h.y === 568)!;
+      expect(front.kind).toBe(cls === 'warrior' ? 'rogue' : 'warrior');
+    }
   });
 });

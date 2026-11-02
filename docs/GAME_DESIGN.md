@@ -242,8 +242,9 @@ Abilities below are the earnable pool (traits are listed as earnable passives). 
 └─────────────────────┘
 ```
 
-**Heroes hold their positions** — they do not move. Formation: tank front,
-DPS middle, healer back.
+**Your hero stands in the center and stays there.** The three AI teammates
+start front (most melee/tanky first), left and right — and will move on their
+own once movement is added.
 
 ### Basics
 
@@ -367,9 +368,8 @@ A **"Choose for me"** button makes all choices automatically.
 ### Auto controls (as built)
 
 - **AUTO** (top bar, next to Pause): the AI plays your hero.
-- **Choose for me** (top bar toggle): the reward is picked for you (highlighted)
-  and the next wave starts after a 3-second countdown. Turning it off during
-  the countdown lets you pick yourself.
+- **Choose for me** (button on the reward screen): picks one of the three
+  options shown and starts the next wave.
 
 ### Auto controls (original plan)
 
@@ -390,7 +390,17 @@ A **"Choose for me"** button makes all choices automatically.
 
 Nothing about heroes carries over between runs.
 
-### Leveling
+### Leveling (as built)
+
+- 1 level per cleared wave: +6% health, damage and healing for everyone.
+- **New abilities only at milestones:** the reward after wave 4 is a choice of
+  new abilities (used from wave 5), and again after wave 9 (used in wave 10).
+- Other waves offer upgrades: Empowered (+25% effect) or Quick (−20% cooldown)
+  versions of your abilities, the class's passive trait, Vitality (+10% max
+  health) or Might (+10% damage & healing).
+- Ability tooltips: hover an ability button with the mouse.
+
+### Leveling (original plan)
 
 - **Fixed:** 1 level per cleared wave.
 - Each level gives **small automatic stat gains** plus a **choice of 1 of 3**:
@@ -518,10 +528,9 @@ All professions can be owned; tokens decide which grow first.
 
 1. **Difficulty tiers:** exact stat ramp and later tiers beyond 5.
 2. **Endless mode:** token rewards per group; whether bosses appear in it.
-3. **Hero movement (revisit later):** heroes currently hold fixed positions.
-   Options under consideration: (A) drag your own hero, (B) AI heroes move on
-   their own, (C) both, (D) tap a zone (front/middle/back) to move. Also open:
-   free roam vs. lower half of the field only.
+3. **Hero movement (next):** decided — **your hero stays put in the center**;
+   the **three AI teammates move on their own** (starting front, left, right).
+   Open details are tracked in the movement plan.
 4. **Bosses:** specific bosses, abilities, and cast-bar spells.
 5. **Enemy abilities:** details per archetype and faction.
 6. **Starting-ability options:** the 2 unlockable options for Paladin, Priest,

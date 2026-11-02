@@ -26,7 +26,28 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 28 },
 };
 
-/** Fixed formation: tank front, DPS middle, healer back. Heroes never move. */
+/**
+ * Starting spots when a player hero is chosen: the player's hero stands in the
+ * center (and stays there); the three AI teammates start front, left and right.
+ */
+export const SPOTS = {
+  center: { x: 270, y: 630 },
+  front: { x: 270, y: 568 },
+  left: { x: 198, y: 650 },
+  right: { x: 342, y: 650 },
+};
+
+/** Which AI teammate takes the front spot first (most melee / tanky first). */
+const FRONT_PRIORITY: HeroClass[] = ['warrior', 'rogue', 'priest', 'mage'];
+
+export function formationFor(player: HeroClass | undefined, classes: HeroClass[]): { cls: HeroClass; x: number; y: number }[] {
+  if (!player || !classes.includes(player)) return FORMATION.filter((f) => classes.includes(f.cls));
+  const others = FRONT_PRIORITY.filter((c) => c !== player && classes.includes(c));
+  const spots = [SPOTS.front, SPOTS.left, SPOTS.right];
+  return [{ cls: player, ...SPOTS.center }, ...others.map((cls, i) => ({ cls, ...spots[i] }))];
+}
+
+/** Default formation (no player chosen yet): tank front, DPS middle, healer back. */
 export const FORMATION: { cls: HeroClass; x: number; y: number }[] = [
   { cls: 'warrior', x: 270, y: 580 },
   { cls: 'rogue', x: 205, y: 628 },
@@ -120,7 +141,13 @@ export const ABILITY_TUNING = {
 };
 
 /** Per-rank upgrade effects. */
-export const UPGRADE = { powerPerRank: 0.25, hastePerRank: 0.8 };
+export const UPGRADE = { powerPerRank: 0.25, hastePerRank: 0.8, vitalityPerRank: 0.1, mightPerRank: 0.1 };
+
+/**
+ * New abilities are only offered after these waves (so the second ability is
+ * used from wave 5, the third from wave 10). Other waves offer upgrades.
+ */
+export const NEW_ABILITY_AFTER_WAVES = [4, 9];
 
 /** Per level after 1: +6% max health, damage and healing. */
 export const LEVEL_SCALING = 0.06;

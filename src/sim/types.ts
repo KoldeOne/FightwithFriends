@@ -120,6 +120,8 @@ export interface Unit {
   isCaster?: boolean;
   /** Hero: level (1 at the start of a run; +1 per wave cleared). */
   level?: number;
+  /** Hero: general damage & healing multiplier from Might upgrades. */
+  might?: number;
   /** Hero: passive traits earned so far (none at the start). */
   traits?: TraitId[];
   /** Rogue: combo points (0-5), only used with the Combo Points trait. */
@@ -169,4 +171,7 @@ export interface HeroBuild {
   level: number;
   abilities: { id: AbilityId; power: number; haste: number }[];
   traits: TraitId[];
+  /** General upgrade ranks: +10% max health each / +10% damage & healing each. */
+  vitality?: number;
+  might?: number;
 }

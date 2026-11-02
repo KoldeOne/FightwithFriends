@@ -29,12 +29,12 @@ Steps 1–5 (part 1) of the first playable version are done:
    the simulation: Thunderclap, Renew, Counterspell, Kick.
 
 5. **Between waves (part 1)** — a 10-wave run. After each wave everyone
-   levels up (+6% health & damage) and you pick 1 of 3 rewards: a new
-   ability, a passive trait, or an upgrade (+25% effect or −20% cooldown).
-   AI teammates pick their own. "Choose for me" (top bar) picks for you and
-   starts the next wave after a 3-second countdown. Dead heroes are revived
-   between waves. The run autosaves after each pick (Continue on the hero
-   screen). Loot/gear comes next.
+   levels up and you pick 1 of 3 rewards. New abilities are offered only
+   after waves 4 and 9; other waves offer upgrades (Empowered, Quick, the
+   class trait, Vitality, Might). "Choose for me" on the reward screen picks
+   one of the three for you. AI teammates pick their own. Autosave after
+   each pick (Continue on the hero screen). Hover an ability for a tooltip.
+   Your hero stands in the center; AI teammates start front, left, right.
 
 Top bar: **AUTO** (the AI plays your hero) and **Pause**; **Choose for me**.
 Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**

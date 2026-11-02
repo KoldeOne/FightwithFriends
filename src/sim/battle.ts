@@ -4,6 +4,7 @@ import {
   AGGRO,
   ENEMY_STATS,
   FORMATION,
+  formationFor,
   GATE_MAX_HP,
   HERO_KIT,
   HERO_STATS,
@@ -70,8 +71,8 @@ export class Battle {
     this.carefulAI = opts.carefulAI ?? true;
     this.pending = [...opts.wave.spawns].sort((a, b) => a.time - b.time);
     const classes = opts.heroes ?? FORMATION.map((f) => f.cls);
-    for (const slot of FORMATION) {
-      if (classes.includes(slot.cls)) this.addHero(slot.cls, slot.x, slot.y, opts.builds?.[slot.cls]);
+    for (const slot of formationFor(opts.playerClass, classes)) {
+      this.addHero(slot.cls, slot.x, slot.y, opts.builds?.[slot.cls]);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
     // Priest passive: Power Word: Fortitude is up on the whole party all wave.
@@ -145,7 +146,7 @@ export class Battle {
 
   /** Effect multiplier for an ability: hero level x upgrade ranks. */
   abilityScale(h: Unit, slot: AbilitySlot): number {
-    return (1 + LEVEL_SCALING * ((h.level ?? 1) - 1)) * (1 + UPGRADE.powerPerRank * (slot.power ?? 0));
+    return (1 + LEVEL_SCALING * ((h.level ?? 1) - 1)) * (h.might ?? 1) * (1 + UPGRADE.powerPerRank * (slot.power ?? 0));
   }
 
   abilityCooldown(slot: AbilitySlot): number {
@@ -264,22 +265,25 @@ export class Battle {
     const kit = HERO_KIT[cls];
     const res = RESOURCES[kit.resource];
     const level = build?.level ?? 1;
+    const might = 1 + UPGRADE.mightPerRank * (build?.might ?? 0);
+    const vitality = 1 + UPGRADE.vitalityPerRank * (build?.vitality ?? 0);
     const scale = 1 + LEVEL_SCALING * (level - 1);
     const abilities: AbilitySlot[] = build
       ? build.abilities.map((a) => ({ id: a.id, cooldown: 0, power: a.power, haste: a.haste }))
       : [{ id: kit.starting, cooldown: 0, power: 0, haste: 0 }];
     this.addUnit({
       ...s,
-      maxHp: Math.round(s.maxHp * scale),
-      damage: s.damage * scale,
-      heal: s.heal ? s.heal * scale : undefined,
+      maxHp: Math.round(s.maxHp * scale * vitality),
+      damage: s.damage * scale * might,
+      heal: s.heal ? s.heal * scale * might : undefined,
       level,
+      might,
       id: 0,
       side: 'hero',
       kind: cls,
       x,
       y,
-      hp: Math.round(s.maxHp * scale),
+      hp: Math.round(s.maxHp * scale * vitality),
       cooldown: 0.3 * this.rng(),
       targetId: null,
       alive: true,

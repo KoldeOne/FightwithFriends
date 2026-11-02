@@ -1,4 +1,4 @@
-import { ABILITIES, CLASS_POOL, HERO_KIT, MAX_ABILITY_SLOTS, RUN_WAVES, TRAITS, UPGRADE } from './content';
+import { ABILITIES, CLASS_POOL, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, RUN_WAVES, TRAITS, UPGRADE } from './content';
 import { createRng } from './rng';
 import type { AbilityId, HeroBuild, HeroClass, TraitId } from './types';
 
@@ -16,14 +16,16 @@ export type Reward =
   | { kind: 'ability'; id: AbilityId }
   | { kind: 'trait'; id: TraitId }
   | { kind: 'power'; id: AbilityId }
-  | { kind: 'haste'; id: AbilityId };
+  | { kind: 'haste'; id: AbilityId }
+  | { kind: 'vitality' }
+  | { kind: 'might' };
 
 export const ALL_CLASSES: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
 
 export function newRun(playerClass: HeroClass, seed = Date.now() % 1_000_000): RunState {
   const builds = {} as Record<HeroClass, HeroBuild>;
   for (const cls of ALL_CLASSES) {
-    builds[cls] = { level: 1, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0 }], traits: [] };
+    builds[cls] = { level: 1, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 };
   }
   return { version: 1, seed, playerClass, wave: 1, builds };
 }
@@ -40,30 +42,40 @@ function traitFor(cls: HeroClass): TraitId {
   return (Object.values(TRAITS).find((t) => t.cls === cls) ?? TRAITS.rage).id;
 }
 
-/** Every reward this hero could be offered right now. */
-export function allRewards(cls: HeroClass, b: HeroBuild): { newOnes: Reward[]; upgrades: Reward[] } {
-  const newOnes: Reward[] = [];
-  if (slotsUsed(b) < MAX_ABILITY_SLOTS) {
-    for (const id of CLASS_POOL[cls]) if (!b.abilities.some((a) => a.id === id)) newOnes.push({ kind: 'ability', id });
-    const trait = traitFor(cls);
-    if (!b.traits.includes(trait)) newOnes.push({ kind: 'trait', id: trait });
-  }
-  const upgrades: Reward[] = [];
+/** Is the reward after the current wave a "new ability" milestone? */
+export function isAbilityMilestone(run: RunState): boolean {
+  return NEW_ABILITY_AFTER_WAVES.includes(run.wave);
+}
+
+/** The next wave after which a new ability will be offered (or null). */
+export function nextAbilityMilestone(run: RunState): number | null {
+  return NEW_ABILITY_AFTER_WAVES.find((w) => w > run.wave) ?? null;
+}
+
+function newAbilities(cls: HeroClass, b: HeroBuild): Reward[] {
+  if (slotsUsed(b) >= MAX_ABILITY_SLOTS) return [];
+  return CLASS_POOL[cls].filter((id) => !b.abilities.some((a) => a.id === id)).map((id) => ({ kind: 'ability' as const, id }));
+}
+
+function upgradeRewards(cls: HeroClass, b: HeroBuild): Reward[] {
+  const out: Reward[] = [];
+  const trait = traitFor(cls);
+  if (!b.traits.includes(trait) && slotsUsed(b) < MAX_ABILITY_SLOTS) out.push({ kind: 'trait', id: trait });
   for (const a of b.abilities) {
-    upgrades.push({ kind: 'power', id: a.id });
-    if (a.haste < 2) upgrades.push({ kind: 'haste', id: a.id });
+    out.push({ kind: 'power', id: a.id });
+    if (a.haste < 2) out.push({ kind: 'haste', id: a.id });
   }
-  return { newOnes, upgrades };
+  out.push({ kind: 'vitality' }, { kind: 'might' });
+  return out;
 }
 
 /**
- * Three reward options for a level-up. While slots are free, at least one
- * option is always something new (an ability or a trait).
+ * Three reward options for a level-up. After milestone waves (4 and 9) they
+ * are new abilities; otherwise upgrades, the class trait and general boosts.
  */
 export function rewardOptions(run: RunState, cls: HeroClass): Reward[] {
   const b = run.builds[cls];
   const rng = createRng(run.seed * 31 + run.wave * 977 + ALL_CLASSES.indexOf(cls));
-  const { newOnes, upgrades } = allRewards(cls, b);
   const shuffle = <T>(list: T[]): T[] => {
     const out = [...list];
     for (let i = out.length - 1; i > 0; i--) {
@@ -72,23 +84,28 @@ export function rewardOptions(run: RunState, cls: HeroClass): Reward[] {
     }
     return out;
   };
-  const picks: Reward[] = [];
-  const freshNew = shuffle(newOnes);
-  if (freshNew.length) picks.push(freshNew.shift()!);
-  for (const r of shuffle([...freshNew, ...upgrades])) {
+  const fresh = isAbilityMilestone(run) ? shuffle(newAbilities(cls, b)) : [];
+  const picks = fresh.slice(0, 3);
+  for (const r of shuffle(upgradeRewards(cls, b))) {
     if (picks.length >= 3) break;
     picks.push(r);
   }
   return picks;
 }
 
-/** What the AI (or "Choose for me") picks: new things first, in pool order, else power on the starting ability. */
+/** What the AI (or "Choose for me") picks: a new ability in pool order, the trait, else power on the starting ability. */
 export function autoChoose(cls: HeroClass, options: Reward[]): Reward {
   const pool = CLASS_POOL[cls];
   const newAbility = options
     .filter((o) => o.kind === 'ability')
-    .sort((a, b) => pool.indexOf(a.id as AbilityId) - pool.indexOf(b.id as AbilityId))[0];
-  return newAbility ?? options.find((o) => o.kind === 'trait') ?? options.find((o) => o.kind === 'power') ?? options[0];
+    .sort((a, b) => pool.indexOf((a as { id: AbilityId }).id) - pool.indexOf((b as { id: AbilityId }).id))[0];
+  return (
+    newAbility ??
+    options.find((o) => o.kind === 'trait') ??
+    options.find((o) => o.kind === 'power' && o.id === HERO_KIT[cls].starting) ??
+    options.find((o) => o.kind === 'might') ??
+    options[0]
+  );
 }
 
 export function applyReward(b: HeroBuild, r: Reward): void {
@@ -105,6 +122,12 @@ export function applyReward(b: HeroBuild, r: Reward): void {
       if (a) a[r.kind] += 1;
       break;
     }
+    case 'vitality':
+      b.vitality = (b.vitality ?? 0) + 1;
+      break;
+    case 'might':
+      b.might = (b.might ?? 0) + 1;
+      break;
   }
 }
 
@@ -140,6 +163,10 @@ export function describeReward(r: Reward): { tag: string; title: string; text: s
         title: `Quick ${ABILITIES[r.id].name}`,
         text: `${Math.round((1 - UPGRADE.hastePerRank) * 100)}% shorter cooldown.`,
       };
+    case 'vitality':
+      return { tag: 'UPGRADE', title: 'Vitality', text: `+${UPGRADE.vitalityPerRank * 100}% maximum health.` };
+    case 'might':
+      return { tag: 'UPGRADE', title: 'Might', text: `+${UPGRADE.mightPerRank * 100}% damage and healing.` };
   }
 }
 
