@@ -414,6 +414,8 @@ all include a tank.
 - **Numbers.** Rapid hits on the same target merge into one number.
 - **Sound.** All sound effects are synthesized in the browser, with no audio
   files. You can mute in the top bar, and the setting is remembered.
+- **Field.** A grassy pitch: mown stripes, grass tufts, a few flowers, a
+  treeline along the top and faint chalk lines across the middle.
 - **Art.** 32x32 pixel-art sprites drawn at 2x. Bailey's four heroes
   (`art/heroes/make-sprites.ps1`); temporary sprites for every enemy and the
   Paladin and Warlock, in the same style and palette (`art/sprites.py` writes
@@ -426,22 +428,31 @@ all include a tank.
 
 - **Top bar:** a big round number, with the line-up name, lives (♥), enemies
   left and the fight clock underneath; pause and sound buttons.
-- **Hero panels** (bottom): one per hero, showing HP, resource and ability
-  icons with cooldowns. Tap a panel to inspect that hero.
+- **Top bar:** Speed, Sound, **Auto** and Pause. **Auto** picks rewards for you
+  and presses Fight on the ready screen after a short pause (1.5s, or 3s when
+  there's boss info to read).
+- **Hero panels** (bottom): one per hero: name and level, health and resource
+  bars, a row of **buff/debuff icons** (tap one for what it does and how long
+  is left; buffs first), then the **ability icons** with cooldown shading
+  (passive picks have a purple frame, abilities with their named upgrade a
+  gold one). Tap a panel to inspect that hero.
 - **Ready screen** (before each round): line-up summary, the boss's moves on
   a boss round, a warning (with the moves) the round before a boss, and Fight.
-- **Reward cards** show the numbers (see §5).
+- **Reward cards** show the icon, and the numbers: a new ability shows its
+  numbers; an upgrade shows **Now:** and **After:** lines (see §5).
 - **Ability tooltips:** hover over or tap an ability to see its damage or
   healing numbers (scaled by level and upgrades), cost, cooldown and upgrades
   (named upgrade, Empowered and Quick ranks).
-- **Buff icons:** up to 4 small lettered icons under each unit's health bar.
-  Buffs come first; debuffs have a red outline. Examples: Evasion, Renew,
-  Shield, Slowed.
+- **Icons:** 14x14 pixel icons for every ability, passive and effect
+  (`art/sprites.py` → `src/render/pixelArt.ts`, preview in
+  `art/icons-preview.png`). Ability icons use a class-coloured background;
+  buffs are teal, debuffs dark red. Heroes show their buffs on their panel;
+  enemies show up to 4 under their health bar.
 - **Inspect window:** tap any unit, hero or enemy, to see:
   - HP, resource, attack, auto-heal and move speed
   - tank threat
   - passive, abilities (with cost, cooldown and effect text), traits and active
-    effects
+    effects, each with its icon on the left
   - for enemies: whether it's an elite or caster, and its current cast
   - for bosses: their moves and the boss rules
 

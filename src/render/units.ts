@@ -4,7 +4,7 @@ import { STEP } from '../sim/battle';
 import { ABILITIES, ABILITY_TUNING, BOSS_SPECIALS } from '../sim/content';
 import { sound } from './sound';
 import { type AbilityId, type BattleEvent, type Unit } from '../sim/types';
-import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectInfo } from './theme';
+import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectIcon, ICON_PX } from './theme';
 
 /** Unit sprites and combat effects: views, projectiles, hits, numbers, deaths. */
 export class UnitLayer {
@@ -71,11 +71,11 @@ export class UnitLayer {
       container.add(castLabel);
     }
     const effectIcons: UnitView['effectIcons'] = [];
-    for (let i = 0; i < UNIT_ICONS; i++) {
-      const bg = this.s.add.rectangle(0, 0, UNIT_ICON, UNIT_ICON, 0xffffff).setStrokeStyle(1, 0x000000).setVisible(false);
-      const l = this.s.text(0, 0, '', 8, '#111').setOrigin(0.5).setFontStyle('bold').setVisible(false);
-      container.add([bg, l]);
-      effectIcons.push({ bg, letter: l });
+    // Heroes show their buffs on their panel at the bottom; enemies show them here.
+    for (let i = 0; i < (u.side === 'enemy' ? UNIT_ICONS : 0); i++) {
+      const img = this.s.add.image(0, 0, 'icon-ef-stun').setScale(UNIT_ICON / ICON_PX).setVisible(false);
+      container.add(img);
+      effectIcons.push(img);
     }
     this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, effectIcons, dead: false });
   }
@@ -112,14 +112,11 @@ export class UnitLayer {
       const startX = -((shown.length - 1) * (UNIT_ICON + 2)) / 2;
       v.effectIcons.forEach((icon, i) => {
         const e = shown[i];
-        icon.bg.setVisible(!!e);
-        icon.letter.setVisible(!!e);
+        icon.setVisible(!!e);
         if (!e) return;
-        const info = effectInfo(e);
-        const ix = startX + i * (UNIT_ICON + 2);
-        const iy = y + 6 + UNIT_ICON / 2 + 1;
-        icon.bg.setPosition(ix, iy).setFillStyle(info.color).setStrokeStyle(1, info.debuff ? 0xe74c3c : 0x000000);
-        icon.letter.setPosition(ix, iy).setText(info.letter);
+        const key = effectIcon(e);
+        if (icon.texture.key !== key) icon.setTexture(key);
+        icon.setPosition(startX + i * (UNIT_ICON + 2), y + 6 + UNIT_ICON / 2 + 1);
       });
       if (u.side === 'hero') v.container.setAlpha(this.s.battle.hasEffect(u, 'stealth') ? 0.45 : 1);
       if (u.side === 'enemy') {

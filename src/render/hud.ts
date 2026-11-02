@@ -3,8 +3,13 @@ import Phaser from 'phaser';
 import { ABILITIES, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, TRAITS, WORLD } from '../sim/content';
 import { sound } from './sound';
 import { recruit } from '../sim/run';
-import { type Unit } from '../sim/types';
-import { COLORS, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD, effectInfo } from './theme';
+import { type Effect, type Unit } from '../sim/types';
+import { COLORS, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD, effectInfo, effectIcon, abilityIcon, traitIcon, ICON_PX } from './theme';
+
+/** Hero panel rows: buff icons just under the bars, abilities under them. */
+const BUFF_TOP = 51;
+const BUFF_SIZE = 12;
+const BOX_TOP = 66;
 
 /** Top bar, party panels, target frame, tooltips and toasts. */
 export class Hud {
@@ -91,7 +96,7 @@ export class Hud {
       const boxes: PartyFrame['boxes'] = [];
       for (let j = 0; j < MAX_ABILITY_SLOTS; j++) {
         const bx = x + 5 + j * (this.s.party.box + 2) + this.s.party.box / 2;
-        const by = y + 58 + this.s.party.box / 2;
+        const by = y + BOX_TOP + this.s.party.box / 2;
         const box = this.s.add
           .rectangle(bx, by, this.s.party.box, this.s.party.box, 0x151b27)
           .setStrokeStyle(1, 0x2b3445)
@@ -104,9 +109,23 @@ export class Hud {
           })
           .on('pointerdown', () => this.showAbilityTooltip(i, j));
         const label = this.s.text(bx, by, '', 9, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
-        boxes.push({ bg: box, label });
+        // Ability icon (the box underneath shows the cooldown sweep on top of it).
+        const icon = this.s.add.image(bx, by, 'icon-ab-fireball').setScale((this.s.party.box - 2) / ICON_PX).setDepth(3).setVisible(false);
+        boxes.push({ bg: box, label, icon });
       }
-      const buffs = this.s.text(x + 6, y + 86, '', 10, '#c9d1e0');
+      // Buffs and debuffs: a row of small icons between the bars and the abilities. Tap one for details.
+      const buffs: Phaser.GameObjects.Image[] = [];
+      const perRow = Math.max(1, Math.floor((w - 10) / (BUFF_SIZE + 2)));
+      for (let j = 0; j < perRow; j++) {
+        const img = this.s.add
+          .image(x + 5 + j * (BUFF_SIZE + 2) + BUFF_SIZE / 2, y + BUFF_TOP + BUFF_SIZE / 2, 'icon-ef-stun')
+          .setScale(BUFF_SIZE / ICON_PX)
+          .setDepth(3)
+          .setVisible(false)
+          .setInteractive({ useHandCursor: true })
+          .on('pointerdown', () => this.showEffectTooltip(img.getData('effect') as Effect | undefined));
+        buffs.push(img);
+      }
       this.partyFrames.push({ bg, name, hpText, boxes, buffs });
     }
 
@@ -138,7 +157,7 @@ export class Hud {
     this.speedButton.setText(`Speed ${this.s.speed}x`);
     this.soundButton.setText(`Sound: ${sound.muted ? 'OFF' : 'ON'}`);
     this.pauseButton.setText(this.s.state === 'paused' ? '▶ Resume' : '❚❚ Pause');
-    this.autoButton.setText(`Auto picks: ${this.s.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.s.auto ? '#1e6f50' : '#2b3445');
+    this.autoButton.setText(`Auto: ${this.s.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.s.auto ? '#1e6f50' : '#2b3445');
 
     this.updatePartyHud();
   }
@@ -161,8 +180,8 @@ export class Hud {
         f.bg.setVisible(false);
         f.name.setText('');
         f.hpText.setText('');
-        f.buffs.setText('');
-        for (const b of f.boxes) b.bg.setVisible(false), b.label.setText('');
+        for (const img of f.buffs) img.setVisible(false);
+        for (const b of f.boxes) b.bg.setVisible(false), b.label.setText(''), b.icon.setVisible(false);
         return;
       }
       f.bg.setVisible(true).setStrokeStyle(h.id === this.s.battle.focusId ? 2 : 1, h.id === this.s.battle.focusId ? 0x7dff9b : 0x2b3445);
@@ -181,10 +200,14 @@ export class Hud {
         const a = h.abilities?.[j];
         const trait = !a ? h.traits?.[j - (h.abilities?.length ?? 0)] : undefined;
         b.bg.setVisible(true);
+        const iconKey = a ? abilityIcon(a.id) : trait ? traitIcon(trait) : '';
+        const hasIcon = !!iconKey && this.s.textures.exists(iconKey);
+        b.icon.setVisible(hasIcon);
+        if (hasIcon && b.icon.texture.key !== iconKey) b.icon.setTexture(iconKey);
         if (a) {
           const def = ABILITIES[a.id];
-          b.bg.setFillStyle(COLORS[h.kind]).setStrokeStyle(1, 0x111111);
-          b.label.setText(initials(def.name)).setColor(DARK_LETTER.includes(h.kind) ? '#111' : '#fff');
+          b.bg.setFillStyle(COLORS[h.kind]).setStrokeStyle(1, a.mastery ? 0xffd166 : 0x111111);
+          b.label.setText(hasIcon ? '' : initials(def.name)).setColor(DARK_LETTER.includes(h.kind) ? '#111' : '#fff');
           if (a.cooldown > 0) {
             const bx = b.bg.x - this.s.party.box / 2;
             const by = b.bg.y - this.s.party.box / 2;
@@ -192,15 +215,26 @@ export class Hud {
           }
         } else if (trait) {
           b.bg.setFillStyle(0x24203a).setStrokeStyle(1, 0xb57bff);
-          b.label.setText(initials(TRAITS[trait].name)).setColor('#e0c3ff');
+          b.label.setText(hasIcon ? '' : initials(TRAITS[trait].name)).setColor('#e0c3ff');
         } else {
           b.bg.setFillStyle(0x151b27).setStrokeStyle(1, 0x2b3445);
           b.label.setText('');
         }
       });
-      // Active buffs/debuffs as short names.
-      const effects = (h.effects ?? []).filter((e) => e.remaining > 0 && e.kind !== 'fortitude').map((e) => effectInfo(e).name);
-      f.buffs.setText(effects.slice(0, 2).join(', '));
+      // Active buffs/debuffs as icons: buffs first, then debuffs; one per kind.
+      const effects = (h.effects ?? [])
+        .filter((e) => e.remaining > 0)
+        .sort((p, q) => Number(effectInfo(p).debuff) - Number(effectInfo(q).debuff))
+        .filter((e, k, list) => list.findIndex((o) => effectIcon(o) === effectIcon(e)) === k);
+      f.buffs.forEach((img, k) => {
+        const e = h.alive ? effects[k] : undefined;
+        img.setVisible(!!e).setData('effect', e);
+        if (!e) return;
+        const key = effectIcon(e);
+        if (img.texture.key !== key) img.setTexture(key);
+        // Fade out in the last two seconds.
+        img.setAlpha(Number.isFinite(e.remaining) && e.remaining < 2 ? 0.5 + 0.5 * Math.abs(Math.sin(this.s.battle.time * 6)) : 1);
+      });
     });
 
     // Bottom row: the inspected unit, or a hint.
@@ -239,6 +273,14 @@ export class Hud {
     } else {
       this.showTooltip('Empty slot', 'Earn new abilities from rewards every 5 rounds.', '', 0x3a4660, true);
     }
+  }
+
+  /** Tooltip for one buff/debuff icon on a hero panel. */
+  showEffectTooltip(e: Effect | undefined): void {
+    if (!e) return;
+    const info = effectInfo(e);
+    const left = Number.isFinite(e.remaining) ? `${Math.ceil(e.remaining)}s left` : 'Lasts all fight';
+    this.showTooltip(info.name, info.text(e), `${info.debuff ? 'Debuff' : 'Buff'} · ${left}`, info.color, true, info.debuff);
   }
 
   /** Tap a hero's panel: its passive and abilities. */

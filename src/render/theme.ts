@@ -4,9 +4,9 @@ import priestSprite from '../../art/heroes/hero_priest.png';
 import mageSprite from '../../art/heroes/hero_mage.png';
 import rogueSprite from '../../art/heroes/hero_rogue.png';
 import { MAX_ABILITY_SLOTS, partySize, WORLD } from '../sim/content';
-import { PIXEL_PALETTE, PIXEL_SPRITES } from './pixelArt';
+import { PIXEL_ICONS, PIXEL_PALETTE, PIXEL_SPRITES } from './pixelArt';
 import { recruit, type RunState } from '../sim/run';
-import { type Effect, type ResourceKind } from '../sim/types';
+import { type AbilityId, type Effect, type PassiveId, type ResourceKind, type TraitId } from '../sim/types';
 
 /** 32x32 pixel-art hero sprites (source: art/heroes/make-sprites.ps1). */
 export const HERO_SPRITES: Record<string, string> = {
@@ -65,6 +65,38 @@ export function ensurePixelTextures(scene: Phaser.Scene): void {
     tex.refresh();
     tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
   }
+  // Icons have their own dark border, so they need no padding.
+  for (const [key, rows] of Object.entries(PIXEL_ICONS)) {
+    if (scene.textures.exists(key)) continue;
+    const tex = scene.textures.createCanvas(key, rows[0].length, rows.length);
+    if (!tex) continue;
+    const ctx = tex.getContext();
+    rows.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        const c = PIXEL_PALETTE[row[x]];
+        if (!c) continue;
+        ctx.fillStyle = c;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    });
+    tex.refresh();
+    tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  }
+}
+
+/** Icon sizes: the generated icons are 14x14 pixels. */
+export const ICON_PX = 14;
+
+/** Texture keys for the pixel icons (see art/sprites.py). */
+export const abilityIcon = (id: AbilityId) => `icon-ab-${id}`;
+export const traitIcon = (id: TraitId) => `icon-tr-${id}`;
+export const passiveIcon = (id: PassiveId) => `icon-pa-${id}`;
+export function effectIcon(e: Effect): string {
+  if (e.kind === 'dot') {
+    const named = `icon-ef-dot-${e.ability ?? 'poison'}`;
+    return PIXEL_ICONS[named] ? named : 'icon-ef-dot';
+  }
+  return `icon-ef-${e.kind}`;
 }
 
 export const COLORS: Record<string, number> = {
@@ -192,7 +224,7 @@ export function effectInfo(e: Effect): (typeof EFFECT_INFO)[Effect['kind']] {
 export const MAX_BUFF_ICONS = 12;
 /** Buff icons on units: up to this many, this size (px). */
 export const UNIT_ICONS = 4;
-export const UNIT_ICON = 10;
+export const UNIT_ICON = 12;
 export const BUFF_ICON = 22;
 export const TARGET_BAR_X = 200;
 /** Party panel layout (bottom of the screen): one frame per hero, sized to fit 3-5 heroes. */
@@ -208,8 +240,9 @@ export interface PartyFrame {
   bg: Phaser.GameObjects.Rectangle;
   name: Phaser.GameObjects.Text;
   hpText: Phaser.GameObjects.Text;
-  boxes: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text }[];
-  buffs: Phaser.GameObjects.Text;
+  boxes: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; icon: Phaser.GameObjects.Image }[];
+  /** Buff/debuff icons between the bars and the abilities. */
+  buffs: Phaser.GameObjects.Image[];
 }
 
 /** "Heroic Strike" -> "HS", "Fireball" -> "Fi". */
@@ -244,7 +277,8 @@ export interface UnitView {
   /** Aggro warning badge. */
   aggroIcon?: { container: Phaser.GameObjects.Container; disc: Phaser.GameObjects.Arc };
   /** Tiny buff/debuff icons just under the health bar. */
-  effectIcons: { bg: Phaser.GameObjects.Rectangle; letter: Phaser.GameObjects.Text }[];
+  /** Buff/debuff icons under an enemy's health bar (heroes show theirs on their panel). */
+  effectIcons: Phaser.GameObjects.Image[];
   dead: boolean;
 }
 

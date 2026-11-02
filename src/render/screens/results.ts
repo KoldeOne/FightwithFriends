@@ -3,7 +3,26 @@ import Phaser from 'phaser';
 import { CHOICE_EVERY, WORLD } from '../../sim/content';
 import { sound } from '../sound';
 import { autoChoose, bestRound, clearRun, completeWave, describeReward, isChoiceWave, loseRound, recordRound, rewardOptions, rewardPreview, saveRun, type Reward } from '../../sim/run';
-import { COLORS, LETTERS, DARK_LETTER, GOLD, needsRecruitAfter } from '../theme';
+import { COLORS, LETTERS, DARK_LETTER, GOLD, needsRecruitAfter, abilityIcon, traitIcon, ICON_PX } from '../theme';
+
+/** The icon for a reward card: the ability it adds or upgrades, the passive, or a stat. */
+function rewardIcon(r: Reward): string | undefined {
+  switch (r.kind) {
+    case 'ability':
+    case 'mastery':
+    case 'power':
+    case 'haste':
+      return abilityIcon(r.id);
+    case 'trait':
+      return traitIcon(r.id);
+    case 'vitality':
+      return 'icon-ef-fortitude';
+    case 'might':
+      return 'icon-ef-empower';
+    case 'focus':
+      return 'icon-tr-arcaneSurge';
+  }
+}
 
 /** End-of-round screens: win/lose, rewards and level-ups. */
 export class Results {
@@ -63,7 +82,7 @@ export class Results {
 
   /**
    * Reward screen: one pick for each hero in turn ("Choose for Warrior, 1 of 4").
-   * "Choose for me" turns Auto picks on and picks the rest.
+   * "Choose for me" turns Auto on and picks the rest.
    */
   showRewards(slot = 0, picks: Reward[] = []): void {
     const run = this.s.run!;
@@ -91,8 +110,8 @@ export class Results {
     const cardBgs: Phaser.GameObjects.Rectangle[] = [];
     options.forEach((opt, i) => {
       const d = describeReward(opt);
-      const y = 292 + i * 136;
-      const bg = this.s.add.rectangle(cx, y, 470, 128, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
+      const y = 290 + i * 148;
+      const bg = this.s.add.rectangle(cx, y, 480, 142, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
       const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
@@ -102,33 +121,39 @@ export class Results {
         this.nextRewardPick(slot, [...picks, opt]);
       });
       cardBgs.push(bg);
-      // The numbers it changes: "now -> after" for stat upgrades, the new text for abilities.
+      // Icon on the left; then what it is, what it does, and its numbers: "Now" and "After" for upgrades.
+      const icon = rewardIcon(opt);
+      const hasIcon = !!icon && this.s.textures.exists(icon);
+      const left = cx - 225 + (hasIcon ? 40 : 0);
+      const wrap = 450 - (hasIcon ? 40 : 0);
+      const top = y - 64;
       const preview = rewardPreview(run, slot, opt);
-      const short = opt.kind === 'haste' || opt.kind === 'vitality' || opt.kind === 'might' || opt.kind === 'focus';
-      const numbers = preview ? (short && preview.now ? `${preview.now} → ${preview.after}` : `After: ${preview.after}`) : '';
-      // A new ability: its real numbers say more than the blurb. An upgrade: what it does, then the result.
-      const descText = opt.kind === 'ability' && preview ? preview.after : d.text;
-      const numbers2 = opt.kind === 'ability' ? '' : numbers;
-      const desc = this.s.text(cx - 215, y - 18, descText, 13, '#c9d1e0').setWordWrapWidth(430);
-      items.push(
-        bg,
-        this.s.text(cx - 215, y - 56, d.tag, 11, tagColor).setFontStyle('bold'),
-        this.s.text(cx - 215, y - 41, d.title, 19, '#ffffff').setFontStyle('bold'),
-        desc,
-        this.s.text(cx - 215, y - 18 + desc.height + 4, numbers2, 12, '#ffd166').setWordWrapWidth(430),
-      );
+      const tag = this.s.text(left, top, d.tag, 11, tagColor).setFontStyle('bold');
+      const title = this.s.text(left, top + 14, d.title, 18, '#ffffff').setFontStyle('bold');
+      // A new ability: its real numbers. Anything else: what it does.
+      const desc = this.s.text(left, top + 38, opt.kind === 'ability' && preview ? preview.after : d.text, 13, '#c9d1e0').setWordWrapWidth(wrap);
+      items.push(bg, tag, title, desc);
+      // (After the card background, so it draws on top of it.)
+      if (hasIcon) items.push(this.s.add.image(cx - 225, top + 6, icon!).setOrigin(0, 0).setScale(30 / ICON_PX));
+      let ny = top + 38 + desc.height + 5;
+      if (preview && opt.kind !== 'ability') {
+        const now = this.s.text(left, ny, `Now: ${preview.now ?? '—'}`, 12, '#9aa5b8').setWordWrapWidth(wrap);
+        ny += now.height + 2;
+        const after = this.s.text(left, ny, `After: ${preview.after}`, 12, '#ffd166').setWordWrapWidth(wrap);
+        items.push(now, after);
+      }
     });
     items.push(
-      this.s.button(cx, 686, this.s.auto ? 'Auto picks is choosing…' : 'Choose for me (turns Auto picks on)', 17, '#5a4a1c', () => {
+      this.s.button(cx, 712, this.s.auto ? 'Auto is choosing…' : 'Choose for me (turns Auto on)', 17, '#5a4a1c', () => {
         if (this.rewardToken !== token) return;
         this.s.setAuto(true);
         this.takeReward(picks);
       }),
-      this.s.text(cx, 736, 'Turn Auto picks off in the top bar to choose yourself.', 12, '#8f9bb3').setOrigin(0.5),
+      this.s.text(cx, 756, 'Turn Auto off in the top bar to choose yourself.', 12, '#8f9bb3').setOrigin(0.5),
     );
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
     if (this.s.auto) {
-      // Auto picks: show the choice for a moment, then fill in every hero's pick.
+      // Auto: show the choice for a moment, then fill in every hero's pick.
       const pick = autoChoose(cls, options);
       this.s.time.delayedCall(250, () => {
         if (this.rewardToken === token) cardBgs[options.indexOf(pick)]?.setStrokeStyle(4, GOLD);

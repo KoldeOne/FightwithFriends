@@ -153,9 +153,10 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  /** Auto picks: rewards are chosen for your heroes automatically. */
+  /** Auto: rewards are chosen for your heroes, and each fight starts on its own. */
   setAuto(on: boolean): void {
     this.auto = on;
+    if (on && this.state === 'ready') this.ready.scheduleAutoFight();
   }
 
   /** "Round 3 — The Shaman": a short banner as the fight begins. */
@@ -250,18 +251,42 @@ export class BattleScene extends Phaser.Scene {
 
   drawField(): void {
     const g = this.add.graphics();
-    // Arena: stone stands around a sand floor, with a line across the middle.
-    g.fillStyle(0x2a2420).fillRect(0, 0, WORLD.width, WORLD.hudTop);
-    g.fillStyle(0x3b322b);
-    for (let y = 8; y < ARENA.top - 4; y += 14) g.fillRect(0, y, WORLD.width, 6);
-    g.fillStyle(0x6b5a43).fillRoundedRect(6, ARENA.top, WORLD.width - 12, ARENA.bottom - ARENA.top + 14, 18);
-    g.fillStyle(0x7a6850).fillRoundedRect(14, ARENA.top + 8, WORLD.width - 28, ARENA.bottom - ARENA.top - 2, 14);
-    // A few darker patches so the sand isn't flat.
-    g.fillStyle(0x705f48, 0.6);
-    for (const [x, y, r] of [[120, 230, 40], [400, 300, 55], [180, 520, 50], [430, 680, 45], [90, 700, 35], [300, 420, 60]]) g.fillCircle(x, y, r);
+    // A grassy field: a treeline along the top, mown stripes, tufts and a few flowers.
+    let seed = 7;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    g.fillStyle(0x1d3a24).fillRect(0, 0, WORLD.width, WORLD.hudTop);
+    // Treeline: overlapping round canopies in two shades.
+    for (let x = -10; x < WORLD.width + 20; x += 26) {
+      g.fillStyle(0x234a2b).fillCircle(x + rand() * 10, ARENA.top - 30 + rand() * 10, 26 + rand() * 8);
+      g.fillStyle(0x2d5c34).fillCircle(x + 12 + rand() * 8, ARENA.top - 14 + rand() * 8, 18 + rand() * 6);
+    }
+    // The pitch, with a darker edge.
+    g.fillStyle(0x3f7a3a).fillRoundedRect(6, ARENA.top, WORLD.width - 12, ARENA.bottom - ARENA.top + 14, 18);
+    const top = ARENA.top + 6;
+    const bottom = ARENA.bottom + 8;
+    for (let y = top, k = 0; y < bottom; y += 38, k++) {
+      g.fillStyle(k % 2 ? 0x4f8f45 : 0x5a9a4c).fillRect(12, y, WORLD.width - 24, Math.min(38, bottom - y));
+    }
+    // Grass tufts.
+    for (let n = 0; n < 140; n++) {
+      const x = 20 + rand() * (WORLD.width - 40);
+      const y = top + 6 + rand() * (bottom - top - 12);
+      g.lineStyle(1, rand() < 0.5 ? 0x3a7134 : 0x6db05c, 0.9);
+      g.lineBetween(x, y, x - 2, y - 5);
+      g.lineBetween(x + 2, y, x + 2, y - 6);
+      g.lineBetween(x + 4, y, x + 6, y - 5);
+    }
+    // A few flowers.
+    for (let n = 0; n < 26; n++) {
+      const x = 22 + rand() * (WORLD.width - 44);
+      const y = top + 10 + rand() * (bottom - top - 20);
+      g.fillStyle(rand() < 0.5 ? 0xf6f1d8 : 0xffd166).fillCircle(x, y, 2);
+      g.fillStyle(0xe8a93a).fillCircle(x, y, 0.8);
+    }
+    // Chalk lines across the middle.
     const midY = (ENEMY_LAYOUT.rowY[0] + HERO_LINES.front) / 2;
-    g.lineStyle(2, 0x5a4a37, 0.8).lineBetween(24, midY, WORLD.width - 24, midY);
-    g.lineStyle(2, 0x5a4a37, 0.8).strokeCircle(WORLD.width / 2, midY, 40);
+    g.lineStyle(2, 0xf2f4e8, 0.35).lineBetween(24, midY, WORLD.width - 24, midY);
+    g.lineStyle(2, 0xf2f4e8, 0.35).strokeCircle(WORLD.width / 2, midY, 40);
   }
 
   // --- helpers ------------------------------------------------------------
