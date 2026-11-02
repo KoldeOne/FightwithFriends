@@ -243,8 +243,17 @@ Abilities below are the earnable pool (traits are listed as earnable passives). 
 ```
 
 **Your hero stands in the center and stays there.** The three AI teammates
-start front (most melee/tanky first), left and right — and will move on their
-own once movement is added.
+start front (most melee/tanky first), left and right, and **move on their own**:
+
+- They stay **close to the party** — within ~130px of your hero — never off alone.
+- **Speed 60** (goblin grunts 38, runners 75).
+- **Heroes physically block enemies**; teammates don't overlap.
+- **Tank:** steps out to meet whatever is going after the party or the gate.
+- **Melee damage:** moves in on enemies already being fought, attacking from the
+  side so it doesn't block the path to the tank.
+- **Ranged / healer:** hold position, back away from enemies coming for them,
+  and step forward if nothing is in range.
+- Every wave starts back in formation.
 
 ### Basics
 
@@ -528,9 +537,10 @@ All professions can be owned; tokens decide which grow first.
 
 1. **Difficulty tiers:** exact stat ramp and later tiers beyond 5.
 2. **Endless mode:** token rewards per group; whether bosses appear in it.
-3. **Hero movement (next):** decided — **your hero stays put in the center**;
-   the **three AI teammates move on their own** (starting front, left, right).
-   Open details are tracked in the movement plan.
+3. **Hero movement:** built — your hero stays put in the center; AI teammates
+   move on their own within ~130px of your hero (speed 60), heroes body-block
+   enemies. Revisit: the Rogue's damage buff and Kick's long range (both were
+   workarounds for standing still), and whether careful-AI rules still fit.
 4. **Bosses:** specific bosses, abilities, and cast-bar spells.
 5. **Enemy abilities:** details per archetype and faction.
 6. **Starting-ability options:** the 2 unlockable options for Paladin, Priest,

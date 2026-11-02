@@ -118,6 +118,9 @@ export interface Unit {
   /** Enemy: elite (tougher) and caster flags, used by auto-Polymorph priority. */
   isElite?: boolean;
   isCaster?: boolean;
+  /** Hero: starting spot (AI teammates drift back here when it's quiet). */
+  homeX?: number;
+  homeY?: number;
   /** Hero: level (1 at the start of a run; +1 per wave cleared). */
   level?: number;
   /** Hero: general damage & healing multiplier from Might upgrades. */

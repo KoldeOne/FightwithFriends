@@ -7,6 +7,7 @@ import {
   formationFor,
   GATE_MAX_HP,
   HERO_KIT,
+  HERO_MOVE,
   HERO_STATS,
   LEVEL_SCALING,
   MAX_ABILITY_SLOTS,
@@ -241,6 +242,7 @@ export class Battle {
       if (!u.alive) continue;
       if (u.side === 'enemy') this.updateEnemy(u, dt);
       else {
+        if (u.id !== this.playerId) this.moveHero(u, dt);
         this.updatePassive(u, dt);
         if (u.id !== this.playerId || this.playerAuto) this.aiAbilities(u);
         this.updateHero(u);
@@ -283,6 +285,8 @@ export class Battle {
       kind: cls,
       x,
       y,
+      homeX: x,
+      homeY: y,
       hp: Math.round(s.maxHp * scale * vitality),
       cooldown: 0.3 * this.rng(),
       targetId: null,
@@ -393,7 +397,12 @@ export class Battle {
     if (e.goesForGate) {
       return top.id !== null && top.value >= AGGRO.runnerThreshold ? this.pickWithMargin(e, top) : null;
     }
-    if (top.id === null) return nearest(e, livingHeroes);
+    if (top.id === null) {
+      // Nobody has hit it yet: keep walking at whoever it picked first.
+      const current = e.targetId !== null && e.targetId >= 0 ? this.unit(e.targetId) : undefined;
+      if (current?.alive && livingHeroes.includes(current)) return current;
+      return nearest(e, livingHeroes);
+    }
     return this.pickWithMargin(e, top);
   }
 
@@ -569,6 +578,93 @@ export class Battle {
 
   private interruptRange(id: AbilityId): number {
     return id === 'kick' ? ABILITY_TUNING.kick.range : ABILITY_TUNING.counterspell.range;
+  }
+
+  // --- AI teammate movement -------------------------------------------------
+
+  /** The point teammates stay close to: your hero, or the formation's middle. */
+  private anchor(): { x: number; y: number } {
+    const p = this.player;
+    if (p) return { x: p.homeX ?? p.x, y: p.homeY ?? p.y };
+    const heroes = this.units.filter((u) => u.side === 'hero');
+    const n = heroes.length || 1;
+    return { x: heroes.reduce((a, h) => a + (h.homeX ?? h.x), 0) / n, y: heroes.reduce((a, h) => a + (h.homeY ?? h.y), 0) / n };
+  }
+
+  /** Where an AI teammate wants to stand right now. */
+  private desiredSpot(h: Unit): { x: number; y: number } {
+    const home = { x: h.homeX ?? h.x, y: h.homeY ?? h.y };
+    const enemies = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && u.y > 0);
+    if (!enemies.length) return home;
+    const center = this.anchor();
+    /** A spot just in reach of `e`, on the party's side of it. */
+    const besides = (e: Unit, reach: number) => {
+      const dx = center.x - e.x;
+      const dy = center.y - e.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const d = e.radius + h.radius + reach;
+      return { x: e.x + (dx / len) * d, y: e.y + (dy / len) * d };
+    };
+
+    if (h.isTank) {
+      // Step out to meet whatever is going after the party or the gate, closest to the party first.
+      const threats = enemies.filter((e) => e.targetId !== h.id);
+      const pool = threats.length ? threats : enemies;
+      const e = pool.reduce((a, b) => (Math.hypot(b.x - center.x, b.y - center.y) < Math.hypot(a.x - center.x, a.y - center.y) ? b : a));
+      return besides(e, Math.min(h.range, 10));
+    }
+    if (h.attackStyle === 'melee') {
+      // Join the fight next to the current target, or whatever the tank is fighting.
+      const tank = this.units.find((u) => u.side === 'hero' && u.alive && u.isTank);
+      // Only move in on enemies already being fought (ours or the tank's) —
+      // walking up to a fresh enemy would just draw it onto us.
+      const target = (h.targetId !== null && this.unit(h.targetId)?.alive ? this.unit(h.targetId) : undefined) ??
+        (tank?.targetId !== null && tank?.targetId !== undefined ? this.unit(tank.targetId) : undefined) ??
+        (tank?.alive ? undefined : nearest(h, enemies));
+      if (target?.alive && target.side === 'enemy') {
+        // Flank: attack from the side so we don't block the path to the tank.
+        const side = (h.homeX ?? h.x) < center.x ? -1 : 1;
+        const toCenter = Math.atan2(center.y - target.y, center.x - target.x);
+        const angle = toCenter + side * 1.2;
+        const d = target.radius + h.radius + Math.min(h.range * 0.5, 30);
+        return { x: target.x + Math.cos(angle) * d, y: target.y + Math.sin(angle) * d };
+      }
+      return home;
+    }
+    // Ranged and healers: back away from anything coming for them...
+    const chasers = enemies.filter((e) => e.targetId === h.id && dist(e, h) < 130);
+    if (chasers.length) {
+      const e = nearest(h, chasers);
+      const dx = h.x - e.x;
+      const dy = h.y - e.y;
+      const len = Math.hypot(dx, dy) || 1;
+      return { x: h.x + (dx / len) * 60, y: h.y + (dy / len) * 60 };
+    }
+    // ...and step up (within the leash) when nothing is in range.
+    if (!enemies.some((e) => this.inReach(h, e))) return besides(nearest(h, enemies), h.range - 20);
+    return home;
+  }
+
+  private moveHero(h: Unit, dt: number): void {
+    const want = this.desiredSpot(h);
+    // Stay close to the party.
+    const a = this.anchor();
+    let wx = want.x;
+    let wy = want.y;
+    const fromAnchor = Math.hypot(wx - a.x, wy - a.y);
+    if (fromAnchor > HERO_MOVE.leash) {
+      wx = a.x + ((wx - a.x) / fromAnchor) * HERO_MOVE.leash;
+      wy = a.y + ((wy - a.y) / fromAnchor) * HERO_MOVE.leash;
+    }
+    wx = Math.min(WORLD.width - h.radius, Math.max(h.radius, wx));
+    wy = Math.min(WORLD.gateY - h.radius - 6, wy);
+    const dx = wx - h.x;
+    const dy = wy - h.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 2) return;
+    const move = Math.min(HERO_MOVE.speed * dt, len);
+    h.x += (dx / len) * move;
+    h.y += (dy / len) * move;
   }
 
   /** Would hitting `e` for `amount` push a careful hero past the caution line? */
@@ -1077,10 +1173,21 @@ export class Battle {
     }
   }
 
-  /** Keep enemies from overlapping each other or walking through heroes. */
+  /**
+   * Keep units from overlapping. Heroes physically block enemies (the enemy
+   * is pushed aside); teammates don't overlap each other; your hero never moves.
+   */
   private separate(): void {
     const enemies = this.units.filter((u) => u.side === 'enemy' && u.alive);
     const heroes = this.units.filter((u) => u.side === 'hero' && u.alive);
+    for (let i = 0; i < heroes.length; i++) {
+      for (let j = i + 1; j < heroes.length; j++) {
+        const [a, b] = [heroes[i], heroes[j]];
+        if (a.id === this.playerId) push(b, a, 1);
+        else if (b.id === this.playerId) push(a, b, 1);
+        else push(a, b, 0.5);
+      }
+    }
     for (let i = 0; i < enemies.length; i++) {
       const a = enemies[i];
       for (let j = i + 1; j < enemies.length; j++) push(a, enemies[j], 0.5);

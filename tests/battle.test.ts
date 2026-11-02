@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
-import { WAVE_1 } from '../src/sim/content';
+import { HERO_MOVE, makeWave, WAVE_1 } from '../src/sim/content';
 
 function runToEnd(battle: Battle, maxSeconds = 600): void {
   const steps = Math.ceil(maxSeconds / STEP);
@@ -34,11 +34,25 @@ describe('Battle', () => {
     expect(battle.gate.hp).toBe(0);
   });
 
-  it('heroes hold their positions', () => {
-    const battle = new Battle({ seed: 3, wave: WAVE_1 });
-    const start = battle.heroes.map((h) => [h.x, h.y]);
-    runToEnd(battle);
-    expect(battle.heroes.map((h) => [h.x, h.y])).toEqual(start);
+  it("your hero never moves; AI teammates stay close to the party", () => {
+    for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
+      const battle = new Battle({ seed: 3, wave: makeWave(6), playerClass: cls });
+      const p = battle.player!;
+      const start = [p.x, p.y];
+      let maxFromPlayer = 0;
+      let moved = 0;
+      while (battle.outcome === 'running' && battle.time < 600) {
+        battle.step(STEP);
+        for (const h of battle.heroes) {
+          if (h.id === p.id || !h.alive) continue;
+          maxFromPlayer = Math.max(maxFromPlayer, Math.hypot(h.x - p.x, h.y - p.y));
+          moved = Math.max(moved, Math.hypot(h.x - h.homeX!, h.y - h.homeY!));
+        }
+      }
+      expect([p.x, p.y]).toEqual(start);
+      expect(maxFromPlayer).toBeLessThanOrEqual(HERO_MOVE.leash + 40);
+      expect(moved).toBeGreaterThan(10); // teammates do actually move
+    }
   });
 });
 
@@ -322,9 +336,13 @@ describe('Starting abilities and player controls', () => {
     a.y = 300;
     c.y = 420;
     b.setFocus(a.id);
-    run(b, 2);
-    expect(a.hp).toBeLessThan(a.maxHp);
-    expect(c.hp).toBe(c.maxHp);
+    const mine: number[] = [];
+    for (let i = 0; i < 2 / STEP; i++) {
+      b.step(STEP);
+      for (const ev of b.drainEvents()) if (ev.type === 'attack' && ev.from === b.player!.id) mine.push(ev.to);
+    }
+    expect(mine.length).toBeGreaterThan(0);
+    expect(mine.every((id) => id === a.id)).toBe(true); // every hit of yours went to the focus
   });
 
   it('with AUTO off, the AI does not use the player ability', () => {
@@ -344,7 +362,7 @@ describe('Starting abilities and player controls', () => {
   });
 
   it('warrior starts with no rage and builds it in combat', () => {
-    const b = new Battle({ seed: 1, wave: grunts(2), playerClass: 'warrior' });
+    const b = new Battle({ seed: 1, wave: grunts(2), playerClass: 'warrior', heroes: ['warrior'] });
     expect(b.player!.resource).toBe(0);
     run(b, 30);
     expect(b.player!.resource).toBeGreaterThan(0);

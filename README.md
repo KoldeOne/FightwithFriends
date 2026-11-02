@@ -34,7 +34,8 @@ Steps 1–5 (part 1) of the first playable version are done:
    class trait, Vitality, Might). "Choose for me" on the reward screen picks
    one of the three for you. AI teammates pick their own. Autosave after
    each pick (Continue on the hero screen). Hover an ability for a tooltip.
-   Your hero stands in the center; AI teammates start front, left, right.
+   Your hero stands in the center; AI teammates start front, left, right
+   and move on their own, staying close to the party.
 
 Top bar: **AUTO** (the AI plays your hero) and **Pause**; **Choose for me**.
 Testing aids (not design): **Speed** (1x / 2x / 4x) and **Careful AI**

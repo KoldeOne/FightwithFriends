@@ -37,6 +37,13 @@ export const SPOTS = {
   right: { x: 342, y: 650 },
 };
 
+/**
+ * AI teammate movement. Your own hero never moves. Teammates stay within
+ * `leash` of the party's anchor (your hero) and move at `speed` px/s
+ * (goblin grunts: 38, runners: 75).
+ */
+export const HERO_MOVE = { speed: 60, leash: 130 };
+
 /** Which AI teammate takes the front spot first (most melee / tanky first). */
 const FRONT_PRIORITY: HeroClass[] = ['warrior', 'rogue', 'priest', 'mage'];
 
