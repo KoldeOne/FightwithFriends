@@ -25,11 +25,9 @@ export type EnemyKind =
 /** Special enemy behaviour: healers cast a heal on hurt allies, smashers wind up a heavy hit. */
 export type EnemyAI = 'healer' | 'smasher';
 
-/** A square on one side's half of the arena board. Row 0 is the front row. */
-export interface Tile {
-  col: number;
-  row: number;
-}
+/** What an enemy can be casting: a heal, a heavy slam, or a boss's signature move. */
+export type CastKind = EnemyAI | 'warCry' | 'raiseDead' | 'rainOfFire';
+
 export type AttackStyle = 'melee' | 'ranged';
 export type ResourceKind = 'rage' | 'mana' | 'energy';
 export type AbilityId =
@@ -47,21 +45,38 @@ export type AbilityId =
   | 'whirlwind'
   | 'shieldBlock'
   | 'powerShield'
-  | 'prayerOfHealing'
   | 'iceLance'
   | 'blizzard'
   | 'eviscerate'
   | 'evasion'
+  // Warrior (new)
+  | 'shieldBash'
+  | 'lastStand'
+  | 'rallyingShout'
+  // Priest (new)
+  | 'guardianSpirit'
+  | 'holyNova'
+  | 'chainOfLight'
+  // Mage (new)
+  | 'frostNova'
+  | 'arcaneBarrage'
+  // Rogue (new)
+  | 'gouge'
+  | 'fanOfKnives'
   // Paladin
   | 'judgement'
   | 'radiantLight'
   | 'hallowedGround'
   | 'mercy'
+  | 'hammerOfJustice'
+  | 'exorcism'
   // Warlock
   | 'hexBolt'
   | 'wither'
   | 'soulDrain'
-  | 'enfeeble';
+  | 'enfeeble'
+  | 'doom'
+  | 'curseOfRuin';
 
 /** Each class's always-on starting passive. */
 export type PassiveId = 'autoTaunt' | 'fortitudeAura' | 'autoPolymorph' | 'stealth' | 'aegisAura' | 'soulHarvest';
@@ -74,6 +89,8 @@ export interface AbilitySlot {
   /** Upgrade ranks from level-up rewards: +25% effect each / -20% cooldown each. */
   power?: number;
   haste?: number;
+  /** The ability's own named upgrade has been taken. */
+  mastery?: boolean;
 }
 
 /** A ground area effect (e.g. Blizzard). */
@@ -87,13 +104,40 @@ export interface Zone {
   damage: number;
   sourceId: number;
   ability?: AbilityId;
+  /** Hallowed Ground's blessing: also heals heroes standing in it, per second. */
+  heal?: number;
+  /** Who the zone hurts (default: enemies). */
+  side?: Side;
 }
 /** Passive traits: not part of the starting kit — saved as future reward options. */
-export type TraitId = 'rage' | 'innerFocus' | 'arcaneSurge' | 'comboPoints' | 'zeal' | 'agony';
+export type TraitId = 'rage' | 'blessedHands' | 'arcaneSurge' | 'comboPoints' | 'poisonedBlades' | 'zeal' | 'agony';
 
 /** A timed buff/debuff on a unit. */
 export interface Effect {
-  kind: 'hot' | 'dot' | 'slow' | 'fortitude' | 'sheep' | 'silence' | 'stealth' | 'block' | 'shield' | 'evasion' | 'weaken';
+  kind:
+    | 'hot'
+    | 'dot'
+    | 'slow'
+    | 'fortitude'
+    | 'sheep'
+    | 'silence'
+    | 'stealth'
+    | 'block'
+    | 'shield'
+    | 'evasion'
+    | 'weaken'
+    /** Can't move, attack or cast (a cast in progress is broken). */
+    | 'stun'
+    /** Takes `amount` more damage from everything (e.g. 0.2 = +20%). */
+    | 'vulnerable'
+    /** Hero deals `amount` more damage and healing. */
+    | 'empower'
+    /** Enemy attacks `amount` faster (War Cry). */
+    | 'frenzy'
+    /** Guardian Spirit: the next killing blow leaves the hero at `amount` of max health instead. */
+    | 'guardian'
+    /** Doom: `amount` damage lands when it expires. */
+    | 'doom';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */
@@ -103,6 +147,8 @@ export interface Effect {
   sourceId: number;
   /** The ability that applied it (for stats), if any. */
   ability?: AbilityId;
+  /** Wither with Contagion: jumps to the nearest enemy when the target dies. */
+  contagion?: boolean;
 }
 
 export interface Unit {
@@ -172,12 +218,18 @@ export interface Unit {
   level?: number;
   /** Hero: general damage & healing multiplier from Might upgrades. */
   might?: number;
+  /** Hero: resource regeneration multiplier from Focus upgrades. */
+  focus?: number;
   /** Hero: passive traits earned so far (none at the start). */
   traits?: TraitId[];
   /** Rogue: combo points (0-5), only used with the Combo Points trait. */
   comboPoints?: number;
   /** Enemy: spell being cast, if any. */
-  casting?: { spell: string; kind: EnemyAI; remaining: number; total: number; targetId: number; unstoppable?: boolean };
+  casting?: { spell: string; kind: CastKind; remaining: number; total: number; targetId: number; unstoppable?: boolean; x?: number; y?: number };
+  /** Boss: seconds until its signature move is ready again. */
+  specialCooldown?: number;
+  /** Enemy raised mid-fight (Raise Dead): doesn't count toward Soul Harvest twice etc. */
+  summoned?: boolean;
   /** Boss: its next heavy cast can't be interrupted (set when one was). */
   enraged?: boolean;
   /** Enemy: seconds until it may start another cast. */
@@ -187,8 +239,6 @@ export interface Unit {
   spell?: string;
   /** Enemy: bosses are immune to Polymorph. */
   isBoss?: boolean;
-  /** Hero: the board tile it was placed on. */
-  tile?: Tile;
 }
 
 /** Aggro warning level shown on a hero. */
@@ -236,9 +286,10 @@ export interface WaveDef {
 /** What carries over between waves for one hero. */
 export interface HeroBuild {
   level: number;
-  abilities: { id: AbilityId; power: number; haste: number }[];
+  abilities: { id: AbilityId; power: number; haste: number; mastery?: boolean }[];
   traits: TraitId[];
-  /** General upgrade ranks: +10% max health each / +10% damage & healing each. */
+  /** General upgrade ranks: +10% max health each / +10% damage & healing each / +40% resource regen each. */
   vitality?: number;
   might?: number;
+  focus?: number;
 }

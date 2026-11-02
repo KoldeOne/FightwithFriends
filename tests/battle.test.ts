@@ -191,7 +191,8 @@ describe('Aggro', () => {
     // In the arena the enemies start within the mage's range, so a shot or burn
     // already in flight can occasionally tip an enemy over; careful AI keeps it rare.
     const careful = dpsPulls(true);
-    expect(careful).toBeLessThanOrEqual(1);
+    // (2 in 5 fights: since heroes line up by role, the Mage's burn ticks occasionally tip one over.)
+    expect(careful).toBeLessThanOrEqual(2);
     expect(dpsPulls(false)).toBeGreaterThan(careful * 3);
   });
 });
@@ -597,14 +598,20 @@ describe('Traits (future rewards)', () => {
     expect(r.comboPoints).toBe(0);
   });
 
-  it('Inner Focus: Renew costs half while the party is healthy', () => {
-    const b = new Battle({ seed: 1, wave: one, playerClass: 'priest' });
-    const p = b.player!;
-    expect(b.abilityCost(p, 'renew')).toBe(20);
-    p.traits = ['innerFocus'];
-    expect(b.abilityCost(p, 'renew')).toBe(10);
-    b.heroes.find((h) => h.kind === 'warrior')!.hp = 100;
-    expect(b.abilityCost(p, 'renew')).toBe(20);
+  it('Blessed Hands: heals on an ally in trouble are stronger', () => {
+    const healOn = (traits: ('blessedHands')[]) => {
+      const b = new Battle({ seed: 1, wave: one, playerClass: 'priest' });
+      b.playerAuto = false;
+      const p = b.player!;
+      p.traits = traits;
+      const w = b.heroes.find((h) => h.kind === 'warrior')!;
+      w.hp = Math.round(w.maxHp * 0.2);
+      b.setFocus(w.id);
+      const before = w.hp;
+      b.useAbility(0);
+      return w.hp - before;
+    };
+    expect(healOn(['blessedHands'])).toBeGreaterThan(healOn([]) * 1.3);
   });
 
   it('Arcane Surge sometimes makes Fireball free', () => {

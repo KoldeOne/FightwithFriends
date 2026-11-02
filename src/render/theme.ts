@@ -127,6 +127,8 @@ export const DARK_LETTER = ['priest', 'rogue', 'archer', 'skeleton', 'boneArcher
 export const PROJECTILE_COLORS: Record<string, number> = {
   mage: 0xff8c1a,
   warlock: 0x9b59ff,
+  arcaneBarrage: 0xd18cff,
+  iceLance: 0x9ad1ff,
   priest: 0xfff2a8,
   archer: 0xa0522d,
   boneArcher: 0xe8e0c8,
@@ -160,13 +162,30 @@ export const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string;
   shield: { name: 'Power Shield', letter: 'P', color: 0xfff7d6, debuff: false, text: (e) => `Absorbs the next ${Math.round(e.amount)} damage.` },
   evasion: { name: 'Evasion', letter: 'E', color: 0xf1c40f, debuff: false, text: (e) => `Dodging ${Math.round(e.amount * 100)}% of attacks.` },
   weaken: { name: 'Enfeebled', letter: 'W', color: 0x8e44ad, debuff: true, text: (e) => `Deals ${Math.round(e.amount * 100)}% less damage.` },
+  stun: { name: 'Stunned', letter: 'Z', color: 0xfff27a, debuff: true, text: () => "Can't move, attack or cast." },
+  vulnerable: { name: 'Ruined', letter: 'V', color: 0xc0392b, debuff: true, text: (e) => `Takes ${Math.round(e.amount * 100)}% more damage from everything.` },
+  empower: { name: 'Rallied', letter: 'A', color: 0xff9f43, debuff: false, text: (e) => `Deals ${Math.round(e.amount * 100)}% more damage.` },
+  frenzy: { name: 'War Cry', letter: '!', color: 0xe74c3c, debuff: false, text: (e) => `Attacks ${Math.round(e.amount * 100)}% faster.` },
+  guardian: { name: 'Guardian Spirit', letter: 'G', color: 0xfffbe0, debuff: false, text: (e) => `A killing blow leaves them at ${Math.round(e.amount * 100)}% health instead.` },
+  doom: { name: 'Doomed', letter: 'D', color: 0x5b2c6f, debuff: true, text: (e) => `${Math.round(e.amount)} damage lands in ${e.remaining.toFixed(1)}s.` },
+};
+
+/** Damage-over-time effects are named for what caused them. */
+const DOT_NAMES: Partial<Record<string, { name: string; letter: string; color: number }>> = {
+  wither: { name: 'Withering', letter: 'W', color: 0x9b59ff },
+  sinisterStrike: { name: 'Bleeding', letter: 'B', color: 0xc0392b },
+  fanOfKnives: { name: 'Poisoned', letter: 'P', color: 0x7dcf4a },
+  poison: { name: 'Poisoned', letter: 'P', color: 0x7dcf4a },
+  hexBolt: { name: 'Rotting', letter: 'R', color: 0x6b8e23 },
+  exorcism: { name: 'Holy fire', letter: 'H', color: 0xffe28a },
 };
 
 /** How to show a particular effect: like EFFECT_INFO, but some abilities name their own (Wither vs. a Fireball burn). */
 export function effectInfo(e: Effect): (typeof EFFECT_INFO)[Effect['kind']] {
   const base = EFFECT_INFO[e.kind];
-  if (e.kind === 'dot' && e.ability === 'wither') {
-    return { ...base, name: 'Withering', letter: 'W', color: 0x9b59ff, text: (x) => `Takes ${Math.round(x.amount)} damage every ${x.tickEvery}s.` };
+  if (e.kind === 'dot') {
+    const named = DOT_NAMES[e.ability ?? 'poison'];
+    if (named) return { ...base, ...named, text: (x) => `Takes ${Math.round(x.amount)} damage every ${x.tickEvery}s.` };
   }
   return base;
 }
@@ -226,7 +245,7 @@ export interface UnitView {
 }
 
 /** choosing: team builder. recruit: picking a new hero. placing: arranging heroes before the fight. */
-export type SceneState = 'choosing' | 'recruit' | 'placing' | 'playing' | 'paused' | 'reward' | 'over';
+export type SceneState = 'choosing' | 'recruit' | 'ready' | 'playing' | 'paused' | 'reward' | 'over';
 
 export const DPR = Math.min(window.devicePixelRatio || 1, 3);
 export const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';

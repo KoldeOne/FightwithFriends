@@ -2,7 +2,7 @@ import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
 import { CHOICE_EVERY, WORLD } from '../../sim/content';
 import { sound } from '../sound';
-import { autoChoose, bestRound, clearRun, completeWave, describeReward, isChoiceWave, loseRound, recordRound, rewardOptions, saveRun, type Reward } from '../../sim/run';
+import { autoChoose, bestRound, clearRun, completeWave, describeReward, isChoiceWave, loseRound, recordRound, rewardOptions, rewardPreview, saveRun, type Reward } from '../../sim/run';
 import { COLORS, LETTERS, DARK_LETTER, GOLD, needsRecruitAfter } from '../theme';
 
 /** End-of-round screens: win/lose, rewards and level-ups. */
@@ -34,7 +34,7 @@ export class Results {
           this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.65).setOrigin(0, 0).setInteractive(),
           this.s.text(cx, 340, 'Defeated', 40, '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
           this.s.text(cx, 392, `Lives left: ${'♥'.repeat(run.lives)}`, 20, '#ffffff').setOrigin(0.5),
-          this.s.text(cx, 426, 'Rearrange your heroes and try again.', 15, '#c9d1e0').setOrigin(0.5),
+          this.s.text(cx, 426, 'Try the round again: rewards and levels are kept.', 15, '#c9d1e0').setOrigin(0.5),
           this.s.button(cx, 500, `Retry round ${run.wave}`, 22, '#2e86de', () => this.s.scene.restart({ run })),
         ])
         .setDepth(100);
@@ -91,8 +91,8 @@ export class Results {
     const cardBgs: Phaser.GameObjects.Rectangle[] = [];
     options.forEach((opt, i) => {
       const d = describeReward(opt);
-      const y = 300 + i * 124;
-      const bg = this.s.add.rectangle(cx, y, 470, 108, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
+      const y = 292 + i * 136;
+      const bg = this.s.add.rectangle(cx, y, 470, 128, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
       const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
       bg.on('pointerover', () => bg.setFillStyle(0x26314a));
       bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
@@ -102,11 +102,20 @@ export class Results {
         this.nextRewardPick(slot, [...picks, opt]);
       });
       cardBgs.push(bg);
+      // The numbers it changes: "now -> after" for stat upgrades, the new text for abilities.
+      const preview = rewardPreview(run, slot, opt);
+      const short = opt.kind === 'haste' || opt.kind === 'vitality' || opt.kind === 'might' || opt.kind === 'focus';
+      const numbers = preview ? (short && preview.now ? `${preview.now} → ${preview.after}` : `After: ${preview.after}`) : '';
+      // A new ability: its real numbers say more than the blurb. An upgrade: what it does, then the result.
+      const descText = opt.kind === 'ability' && preview ? preview.after : d.text;
+      const numbers2 = opt.kind === 'ability' ? '' : numbers;
+      const desc = this.s.text(cx - 215, y - 18, descText, 13, '#c9d1e0').setWordWrapWidth(430);
       items.push(
         bg,
-        this.s.text(cx - 215, y - 40, d.tag, 12, tagColor).setFontStyle('bold'),
-        this.s.text(cx - 215, y - 20, d.title, 21, '#ffffff').setFontStyle('bold'),
-        this.s.text(cx - 215, y + 10, d.text, 14, '#c9d1e0').setWordWrapWidth(430),
+        this.s.text(cx - 215, y - 56, d.tag, 11, tagColor).setFontStyle('bold'),
+        this.s.text(cx - 215, y - 41, d.title, 19, '#ffffff').setFontStyle('bold'),
+        desc,
+        this.s.text(cx - 215, y - 18 + desc.height + 4, numbers2, 12, '#ffd166').setWordWrapWidth(430),
       );
     });
     items.push(

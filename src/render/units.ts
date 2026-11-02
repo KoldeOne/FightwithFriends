@@ -1,7 +1,7 @@
 import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
 import { STEP } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING } from '../sim/content';
+import { ABILITIES, ABILITY_TUNING, BOSS_SPECIALS } from '../sim/content';
 import { sound } from './sound';
 import { type AbilityId, type BattleEvent, type Unit } from '../sim/types';
 import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectInfo } from './theme';
@@ -163,6 +163,16 @@ export class UnitLayer {
       this.zoneLayer.fillStyle(holy ? 0xffe28a : 0x9ad1ff, pulse).fillCircle(z.x, z.y, z.radius);
       this.zoneLayer.lineStyle(2, holy ? 0xfff3c4 : 0xd6ecff, 0.7).strokeCircle(z.x, z.y, z.radius);
     }
+    // A boss's Rain of Fire: mark where it will land while it's being cast.
+    for (const e of this.s.battle.enemies) {
+      const c = e.casting;
+      if (!e.alive || c?.kind !== 'rainOfFire' || c.x === undefined || c.y === undefined) continue;
+      const pct = 1 - c.remaining / c.total;
+      const r = BOSS_SPECIALS.rainOfFire.radius;
+      this.zoneLayer.fillStyle(0xff5a1f, 0.12 + pct * 0.25).fillCircle(c.x, c.y, r);
+      this.zoneLayer.lineStyle(3, 0xff8c1a, 0.9).strokeCircle(c.x, c.y, r);
+      this.zoneLayer.fillStyle(0xff5a1f, 0.35).fillCircle(c.x, c.y, r * pct);
+    }
   }
 
   drawFocus(time: number): void {
@@ -269,7 +279,7 @@ export class UnitLayer {
     const shooter = this.s.battle.unit(fromId);
     if (!from || !to || !shooter) return;
     const big = ability === 'fireball';
-    const color = big ? 0xff5a1f : ability === 'iceLance' ? 0x9ad1ff : (PROJECTILE_COLORS[shooter.kind] ?? 0xffffff);
+    const color = big ? 0xff5a1f : (ability && PROJECTILE_COLORS[ability]) || (PROJECTILE_COLORS[shooter.kind] ?? 0xffffff);
     const bolt = this.s.add.circle(from.x, from.y, big ? 11 : shooter.kind === 'mage' ? 6 : 4, color).setDepth(30);
     if (big) bolt.setStrokeStyle(3, 0xffd166);
     sound.play(big ? 'fire' : ability === 'iceLance' ? 'frost' : 'shoot');
@@ -414,9 +424,48 @@ export class UnitLayer {
         this.floatText(target.x, target.y - target.radius - 22, name, '#ffffff', 14);
         return;
       }
-      case 'prayerOfHealing':
+      case 'holyNova':
+      case 'frostNova':
+      case 'fanOfKnives':
+      case 'rallyingShout': {
+        const color = ability === 'holyNova' ? 0xfff3b0 : ability === 'frostNova' ? 0x9ad1ff : ability === 'rallyingShout' ? 0xff9f43 : 0xc8d6e5;
+        const radius = ability === 'holyNova' ? 140 : ability === 'frostNova' ? 110 : ability === 'rallyingShout' ? 60 : 100;
+        const ring = this.s.add.circle(from.x, from.y, from.radius).setStrokeStyle(6, color).setDepth(30);
+        this.s.tweens.add({ targets: ring, scale: radius / from.radius, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+        if (ability === 'rallyingShout') {
+          for (const ally of this.s.battle.heroes) {
+            if (!ally.alive) continue;
+            const r2 = this.s.add.circle(ally.x, ally.y, ally.radius + 4).setStrokeStyle(4, color).setDepth(30);
+            this.s.tweens.add({ targets: r2, scale: 1.6, alpha: 0, duration: 600, onComplete: () => r2.destroy() });
+          }
+        }
+        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffffff', 14);
+        return;
+      }
+      case 'chainOfLight':
+      case 'lastStand':
         this.floatText(from.x, from.y - from.radius - 22, name, '#7dff9b', 14);
         return;
+      case 'guardianSpirit':
+      case 'shieldBash':
+      case 'gouge':
+      case 'hammerOfJustice':
+      case 'doom':
+      case 'curseOfRuin':
+      case 'exorcism':
+        if (to) {
+          const color =
+            ability === 'guardianSpirit' ? 0xfffbe0 : ability === 'doom' || ability === 'curseOfRuin' ? 0x9b59ff : ability === 'exorcism' ? 0xffe28a : 0xfff27a;
+          const line = this.s.add.graphics().setDepth(30);
+          line.lineStyle(3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
+          this.s.tweens.add({ targets: line, alpha: 0, duration: 350, onComplete: () => line.destroy() });
+          const ring = this.s.add.circle(to.x, to.y, to.radius + 5).setStrokeStyle(4, color).setDepth(30);
+          this.s.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 450, onComplete: () => ring.destroy() });
+        }
+        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffd166', 14);
+        return;
+      case 'arcaneBarrage':
+        return; // the missiles say it
       case 'blizzard':
         this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#9ad1ff', 14);
         return;

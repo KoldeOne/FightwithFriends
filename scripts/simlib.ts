@@ -5,7 +5,8 @@
  */
 import { Battle, STEP } from '../src/sim/battle';
 import { ARENA, HERO_KIT, makeRound, WORLD } from '../src/sim/content';
-import { completeWave, loseRound, needsRecruit, newRun, recruit, type RunState } from '../src/sim/run';
+import { completeWave, isChoiceWave, loseRound, needsRecruit, newRun, recruit, rewardOptions, type Reward, type RunState } from '../src/sim/run';
+import { createRng } from '../src/sim/rng';
 import type { HeroClass, Unit } from '../src/sim/types';
 
 /** A fight that hasn't ended after this long is reported as a stall. */
@@ -46,6 +47,15 @@ export interface RunRecord {
   losses: number[];
   rounds: RoundRecord[];
   violations: string[];
+  /** Every reward taken: class, round and what it was (e.g. "ability:frostNova", "mastery:fireball"). */
+  picks: { cls: HeroClass; round: number; pick: string }[];
+}
+
+/** How rewards are chosen: the game's AI ("Choose for me"), or uniformly at random (to test every option). */
+export type PickPolicy = 'ai' | 'random';
+
+export function rewardKey(r: Reward): string {
+  return 'id' in r ? `${r.kind}:${r.id}` : r.kind;
 }
 
 export type RecruitPolicy = (run: RunState) => HeroClass;
@@ -71,7 +81,6 @@ export function playRound(run: RunState, violations: string[]): RoundRecord {
     carefulAI: process.env.CAREFUL !== '0',
     team: run.team,
     builds: run.builds,
-    placement: run.placement,
   });
   const heroes = battle.heroes;
   const bySlot = new Map<number, HeroStats>();
@@ -185,9 +194,10 @@ function checkInvariants(units: Unit[], note: (m: string) => void): void {
 }
 
 /** Play a whole run: endless rounds until lives run out (or `maxRound` is cleared). */
-export function playRun(start: HeroClass[], seed: number, recruitPolicy: RecruitPolicy, maxRound = 60): RunRecord {
+export function playRun(start: HeroClass[], seed: number, recruitPolicy: RecruitPolicy, maxRound = 60, policy: PickPolicy = 'ai'): RunRecord {
   const run = newRun(start, seed);
-  const rec: RunRecord = { team: [...start], seed, reached: 0, losses: [], rounds: [], violations: [] };
+  const rec: RunRecord = { team: [...start], seed, reached: 0, losses: [], rounds: [], violations: [], picks: [] };
+  const pickRng = createRng(seed * 7 + 3);
   while (run.lives > 0 && run.wave <= maxRound) {
     while (needsRecruit(run)) {
       const cls = recruitPolicy(run);
@@ -196,8 +206,15 @@ export function playRun(start: HeroClass[], seed: number, recruitPolicy: Recruit
     }
     const r = playRound(run, rec.violations);
     rec.rounds.push(r);
-    if (r.won) completeWave(run);
-    else {
+    if (r.won) {
+      const picks = isChoiceWave(run) && policy === 'random' ? run.team.map((_, slot) => {
+        const options = rewardOptions(run, slot);
+        return options[Math.floor(pickRng() * options.length)];
+      }) : [];
+      const round = run.wave;
+      const taken = completeWave(run, picks);
+      taken.forEach((t, slot) => t && rec.picks.push({ cls: run.team[slot], round, pick: rewardKey(t) }));
+    } else {
       rec.losses.push(run.wave);
       loseRound(run);
     }

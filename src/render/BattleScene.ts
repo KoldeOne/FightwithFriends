@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Battle, STEP } from '../sim/battle';
-import { ARENA, BOARD, DEFAULT_TEAM, makeRound, ROUND_1, SUDDEN_DEATH, WORLD } from '../sim/content';
+import { ARENA, ENEMY_LAYOUT, HERO_LINES, DEFAULT_TEAM, makeRound, ROUND_1, SUDDEN_DEATH, WORLD } from '../sim/content';
 import { sound } from './sound';
 import { needsRecruit, recruit, type RunState } from '../sim/run';
 import { type Unit } from '../sim/types';
@@ -9,7 +9,7 @@ import { Hud } from './hud';
 import { Inspect } from './inspect';
 import { UnitLayer } from './units';
 import { TeamScreens } from './screens/team';
-import { Placement } from './screens/placement';
+import { ReadyScreen } from './screens/ready';
 import { Results } from './screens/results';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
@@ -19,7 +19,7 @@ export class BattleScene extends Phaser.Scene {
   inspect!: Inspect;
   units!: UnitLayer;
   teamScreens!: TeamScreens;
-  placement!: Placement;
+  ready!: ReadyScreen;
   results!: Results;
 
   battle!: Battle;
@@ -58,7 +58,7 @@ export class BattleScene extends Phaser.Scene {
     this.inspect = new Inspect(this);
     this.units = new UnitLayer(this);
     this.teamScreens = new TeamScreens(this);
-    this.placement = new Placement(this);
+    this.ready = new ReadyScreen(this);
     this.results = new Results(this);
     // (Fresh modules each restart, so their own state starts clean.)
     this.acc = 0;
@@ -76,7 +76,6 @@ export class BattleScene extends Phaser.Scene {
           carefulAI: this.careful,
           team: run.team,
           builds: run.builds,
-          placement: run.placement,
         })
       : new Battle({ seed: Date.now() % 1_000_000, wave: ROUND_1, carefulAI: this.careful, team: DEFAULT_TEAM });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
@@ -102,7 +101,7 @@ export class BattleScene extends Phaser.Scene {
       this.teamScreens.showRecruit();
     } else {
       if (this.teamPicks) this.showBanner(this.teamPicks);
-      this.placement.startPlacement();
+      this.ready.show();
     }
   }
 
@@ -133,7 +132,6 @@ export class BattleScene extends Phaser.Scene {
     }
     this.units.drawFocus(time);
     this.units.drawZones(time);
-    this.placement.drawTiles();
     if (this.state === 'playing' && !this.suddenDeathShown && this.battle.time > SUDDEN_DEATH.after) {
       this.suddenDeathShown = true;
       this.showBanner('Sudden death! Every hit lands harder from now on.', true);
@@ -177,12 +175,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   startFight(): void {
-    if (this.state !== 'placing') return;
+    if (this.state !== 'ready') return;
     sound.unlock();
     sound.play('click');
-    this.placement.placementUi?.destroy();
-    this.placement.placementUi = undefined;
-    this.placement.selectedSlot = null;
+    this.ready.hide();
+    this.inspect.closeInspect();
     this.battle.setFocus(null);
     this.state = 'playing';
     this.showWaveIntro();
@@ -208,11 +205,7 @@ export class BattleScene extends Phaser.Scene {
    */
   onFieldTap(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
     if (over.length || pointer.y > WORLD.hudTop) return;
-    if (this.state === 'placing') {
-      this.placement.placementTap(pointer);
-      return;
-    }
-    if (this.state !== 'playing' && this.state !== 'paused') return;
+    if (this.state !== 'playing' && this.state !== 'paused' && this.state !== 'ready') return;
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.battle.units) {
@@ -266,10 +259,9 @@ export class BattleScene extends Phaser.Scene {
     // A few darker patches so the sand isn't flat.
     g.fillStyle(0x705f48, 0.6);
     for (const [x, y, r] of [[120, 230, 40], [400, 300, 55], [180, 520, 50], [430, 680, 45], [90, 700, 35], [300, 420, 60]]) g.fillCircle(x, y, r);
-    const midY = (BOARD.enemyRowY[0] + BOARD.heroRowY[0]) / 2;
+    const midY = (ENEMY_LAYOUT.rowY[0] + HERO_LINES.front) / 2;
     g.lineStyle(2, 0x5a4a37, 0.8).lineBetween(24, midY, WORLD.width - 24, midY);
     g.lineStyle(2, 0x5a4a37, 0.8).strokeCircle(WORLD.width / 2, midY, 40);
-    this.placement.tileLayer = this.add.graphics().setDepth(1);
   }
 
   // --- helpers ------------------------------------------------------------

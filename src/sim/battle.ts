@@ -7,7 +7,9 @@ import {
   ENEMY_STATS,
   ONE_OF_EACH,
   formationFor,
-  heroTilePos,
+  FACTION,
+  BOSS_INFO,
+  BOSS_SPECIALS,
   HERO_KIT,
   HERO_MOVE,
   HERO_STATS,
@@ -24,7 +26,8 @@ import {
   WORLD,
 } from './content';
 import { createRng } from './rng';
-import type { AbilityId, AbilitySlot, AggroLevel, BattleEvent, Effect, EnemyKind, HeroBuild, HeroClass, Outcome, SpawnDef, Tile, TraitId, Unit, WaveDef, Zone } from './types';
+import { abilityScaleFor, abilityText } from './abilityText';
+import type { AbilityId, AbilitySlot, AggroLevel, BattleEvent, CastKind, Effect, EnemyKind, HeroBuild, HeroClass, Outcome, SpawnDef, TraitId, Unit, WaveDef, Zone } from './types';
 
 interface DamageOpts {
   threatScale?: number;
@@ -35,6 +38,10 @@ interface DamageOpts {
   big?: boolean;
   /** Fireball: burn damage per second applied on impact. */
   burn?: number;
+  /** Searing Fire: the burn also spreads to a nearby enemy. */
+  spread?: boolean;
+  /** Hex of Rot: total rot damage applied on impact. */
+  rot?: number;
 }
 
 interface Projectile {
@@ -64,8 +71,6 @@ export interface BattleOptions {
   playerClass?: HeroClass;
   /** Levels, abilities and traits carried over from earlier waves, per team slot. */
   builds?: HeroBuild[];
-  /** Board tile for each team slot (default: tanks and melee in front). */
-  placement?: Tile[];
 }
 
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
@@ -103,44 +108,15 @@ export class Battle {
     this.carefulAI = opts.carefulAI ?? true;
     this.pending = [...opts.wave.spawns].sort((a, b) => a.time - b.time);
     const team = opts.team ?? opts.heroes ?? ONE_OF_EACH;
-    for (const spot of formationFor(team, opts.playerClass, opts.placement)) {
-      this.addHero(spot.cls, spot.x, spot.y, opts.builds?.[spot.slot], spot.slot, spot.tile);
+    for (const spot of formationFor(team, opts.playerClass)) {
+      this.addHero(spot.cls, spot.x, spot.y, opts.builds?.[spot.slot], spot.slot);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
     // Priest passive: Power Word: Fortitude is up on the whole party all wave.
     const priest = this.units.find((u) => u.side === 'hero' && u.passive === 'fortitudeAura');
     if (priest) this.applyFortitude(priest, Infinity);
-    // Arena enemies are on the board from the start, so you can scout them while placing.
+    // Arena enemies are on the field from the start, so you can scout them before the fight.
     this.spawnDue();
-  }
-
-  /**
-   * Move a hero to a board tile before the fight (placement phase). If another
-   * hero stands there, the two swap. Returns false once the fight has started.
-   */
-  placeHero(slot: number, tile: Tile): boolean {
-    if (this.time > 0) return false;
-    const h = this.units.find((u) => u.side === 'hero' && u.slot === slot);
-    if (!h?.tile) return false;
-    const other = this.units.find((u) => u.side === 'hero' && u !== h && u.tile?.col === tile.col && u.tile?.row === tile.row);
-    if (other) this.setTile(other, h.tile);
-    this.setTile(h, tile);
-    return true;
-  }
-
-  /** Each team slot's current tile (for saving the layout). */
-  get placement(): Tile[] {
-    return this.units
-      .filter((u) => u.side === 'hero' && u.tile)
-      .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
-      .map((u) => ({ ...u.tile! }));
-  }
-
-  private setTile(h: Unit, tile: Tile): void {
-    const p = heroTilePos(tile);
-    h.tile = { ...tile };
-    h.x = h.homeX = p.x;
-    h.y = h.homeY = p.y;
   }
 
   /** Sudden death: after a while every hit lands harder, so no fight can stall forever. */
@@ -164,18 +140,15 @@ export class Battle {
 
   /** Current resource cost of an ability for this hero (traits can change it). */
   abilityCost(h: Unit, id: AbilityId): number {
-    const base = ABILITIES[id].cost;
-    if (id === 'renew' && this.hasTrait(h, 'innerFocus')) {
-      const healthy = this.units.filter((u) => u.side === 'hero' && u.alive).every((u) => u.hp >= u.maxHp * TRAIT_TUNING.innerFocusThreshold);
-      if (healthy) return Math.ceil(base / 2);
-    }
-    return base;
+    void h;
+    return ABILITIES[id].cost;
   }
 
   /** Why the ability in `slot` can't be used right now, or 'ok'. */
   abilityState(slot = 0, h: Unit | undefined = this.player): AbilityResult {
     const a = h?.abilities?.[slot];
     if (!h?.alive || !a) return 'dead';
+    if (this.hasEffect(h, 'stun')) return 'cooldown';
     if (a.cooldown > 0) return 'cooldown';
     if ((h.resource ?? 0) < this.abilityCost(h, a.id)) return 'resource';
     return 'ok';
@@ -196,14 +169,14 @@ export class Battle {
   abilityInRange(slot = 0, h: Unit | undefined = this.player): boolean {
     const a = h?.abilities?.[slot];
     if (!h?.alive || !a) return false;
-    return this.abilityTarget(h, a.id, true) !== null;
+    return this.abilityTarget(h, a, true) !== null;
   }
 
   /** Give a hero an ability in the next free slot (used by level-ups). */
   learnAbility(h: Unit, id: AbilityId): boolean {
     h.abilities ??= [];
     if (this.slotsUsed(h) >= MAX_ABILITY_SLOTS || h.abilities.some((a) => a.id === id)) return false;
-    h.abilities.push({ id, cooldown: 0, power: 0, haste: 0 });
+    h.abilities.push({ id, cooldown: 0, power: 0, haste: 0, mastery: false });
     return true;
   }
 
@@ -212,80 +185,19 @@ export class Battle {
     return (h.abilities?.length ?? 0) + (h.traits?.length ?? 0);
   }
 
-  /** Effect multiplier for an ability: hero level x upgrade ranks. */
+  /** Effect multiplier for an ability: hero level x Might x Empowered ranks. */
   abilityScale(h: Unit, slot: AbilitySlot): number {
-    return (1 + LEVEL_SCALING * ((h.level ?? 1) - 1)) * (h.might ?? 1) * (1 + UPGRADE.powerPerRank * (slot.power ?? 0));
+    return abilityScaleFor(h, slot);
   }
 
   /** Plain-language numbers for an ability on this hero (includes level and upgrades). */
   abilityEffectText(h: Unit, slot: AbilitySlot): string {
-    const t = ABILITY_TUNING;
-    const k = this.abilityScale(h, slot);
-    const r = (n: number) => Math.round(n * k);
-    switch (slot.id) {
-      case 'taunt':
-        return 'Forces an enemy to attack this hero.';
-      case 'heroicStrike':
-        return `Deals ${r(t.heroicStrike.damage)} damage with extra threat.`;
-      case 'thunderclap':
-        return `Deals ${r(t.thunderclap.damage)} damage to every nearby enemy (high threat) and slows their attacks for ${t.thunderclap.slow}s.`;
-      case 'whirlwind':
-        return `Deals ${r(t.whirlwind.damage)} damage to every nearby enemy.`;
-      case 'shieldBlock':
-        return `Takes ${t.shieldBlock.reduction * 100}% less damage for ${t.shieldBlock.duration}s.`;
-      case 'heal':
-        return `Heals one ally for ${r(t.heal.amount)}.`;
-      case 'renew':
-        return `Heals one ally for ${r(t.renew.total)} over ${t.renew.duration}s.`;
-      case 'fortitude':
-        return `Party gains +${t.fortitude.bonus * 100}% max health for ${t.fortitude.duration}s.`;
-      case 'powerShield':
-        return `Shields an ally from ${r(t.powerShield.absorb)} damage for ${t.powerShield.duration}s.`;
-      case 'prayerOfHealing':
-        return `Heals every ally for ${r(t.prayerOfHealing.amount)}, and the most injured for ${r(t.prayerOfHealing.bonus)} more.`;
-      case 'fireball':
-        return `Deals ${r(t.fireball.damage)} damage, then ${r(t.fireball.burnPerSecond * t.fireball.burnDuration)} burn damage over ${t.fireball.burnDuration}s.`;
-      case 'iceLance':
-        return `Deals ${r(t.iceLance.damage)} damage.`;
-      case 'blizzard':
-        return `Deals ${r(t.blizzard.damagePerSecond * t.blizzard.duration)} damage over ${t.blizzard.duration}s to enemies in the storm and slows them.`;
-      case 'polymorph':
-        return `Turns an enemy into a sheep for ${t.polymorph.duration}s.`;
-      case 'counterspell':
-        return `Interrupts a cast; silences for ${t.counterspell.silence}s.`;
-      case 'kick':
-        return `Interrupts a cast; silences for ${t.kick.silence}s and deals ${t.kick.damage} damage.`;
-      case 'sinisterStrike':
-        return `Deals ${r(t.sinisterStrike.damage)} damage.`;
-      case 'eviscerate':
-        return `Deals ${r(t.eviscerate.damage)} damage.`;
-      case 'evasion':
-        return `Dodges ${t.evasion.dodge * 100}% of attacks for ${t.evasion.duration}s.`;
-      case 'judgement': {
-        const share = this.hasTrait(h, 'zeal') ? 1 : t.judgement.healShare;
-        return `Deals ${r(t.judgement.damage)} damage (range ${t.judgement.range}); the most injured ally is healed for ${share === 1 ? 'all' : 'half'} of it.`;
-      }
-      case 'radiantLight':
-        return `Heals one ally for ${r(t.radiantLight.amount)}.`;
-      case 'hallowedGround':
-        return `Deals ${r(t.hallowedGround.damagePerSecond * t.hallowedGround.duration)} damage over ${t.hallowedGround.duration}s to enemies on the blessed ground, with high threat.`;
-      case 'mercy':
-        return `Heals an ally below ${t.mercy.below * 100}% health for ${r(t.mercy.amount)}.`;
-      case 'hexBolt':
-        return `Deals ${r(t.hexBolt.damage)} damage.`;
-      case 'wither': {
-        const bonus = this.hasTrait(h, 'agony') ? 1 + TRAIT_TUNING.agonyBonus : 1;
-        return `Deals ${r(t.wither.total * bonus)} damage over ${t.wither.duration}s.`;
-      }
-      case 'soulDrain':
-        return `Deals ${r(t.soulDrain.damage)} damage; the most injured ally is healed for the same amount.`;
-      case 'enfeeble':
-        return `The strongest enemy in range deals ${t.enfeeble.reduction * 100}% less damage for ${t.enfeeble.duration}s.`;
-    }
+    return abilityText(h, slot);
   }
 
   abilityCooldown(slot: AbilitySlot): number {
-    return ABILITIES[slot.id].cooldown * Math.pow(UPGRADE.hastePerRank, slot.haste ?? 0);
+    const base = ABILITIES[slot.id].cooldown - (slot.id === 'doom' && slot.mastery ? ABILITY_TUNING.doom.masteryCooldown : 0);
+    return base * Math.pow(UPGRADE.hastePerRank, slot.haste ?? 0);
   }
 
   hasEffect(u: Unit, kind: Effect['kind']): boolean {
@@ -367,9 +279,16 @@ export class Battle {
       if (u.tauntTime) u.tauntTime = Math.max(0, u.tauntTime - dt);
       for (const a of u.abilities ?? []) if (a.cooldown) a.cooldown = Math.max(0, a.cooldown - dt);
       if (u.castCooldown) u.castCooldown = Math.max(0, u.castCooldown - dt);
-      if (u.resourceKind) u.resource = Math.min(u.maxResource!, u.resource! + RESOURCES[u.resourceKind].regen * dt);
+      if (u.specialCooldown) u.specialCooldown = Math.max(0, u.specialCooldown - dt);
+      if (u.resourceKind) u.resource = Math.min(u.maxResource!, u.resource! + RESOURCES[u.resourceKind].regen * (u.focus ?? 1) * dt);
       this.tickEffects(u, dt);
       if (!u.alive) continue;
+      // Stunned (or frozen): does nothing at all this step.
+      if (this.hasEffect(u, 'stun')) {
+        u.vx = 0;
+        u.vy = 0;
+        continue;
+      }
       if (u.side === 'enemy') this.updateEnemy(u, dt);
       else {
         if (u.id !== this.playerId) this.moveHero(u, dt);
@@ -401,17 +320,18 @@ export class Battle {
     }
   }
 
-  private addHero(cls: HeroClass, x: number, y: number, build?: HeroBuild, slot = 0, tile?: Tile): void {
+  private addHero(cls: HeroClass, x: number, y: number, build?: HeroBuild, slot = 0): void {
     const s = HERO_STATS[cls];
     const kit = HERO_KIT[cls];
     const res = RESOURCES[kit.resource];
     const level = build?.level ?? 1;
     const might = 1 + UPGRADE.mightPerRank * (build?.might ?? 0);
     const vitality = 1 + UPGRADE.vitalityPerRank * (build?.vitality ?? 0);
+    const focus = 1 + UPGRADE.focusPerRank * (build?.focus ?? 0);
     const scale = 1 + LEVEL_SCALING * (level - 1);
     const abilities: AbilitySlot[] = build
-      ? build.abilities.map((a) => ({ id: a.id, cooldown: 0, power: a.power, haste: a.haste }))
-      : [{ id: kit.starting, cooldown: 0, power: 0, haste: 0 }];
+      ? build.abilities.map((a) => ({ id: a.id, cooldown: 0, power: a.power, haste: a.haste, mastery: !!a.mastery }))
+      : [{ id: kit.starting, cooldown: 0, power: 0, haste: 0, mastery: false }];
     // Duplicate classes get a number: "Mage", "Mage 2".
     const same = this.units.filter((u) => u.side === 'hero' && u.kind === cls).length;
     this.addUnit({
@@ -422,6 +342,7 @@ export class Battle {
       heal: s.heal ? s.heal * scale * might : undefined,
       level,
       might,
+      focus,
       id: 0,
       side: 'hero',
       kind: cls,
@@ -430,7 +351,6 @@ export class Battle {
       homeX: x,
       homeY: y,
       slot,
-      tile,
       idleOffX: (this.rng() - 0.5) * 36,
       idleOffY: (this.rng() - 0.5) * 24,
       hp: Math.round(s.maxHp * scale * vitality),
@@ -454,13 +374,15 @@ export class Battle {
     return { kind: 'stealth', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: 0 };
   }
 
-  private addEnemy(kind: EnemyKind, x: number, y = WORLD.spawnY): void {
+  private addEnemy(kind: EnemyKind, x: number, y = WORLD.spawnY, hpFactor = 1, summoned = false, damageFactor = 1): void {
     const s = ENEMY_STATS[kind];
     const strength = this.wave.strength ?? 1;
     // Flankers start just off the side edges; everyone else just above the top.
     const clampedX = y === WORLD.spawnY ? Math.min(WORLD.width - s.radius, Math.max(s.radius, x)) : x;
-    const maxHp = Math.round(s.maxHp * strength);
-    this.addUnit({ ...s, maxHp, damage: s.damage * strength, id: 0, side: 'enemy', kind, x: clampedX, y, hp: maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [] });
+    const maxHp = Math.round(s.maxHp * strength * hpFactor);
+    const special = BOSS_INFO[kind]?.special;
+    const specialCooldown = special ? BOSS_SPECIALS[special as keyof typeof BOSS_SPECIALS].first : undefined;
+    this.addUnit({ ...s, maxHp, damage: s.damage * strength * damageFactor, id: 0, side: 'enemy', kind, x: clampedX, y, hp: maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [], specialCooldown, summoned });
   }
 
   private addUnit(u: Unit): void {
@@ -480,6 +402,7 @@ export class Battle {
       this.progressCast(e, dt);
       return;
     }
+    if (e.isBoss && this.bossSpecial(e)) return;
     if (e.ai === 'healer' && this.shamanMend(e, dt)) return;
     if (e.ai === 'smasher' && this.bruteSmash(e)) return;
 
@@ -500,7 +423,9 @@ export class Battle {
       e.vx = (e.vx ?? 0) * 0.5;
       e.vy = (e.vy ?? 0) * 0.5;
       if (e.cooldown <= 0) {
-        e.cooldown = e.attackInterval * (this.hasEffect(e, 'slow') ? ABILITY_TUNING.slowFactor : 1);
+        // Slowed: attacks slower. War Cry (frenzy): attacks faster.
+        const frenzy = e.effects?.find((x) => x.kind === 'frenzy')?.amount ?? 0;
+        e.cooldown = (e.attackInterval * (this.hasEffect(e, 'slow') ? ABILITY_TUNING.slowFactor : 1)) / (1 + frenzy);
         const amount = this.roll(e.damage);
         if (e.attackStyle === 'ranged') this.shoot(e, target, amount);
         else this.damage(e, target, amount);
@@ -557,10 +482,14 @@ export class Battle {
       if (p.remaining > 1e-6) continue;
       if (!p.to.alive) continue;
       this.damage(p.from, p.to, p.amount, p.opts);
-      if (p.opts.burn && p.to.alive) {
+      if (p.opts.burn) {
         const f = ABILITY_TUNING.fireball;
-        this.addEffect(p.to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: p.opts.burn, sourceId: p.from.id, ability: p.opts.ability });
+        if (p.to.alive) this.addEffect(p.to, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: p.opts.burn, sourceId: p.from.id, ability: p.opts.ability });
+        // Searing Fire: the flames leap to the nearest other enemy.
+        const next = p.opts.spread ? this.nextEnemy(p.to, f.spreadRadius) : undefined;
+        if (next) this.addEffect(next, { kind: 'dot', remaining: f.burnDuration, tickEvery: 1, tickTimer: 1, amount: p.opts.burn, sourceId: p.from.id, ability: p.opts.ability });
       }
+      if (p.opts.rot && p.to.alive) this.addDot(p.from, p.to, p.opts.rot, ABILITY_TUNING.hexBolt.rotDuration, 'hexBolt');
     }
     this.projectiles = this.projectiles.filter((p) => p.remaining > 1e-6 && p.to.alive);
   }
@@ -655,41 +584,106 @@ export class Battle {
   }
 
   /** Smashers (elites, bosses): when in reach of their target, wind up a telegraphed heavy hit. */
+  /** Start a cast (with the boss's enrage rule: after an interrupt, the next cast can't be stopped). */
+  private startCast(e: Unit, kind: CastKind, spell: string, duration: number, target: Unit, at?: { x: number; y: number }): void {
+    const unstoppable = !!e.isBoss && !!e.enraged;
+    e.enraged = false;
+    e.casting = { spell, kind, remaining: duration, total: duration, targetId: target.id, unstoppable, x: at?.x, y: at?.y };
+    if (unstoppable) this.events.push({ type: 'notice', id: e.id, text: 'Unstoppable!', tone: 'bad' });
+    this.events.push({ type: 'castStart', from: e.id, spell, to: target.id, duration });
+  }
+
+  /** Smashers (elites, bosses): when in reach of their target, wind up a telegraphed heavy hit. */
   private bruteSmash(e: Unit): boolean {
     if (e.castCooldown || this.hasEffect(e, 'silence')) return false;
     const target = this.chooseEnemyTarget(e);
     if (!target || dist(e, target) - e.radius - target.radius > e.range + 4) return false;
     e.targetId = target.id;
-    const spell = e.spell ?? 'Smash';
-    // A boss that was interrupted comes back enraged: this one can't be stopped.
-    const unstoppable = !!e.isBoss && !!e.enraged;
-    e.enraged = false;
-    e.casting = { spell, kind: 'smasher', remaining: BRUTE_SMASH.castTime, total: BRUTE_SMASH.castTime, targetId: target.id, unstoppable };
-    if (unstoppable) this.events.push({ type: 'notice', id: e.id, text: 'Unstoppable!', tone: 'bad' });
-    this.events.push({ type: 'castStart', from: e.id, spell, to: target.id, duration: BRUTE_SMASH.castTime });
+    this.startCast(e, 'smasher', e.spell ?? 'Smash', BRUTE_SMASH.castTime, target);
     return true;
+  }
+
+  /** A boss's signature move, when it's ready (see BOSS_INFO / BOSS_SPECIALS). */
+  private bossSpecial(e: Unit): boolean {
+    const info = BOSS_INFO[e.kind as EnemyKind];
+    if (!info || e.specialCooldown || this.hasEffect(e, 'silence')) return false;
+    const name = info.moves[1]?.name ?? 'Special';
+    switch (info.special) {
+      case 'warCry':
+        this.startCast(e, 'warCry', name, BOSS_SPECIALS.warCry.castTime, e);
+        return true;
+      case 'raiseDead': {
+        const raised = this.units.filter((u) => u.side === 'enemy' && u.alive && u.summoned).length;
+        if (raised >= BOSS_SPECIALS.raiseDead.maxAlive) return false;
+        this.startCast(e, 'raiseDead', name, BOSS_SPECIALS.raiseDead.castTime, e);
+        return true;
+      }
+      case 'rainOfFire': {
+        // The hero furthest from the boss: usually the back line (healers and casters).
+        const heroes = this.units.filter((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'stealth'));
+        if (!heroes.length) return false;
+        const mark = heroes.reduce((a, b) => (dist(b, e) > dist(a, e) ? b : a));
+        this.startCast(e, 'rainOfFire', name, BOSS_SPECIALS.rainOfFire.castTime, mark, { x: mark.x, y: mark.y });
+        return true;
+      }
+    }
+    return false;
   }
 
   private progressCast(e: Unit, dt: number): void {
     const c = e.casting!;
     const target = this.unit(c.targetId);
-    if (!target?.alive) {
+    // Rain of Fire falls on the marked spot even if the hero moved or died.
+    if (!target?.alive && c.kind !== 'rainOfFire') {
       this.endCast(e, false);
       return;
     }
     c.remaining -= dt;
     if (c.remaining > 0) return;
-    if (c.kind === 'healer') {
-      const amount = Math.min(target.maxHp - target.hp, Math.round(SHAMAN_MEND.heal * (this.wave.strength ?? 1)));
-      target.hp += amount;
-      this.events.push({ type: 'heal', from: e.id, to: target.id, amount });
-    } else {
-      this.events.push({ type: 'notice', id: e.id, text: `${c.spell.toUpperCase()}!`, tone: 'bad' });
-      // e.damage already includes the round's strength.
-      this.damage(e, target, Math.round(e.damage * BRUTE_SMASH.damageFactor), { big: true });
-      for (const h of this.units) {
-        if (h.side !== 'hero' || !h.alive || h.id === target.id) continue;
-        if (dist(h, target) <= BRUTE_SMASH.splashRadius) this.damage(e, h, Math.round(e.damage * BRUTE_SMASH.splashFactor), { aoe: true });
+    switch (c.kind) {
+      case 'healer': {
+        const amount = Math.min(target!.maxHp - target!.hp, Math.round(SHAMAN_MEND.heal * (this.wave.strength ?? 1)));
+        target!.hp += amount;
+        this.events.push({ type: 'heal', from: e.id, to: target!.id, amount });
+        break;
+      }
+      case 'smasher':
+        this.events.push({ type: 'notice', id: e.id, text: `${c.spell.toUpperCase()}!`, tone: 'bad' });
+        // e.damage already includes the round's strength.
+        this.damage(e, target!, Math.round(e.damage * BRUTE_SMASH.damageFactor), { big: true });
+        for (const h of this.units) {
+          if (h.side !== 'hero' || !h.alive || h.id === target!.id) continue;
+          if (dist(h, target!) <= BRUTE_SMASH.splashRadius) this.damage(e, h, Math.round(e.damage * BRUTE_SMASH.splashFactor), { aoe: true });
+        }
+        break;
+      case 'warCry': {
+        const w = BOSS_SPECIALS.warCry;
+        this.events.push({ type: 'notice', id: e.id, text: 'WAR CRY!', tone: 'bad' });
+        for (const ally of this.units) {
+          if (ally.side !== 'enemy' || !ally.alive) continue;
+          this.addEffect(ally, { kind: 'frenzy', remaining: w.duration, tickEvery: 0, tickTimer: 0, amount: w.frenzy, sourceId: e.id });
+        }
+        break;
+      }
+      case 'raiseDead': {
+        const r = BOSS_SPECIALS.raiseDead;
+        this.events.push({ type: 'notice', id: e.id, text: 'RAISE DEAD!', tone: 'bad' });
+        for (let i = 0; i < r.count; i++) {
+          const side = i % 2 ? 1 : -1;
+          this.addEnemy('skeleton', Math.min(WORLD.width - 20, Math.max(20, e.x + side * (e.radius + 30))), e.y + 20, r.hpFactor, true, r.damageFactor);
+        }
+        break;
+      }
+      case 'rainOfFire': {
+        const r = BOSS_SPECIALS.rainOfFire;
+        this.events.push({ type: 'notice', id: e.id, text: 'RAIN OF FIRE!', tone: 'bad' });
+        const x = c.x ?? target?.x ?? e.x;
+        const y = c.y ?? target?.y ?? e.y;
+        for (const h of this.units) {
+          if (h.side !== 'hero' || !h.alive || Math.hypot(h.x - x, h.y - y) > r.radius) continue;
+          this.damage(e, h, Math.round(e.damage * r.damageFactor), { aoe: true, big: true });
+        }
+        break;
       }
     }
     this.endCast(e, false);
@@ -700,7 +694,13 @@ export class Battle {
     const kind = e.casting.kind;
     if (interrupted && e.isBoss) e.enraged = true;
     e.casting = undefined;
-    e.castCooldown = kind === 'smasher' ? BRUTE_SMASH.cooldown : SHAMAN_MEND.cooldown;
+    if (kind === 'smasher') e.castCooldown = BRUTE_SMASH.cooldown;
+    else if (kind === 'healer') e.castCooldown = SHAMAN_MEND.cooldown;
+    else {
+      // A boss's signature move: its own cooldown, and a short breather before the next slam.
+      e.specialCooldown = BOSS_SPECIALS[kind].cooldown;
+      e.castCooldown = Math.max(e.castCooldown ?? 0, 2);
+    }
     this.events.push({ type: 'castEnd', from: e.id, interrupted });
   }
 
@@ -927,11 +927,8 @@ export class Battle {
       // A focused ally gets heals first whenever they're missing any health.
       if (focus?.side === 'hero' && focus.alive && focus.hp < focus.maxHp) hurt = focus;
       if (hurt) {
-        const amount = Math.min(hurt.maxHp - hurt.hp, this.roll(h.heal));
-        hurt.hp += amount;
+        this.healUnit(h, hurt, this.roll(h.heal));
         h.cooldown = h.attackInterval;
-        this.events.push({ type: 'heal', from: h.id, to: hurt.id, amount });
-        this.addHealThreat(h, amount);
         return;
       }
     }
@@ -946,6 +943,19 @@ export class Battle {
     if (h.attackStyle === 'ranged') this.shoot(h, target, this.roll(h.damage));
     else this.damage(h, target, this.roll(h.damage));
     if (this.hasTrait(h, 'comboPoints')) h.comboPoints = Math.min(TRAIT_TUNING.maxComboPoints, (h.comboPoints ?? 0) + 1);
+    // Poisoned Blades: every auto attack (re)applies a poison.
+    if (this.hasTrait(h, 'poisonedBlades') && target.alive) {
+      const k = 1 + LEVEL_SCALING * ((h.level ?? 1) - 1);
+      this.addEffect(target, {
+        kind: 'dot',
+        remaining: TRAIT_TUNING.poisonDuration,
+        tickEvery: 1,
+        tickTimer: 1,
+        amount: TRAIT_TUNING.poisonPerSecond * k * (h.might ?? 1),
+        sourceId: h.id,
+        ability: undefined,
+      });
+    }
   }
 
   /** Is this hero controlled by careful AI right now? */
@@ -998,7 +1008,7 @@ export class Battle {
     (h.abilities ?? []).forEach((a, slot) => {
       if (this.abilityState(slot, h) !== 'ok') return;
       if (!this.leavesReserve(h, a.id)) return;
-      if (this.aiWants(h, a.id)) this.cast(h, slot, false);
+      if (this.aiWants(h, a)) this.cast(h, slot, false);
     });
   }
 
@@ -1010,33 +1020,24 @@ export class Battle {
     return (h.resource ?? 0) - this.abilityCost(h, id) >= reserve;
   }
 
-  private aiWants(h: Unit, id: AbilityId): boolean {
+  /** Living heroes. */
+  private allies(): Unit[] {
+    return this.units.filter((u) => u.side === 'hero' && u.alive);
+  }
+
+  /** Allies below this fraction of their health. */
+  private hurtAllies(below: number): Unit[] {
+    return this.allies().filter((u) => u.hp < u.maxHp * below);
+  }
+
+  private aiWants(h: Unit, a: AbilitySlot): boolean {
     const t = ABILITY_TUNING;
+    const id = a.id;
     switch (id) {
       case 'taunt':
         return this.looseEnemies(h).length > 0;
       case 'thunderclap':
         return this.enemiesNear(h, t.thunderclap.radius).length > 0;
-      case 'heal':
-        // Several allies hurt and the group heal is ready: let that go first.
-        if (this.groupHealReady(h)) return false;
-        return this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.7);
-      case 'renew':
-        // Proactive: keep Renew rolling on anyone being attacked or hurt.
-        return this.renewCandidates().length > 0;
-      case 'fortitude':
-        return this.units.some((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'fortitude'));
-      case 'fireball':
-        return !!this.pickEnemyTarget(h, t.fireball.damage);
-      case 'sinisterStrike':
-        return !!this.pickEnemyTarget(h, t.sinisterStrike.damage);
-      case 'heroicStrike':
-        return !!this.pickEnemyTarget(h, t.heroicStrike.damage);
-      case 'polymorph':
-        return !!this.polymorphCandidate(h);
-      case 'kick':
-      case 'counterspell':
-        return this.interruptTargets(h, this.interruptRange(id)).some((u) => this.interruptible(u));
       case 'whirlwind':
         return this.enemiesNear(h, t.whirlwind.radius).length >= 2 || (this.enemiesNear(h, t.whirlwind.radius).length >= 1 && h.isTank === true);
       case 'shieldBlock':
@@ -1044,43 +1045,113 @@ export class Battle {
         // Block an incoming Smash, or when taking a beating.
         if (this.units.some((e) => e.side === 'enemy' && e.alive && e.casting?.kind === 'smasher' && e.casting.targetId === h.id)) return true;
         return this.attackersOf(h) >= 1 && h.hp < h.maxHp * 0.85;
+      case 'lastStand':
+        return h.hp < h.maxHp * t.lastStand.below;
+      case 'rallyingShout':
+        return !this.hasEffect(h, 'empower') && this.engagedEnemies().length >= 2;
+      case 'heal':
+      case 'radiantLight':
+        return this.hurtAllies(0.7).length > 0;
+      case 'renew':
+        return this.renewCandidates().length > 0;
+      case 'fortitude':
+        return this.allies().some((u) => !this.hasEffect(u, 'fortitude'));
       case 'powerShield':
-        return this.units.some((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'shield') && this.attackersOf(u) > 0);
-      case 'prayerOfHealing':
-        return this.groupHealWanted();
+        return this.allies().some((u) => !this.hasEffect(u, 'shield') && this.attackersOf(u) > 0);
+      case 'guardianSpirit':
+        return !!this.guardianCandidate();
+      case 'holyNova':
+        return this.hurtAllies(0.85).length >= 2 || (this.hurtAllies(0.85).length >= 1 && this.enemiesNear(h, this.novaRadius(a)).length > 0);
+      case 'chainOfLight':
+        return this.hurtAllies(0.8).length >= 2 || this.hurtAllies(0.6).length >= 1;
+      case 'mercy':
+        return this.hurtAllies(t.mercy.below).length > 0;
+      case 'fireball':
       case 'iceLance':
-        return !!this.pickEnemyTarget(h, t.iceLance.damage);
-      case 'blizzard':
-        return this.blizzardSpot(h).count >= 2;
+      case 'arcaneBarrage':
+      case 'sinisterStrike':
       case 'eviscerate':
-        return !!this.pickEnemyTarget(h, t.eviscerate.damage);
+      case 'heroicStrike':
+      case 'hexBolt':
+        return !!this.pickEnemyTarget(h, this.aiHitSize(h, a));
+      case 'soulDrain':
+        return !!this.pickEnemyTarget(h, this.aiHitSize(h, a)) && !!this.mostInjuredAlly(0.9);
+      case 'polymorph':
+        return !!this.polymorphCandidate(h);
+      case 'kick':
+      case 'counterspell':
+        return this.interruptTargets(h, this.interruptRange(id)).some((u) => this.interruptible(u));
+      case 'shieldBash':
+      case 'gouge':
+      case 'hammerOfJustice':
+        return !!this.stunTarget(h, a);
+      case 'blizzard': {
+        const spot = this.blizzardSpot(h, a);
+        return spot.count >= 2 || (spot.count >= 1 && !!spot.unit && (spot.unit.isElite === true || this.enemiesAlive() === 1));
+      }
+      case 'frostNova': {
+        const near = this.enemiesNear(h, t.frostNova.radius).filter((e) => !this.hasEffect(e, 'stun'));
+        return near.length >= 2 || near.some((e) => e.targetId === h.id || (e.targetId !== null && !this.unit(e.targetId)?.isTank));
+      }
       case 'evasion':
         return !this.hasEffect(h, 'evasion') && this.attackersOf(h) >= 1;
+      case 'fanOfKnives':
+        return this.enemiesNear(h, t.fanOfKnives.radius).length >= 2;
       case 'judgement':
-        return !!this.judgementTarget(h);
-      case 'radiantLight':
-        return this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.7);
+        return !!this.rangedTarget(h, t.judgement.range, this.aiHitSize(h, a));
+      case 'exorcism':
+        return !!this.rangedTarget(h, t.exorcism.range, this.aiHitSize(h, a));
       case 'hallowedGround':
         return this.enemiesNear(h, t.hallowedGround.radius).length >= (h.isTank ? 1 : 2);
-      case 'mercy':
-        return this.units.some((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * t.mercy.below);
-      case 'hexBolt':
-        return !!this.pickEnemyTarget(h, t.hexBolt.damage);
       case 'wither':
         return !!this.witherTarget(h);
-      case 'soulDrain':
-        return !!this.pickEnemyTarget(h, t.soulDrain.damage) && !!this.mostInjuredAlly(0.9);
       case 'enfeeble':
         return !!this.enfeebleTarget(h);
+      case 'doom':
+        return !!this.doomTarget(h, a);
+      case 'curseOfRuin':
+        return !!this.ruinTarget(h);
     }
+  }
+
+  /** Expected size of a damaging ability's hit (for careful AI). */
+  private aiHitSize(h: Unit, a: AbilitySlot): number {
+    const t = ABILITY_TUNING;
+    const base: Partial<Record<AbilityId, number>> = {
+      fireball: t.fireball.damage,
+      iceLance: t.iceLance.damage,
+      arcaneBarrage: t.arcaneBarrage.damage,
+      sinisterStrike: t.sinisterStrike.damage,
+      eviscerate: t.eviscerate.damage,
+      heroicStrike: t.heroicStrike.damage,
+      hexBolt: t.hexBolt.damage,
+      soulDrain: t.soulDrain.damage,
+      judgement: t.judgement.damage,
+      exorcism: t.exorcism.damage * t.exorcism.holyBonus,
+    };
+    return (base[a.id] ?? 0) * this.abilityScale(h, a);
+  }
+
+  /** Enemies that are in the fight (someone has threat on them, or they have a target). */
+  private engagedEnemies(): Unit[] {
+    return this.units.filter((u) => u.side === 'enemy' && u.alive && (u.targetId !== null || this.topThreat(u).value > 0));
+  }
+
+  private enemiesAlive(): number {
+    return this.units.filter((u) => u.side === 'enemy' && u.alive).length;
+  }
+
+  /** An enemy within `range` (edge to edge) that careful AI may hit: the current target if possible, else the nearest. */
+  private rangedTarget(h: Unit, range: number, hitSize: number): Unit | null {
+    let inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) - h.radius - u.radius <= range);
+    if (this.isCareful(h)) inRange = inRange.filter((u) => !this.wouldPull(h, u, hitSize));
+    if (!inRange.length) return null;
+    return inRange.find((u) => u.id === h.targetId) ?? nearest(h, inRange);
   }
 
   /** An enemy within Judgement's range: the current target if possible, else the nearest. */
   private judgementTarget(h: Unit): Unit | null {
-    const r = ABILITY_TUNING.judgement.range;
-    const inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) - h.radius - u.radius <= r);
-    if (!inRange.length) return null;
-    return inRange.find((u) => u.id === h.targetId) ?? nearest(h, inRange);
+    return this.rangedTarget(h, ABILITY_TUNING.judgement.range, 0);
   }
 
   /** An enemy in reach that isn't already withering from this hero. */
@@ -1105,15 +1176,60 @@ export class Battle {
     );
   }
 
+  /** Doom: the toughest enemy in reach that isn't doomed and will still be standing when it lands. */
+  private doomTarget(h: Unit, a: AbilitySlot): Unit | null {
+    const dmg = ABILITY_TUNING.doom.damage * this.abilityScale(h, a);
+    const valid = this.enemyCandidates(h, dmg * 0.5).filter((u) => !this.hasEffect(u, 'doom') && u.hp > dmg * 0.6);
+    if (!valid.length) return null;
+    return valid.reduce((x, y) => (y.hp > x.hp ? y : x));
+  }
+
+  /** Curse of Ruin: what the party is hitting — the tank's target, a boss or an elite — if not already cursed. */
+  private ruinTarget(h: Unit): Unit | null {
+    const valid = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && !this.hasEffect(u, 'vulnerable') && this.inReach(h, u));
+    if (!valid.length) return null;
+    const tank = this.allies().find((u) => u.isTank);
+    const tankTarget = tank?.targetId !== null && tank?.targetId !== undefined ? valid.find((u) => u.id === tank.targetId) : undefined;
+    return valid.find((u) => u.isBoss) ?? valid.find((u) => u.isElite) ?? tankTarget ?? valid.find((u) => u.id === h.targetId) ?? null;
+  }
+
+  /** Who a stun (Shield Bash, Gouge, Hammer of Justice) should hit: a caster first, then a boss or elite hitting someone. */
+  private stunTarget(h: Unit, a: AbilitySlot): Unit | null {
+    const t = ABILITY_TUNING;
+    const range = a.id === 'hammerOfJustice' ? t.hammerOfJustice.range : Math.max(h.range, t.shieldBash.range);
+    const valid = this.units.filter(
+      (u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && !this.hasEffect(u, 'stun') && dist(h, u) - h.radius - u.radius <= range,
+    );
+    return valid.find((u) => this.interruptible(u)) ?? valid.find((u) => (u.isBoss || u.isElite) && u.targetId !== null && !u.casting) ?? null;
+  }
+
+  /** Guardian Spirit: an ally in real danger who isn't already watched over. */
+  private guardianCandidate(): Unit | undefined {
+    const allies = this.allies().filter((u) => !this.hasEffect(u, 'guardian'));
+    const smashed = allies.find((u) => this.units.some((e) => e.side === 'enemy' && e.alive && e.casting?.kind === 'smasher' && e.casting.targetId === u.id && e.isBoss));
+    return smashed ?? allies.filter((u) => u.hp < u.maxHp * 0.45 && this.attackersOf(u) > 0).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+  }
+
+  private novaRadius(a: AbilitySlot): number {
+    return a.mastery ? ABILITY_TUNING.holyNova.masteryRadius : ABILITY_TUNING.holyNova.radius;
+  }
+
   /** Lowest-health ally (by fraction) below `under` of their max health. */
   private mostInjuredAlly(under = 1): Unit | undefined {
     const a = this.lowestAlly();
     return a && a.hp < a.maxHp * under ? a : undefined;
   }
 
+  /** Healing after passives (Blessed Hands: +50% on an ally in trouble). */
+  private healAmount(from: Unit, to: Unit, raw: number): number {
+    if (this.hasTrait(from, 'blessedHands') && to.hp < to.maxHp * TRAIT_TUNING.blessedHandsBelow) raw *= 1 + TRAIT_TUNING.blessedHandsBonus;
+    return raw;
+  }
+
   /** Heal an ally (capped at missing health); emits events and heal threat. Returns the amount. */
   private healUnit(from: Unit, to: Unit, raw: number): number {
-    const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(raw)));
+    if (!to.alive) return 0;
+    const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(this.healAmount(from, to, raw))));
     if (amount <= 0) return 0;
     to.hp += amount;
     this.events.push({ type: 'heal', from: from.id, to: to.id, amount });
@@ -1121,30 +1237,18 @@ export class Battle {
     return amount;
   }
 
-  /** Two or more allies have taken a real hit, or one is in real trouble. */
-  private groupHealWanted(): boolean {
-    const hurt = this.units.filter((u) => u.side === 'hero' && u.alive && u.hp < u.maxHp * 0.85);
-    return hurt.length >= 2 || hurt.some((u) => u.hp < u.maxHp * 0.6);
-  }
-
-  /** This hero has Prayer of Healing ready (cooldown and mana) and it's wanted. */
-  private groupHealReady(h: Unit): boolean {
-    const slot = h.abilities?.findIndex((a) => a.id === 'prayerOfHealing') ?? -1;
-    return slot >= 0 && this.abilityState(slot, h) === 'ok' && this.groupHealWanted();
-  }
-
   private attackersOf(u: Unit): number {
     return this.units.filter((e) => e.side === 'enemy' && e.alive && e.targetId === u.id).length;
   }
 
   /** Best place for a Blizzard: the enemy with the most other enemies around it, in range. */
-  private blizzardSpot(h: Unit): { x: number; y: number; count: number } {
-    const r = ABILITY_TUNING.blizzard.radius;
-    let best = { x: 0, y: 0, count: 0 };
+  private blizzardSpot(h: Unit, a?: AbilitySlot): { x: number; y: number; count: number; unit?: Unit } {
+    const r = ABILITY_TUNING.blizzard.radius * (a?.mastery ? ABILITY_TUNING.blizzard.masteryRadius : 1);
+    let best: { x: number; y: number; count: number; unit?: Unit } = { x: 0, y: 0, count: 0 };
     for (const e of this.units) {
       if (e.side !== 'enemy' || !e.alive || this.isSheep(e) || !this.inReach(h, e)) continue;
       const count = this.units.filter((o) => o.side === 'enemy' && o.alive && !this.isSheep(o) && dist(o, e) <= r).length;
-      if (count > best.count) best = { x: e.x, y: e.y, count };
+      if (count > best.count) best = { x: e.x, y: e.y, count, unit: e };
     }
     return best;
   }
@@ -1163,6 +1267,10 @@ export class Battle {
         this.damage(source, e, Math.round(z.damage), { aoe: true, tick: true, ability: z.ability, threatScale });
         if (z.ability === 'blizzard') this.addEffect(e, { kind: 'slow', remaining: 1.5, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: source.id });
       }
+      // Sanctified Ground: allies standing in it are healed.
+      if (z.heal && source.alive) {
+        for (const ally of this.allies()) if (Math.hypot(ally.x - z.x, ally.y - z.y) <= z.radius) this.healUnit(source, ally, z.heal);
+      }
     }
     this.zones = this.zones.filter((z) => z.remaining > 1e-6);
   }
@@ -1172,10 +1280,9 @@ export class Battle {
    * most-attacked first, then lowest health.
    */
   private renewCandidates(): Unit[] {
-    const attackers = (u: Unit) => this.units.filter((e) => e.side === 'enemy' && e.alive && e.targetId === u.id).length;
-    return this.units
-      .filter((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'hot') && (attackers(u) > 0 || u.hp < u.maxHp * 0.95))
-      .sort((a, b) => attackers(b) - attackers(a) || a.hp / a.maxHp - b.hp / b.maxHp);
+    return this.allies()
+      .filter((u) => !this.hasEffect(u, 'hot') && (this.attackersOf(u) > 0 || u.hp < u.maxHp * 0.95))
+      .sort((a, b) => this.attackersOf(b) - this.attackersOf(a) || a.hp / a.maxHp - b.hp / b.maxHp);
   }
 
   private enemiesNear(h: Unit, radius: number): Unit[] {
@@ -1183,18 +1290,20 @@ export class Battle {
   }
 
   private lowestAlly(): Unit | undefined {
-    return this.units.filter((u) => u.side === 'hero' && u.alive).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    return this.allies().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
   }
 
   /**
    * Who an ability would hit right now, without casting it. With a focus set,
    * the player's abilities only go to that focus (enemy or, for heals, ally).
    */
-  private abilityTarget(h: Unit, id: AbilityId, byPlayer: boolean): Unit | null {
+  private abilityTarget(h: Unit, a: AbilitySlot, byPlayer: boolean): Unit | null {
     const t = ABILITY_TUNING;
+    const id = a.id;
     const focus = byPlayer && this.focusId !== null ? this.unit(this.focusId) : undefined;
     const focusEnemy = focus?.side === 'enemy' && focus.alive ? focus : undefined;
     const focusAlly = focus?.side === 'hero' && focus.alive ? focus : undefined;
+    const inRangeOf = (range: number, u: Unit) => dist(h, u) - h.radius - u.radius <= range;
     switch (id) {
       case 'taunt': {
         const inRange = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && dist(h, u) <= AGGRO.tauntRange);
@@ -1202,29 +1311,62 @@ export class Battle {
         const loose = this.looseEnemies(h);
         return loose.length ? nearest(h, loose) : inRange.length ? nearest(h, inRange) : null;
       }
+      // Self-centred or party-wide: the hero is the "target".
       case 'thunderclap':
         return this.enemiesNear(h, t.thunderclap.radius).length ? h : null;
+      case 'whirlwind':
+        return this.enemiesNear(h, t.whirlwind.radius).length ? h : null;
+      case 'fanOfKnives':
+        return this.enemiesNear(h, t.fanOfKnives.radius).length ? h : null;
+      case 'frostNova':
+        return this.enemiesNear(h, t.frostNova.radius).length ? h : null;
+      case 'hallowedGround':
+        return this.enemiesNear(h, t.hallowedGround.radius).length ? h : null;
+      case 'shieldBlock':
+      case 'evasion':
+      case 'lastStand':
+      case 'rallyingShout':
+      case 'fortitude':
+      case 'holyNova':
+      case 'chainOfLight':
+        return h;
+      case 'arcaneBarrage':
+        return this.enemyCandidates(h, 0).length ? h : null;
+      // Heals.
       case 'heal':
+      case 'radiantLight':
         return focusAlly ?? this.lowestAlly() ?? null;
       case 'renew':
         return focusAlly ?? this.renewCandidates()[0] ?? this.lowestAlly() ?? null;
-      case 'fortitude':
-        return h; // party-wide; always has a target
+      case 'mercy':
+        return focusAlly ?? this.mostInjuredAlly(t.mercy.below) ?? null;
+      case 'powerShield': {
+        if (focusAlly) return focusAlly;
+        const allies = this.allies().filter((u) => !this.hasEffect(u, 'shield'));
+        return allies.sort((x, y) => this.attackersOf(y) - this.attackersOf(x) || x.hp / x.maxHp - y.hp / y.maxHp)[0] ?? this.lowestAlly() ?? null;
+      }
+      case 'guardianSpirit':
+        return focusAlly ?? this.guardianCandidate() ?? (byPlayer ? this.lowestAlly() ?? null : null);
+      // Single-target damage.
       case 'fireball':
       case 'sinisterStrike':
-      case 'heroicStrike': {
+      case 'heroicStrike':
+      case 'iceLance':
+      case 'eviscerate':
+      case 'hexBolt':
+      case 'soulDrain':
         if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
-        const size = id === 'fireball' ? t.fireball.damage : id === 'heroicStrike' ? t.heroicStrike.damage : t.sinisterStrike.damage;
-        return this.pickEnemyTarget(h, byPlayer ? 0 : size);
-      }
+        return this.pickEnemyTarget(h, byPlayer ? 0 : this.aiHitSize(h, a));
+      case 'judgement':
+        if (focusEnemy) return inRangeOf(t.judgement.range, focusEnemy) ? focusEnemy : null;
+        return this.rangedTarget(h, t.judgement.range, byPlayer ? 0 : this.aiHitSize(h, a));
+      case 'exorcism':
+        if (focusEnemy) return inRangeOf(t.exorcism.range, focusEnemy) ? focusEnemy : null;
+        return this.rangedTarget(h, t.exorcism.range, byPlayer ? 0 : this.aiHitSize(h, a));
       case 'polymorph': {
         if (focusEnemy) return this.canPolymorph(h, focusEnemy) ? focusEnemy : null;
         if (!byPlayer) return this.polymorphCandidate(h) ?? null;
-        return (
-          this.polymorphCandidate(h) ??
-          this.units.filter((u) => this.canPolymorph(h, u)).sort((a, b) => b.y - a.y)[0] ??
-          null
-        );
+        return this.polymorphCandidate(h) ?? this.units.filter((u) => this.canPolymorph(h, u)).sort((x, y) => y.y - x.y)[0] ?? null;
       }
       case 'kick':
       case 'counterspell': {
@@ -1232,42 +1374,19 @@ export class Battle {
         if (focusEnemy) return targets.includes(focusEnemy) ? focusEnemy : null;
         return targets.find((u) => this.interruptible(u)) ?? (targets.length ? nearest(h, targets) : null);
       }
-      case 'whirlwind':
-        return this.enemiesNear(h, t.whirlwind.radius).length ? h : null;
-      case 'shieldBlock':
-      case 'evasion':
-        return h;
-      case 'powerShield': {
-        if (focusAlly) return focusAlly;
-        const allies = this.units.filter((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'shield'));
-        return allies.sort((a, b) => this.attackersOf(b) - this.attackersOf(a) || a.hp / a.maxHp - b.hp / b.maxHp)[0] ?? this.lowestAlly() ?? null;
-      }
-      case 'prayerOfHealing':
-        return h;
-      case 'iceLance':
-      case 'eviscerate': {
-        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
-        return this.pickEnemyTarget(h, byPlayer ? 0 : id === 'iceLance' ? t.iceLance.damage : t.eviscerate.damage);
+      case 'shieldBash':
+      case 'gouge':
+      case 'hammerOfJustice': {
+        const range = id === 'hammerOfJustice' ? t.hammerOfJustice.range : Math.max(h.range, t.shieldBash.range);
+        if (focusEnemy) return inRangeOf(range, focusEnemy) ? focusEnemy : null;
+        const best = this.stunTarget(h, a);
+        if (best || !byPlayer) return best;
+        const near = this.units.filter((u) => u.side === 'enemy' && u.alive && inRangeOf(range, u));
+        return near.length ? nearest(h, near) : null;
       }
       case 'blizzard': {
         if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
-        const spot = this.blizzardSpot(h);
-        if (!spot.count) return null;
-        return this.units.find((u) => u.side === 'enemy' && u.alive && u.x === spot.x && u.y === spot.y) ?? null;
-      }
-      case 'judgement':
-        if (focusEnemy) return dist(h, focusEnemy) - h.radius - focusEnemy.radius <= t.judgement.range ? focusEnemy : null;
-        return this.judgementTarget(h);
-      case 'radiantLight':
-        return focusAlly ?? this.lowestAlly() ?? null;
-      case 'mercy':
-        return focusAlly ?? this.mostInjuredAlly(t.mercy.below) ?? null;
-      case 'hallowedGround':
-        return this.enemiesNear(h, t.hallowedGround.radius).length ? h : null;
-      case 'hexBolt':
-      case 'soulDrain': {
-        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
-        return this.pickEnemyTarget(h, byPlayer ? 0 : id === 'hexBolt' ? t.hexBolt.damage : t.soulDrain.damage);
+        return this.blizzardSpot(h, a).unit ?? null;
       }
       case 'wither':
         if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
@@ -1275,175 +1394,337 @@ export class Battle {
       case 'enfeeble':
         if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
         return this.enfeebleTarget(h);
+      case 'doom':
+        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
+        return this.doomTarget(h, a) ?? (byPlayer ? this.pickEnemyTarget(h, 0) : null);
+      case 'curseOfRuin':
+        if (focusEnemy) return this.inReach(h, focusEnemy) ? focusEnemy : null;
+        return this.ruinTarget(h) ?? (byPlayer ? this.pickEnemyTarget(h, 0) : null);
     }
+  }
+
+  /** Stun an enemy (bosses shake it off twice as fast). Breaks a cast unless it's unstoppable. */
+  private applyStun(from: Unit, to: Unit, seconds: number): void {
+    if (!to.alive) return;
+    const duration = seconds * (to.isBoss ? ABILITY_TUNING.bossStunFactor : 1);
+    if (this.interruptible(to)) {
+      this.endCast(to, true);
+      this.events.push({ type: 'notice', id: to.id, text: 'Interrupted!', tone: 'good' });
+    }
+    this.addEffect(to, { kind: 'stun', remaining: duration, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: from.id });
+    to.vx = 0;
+    to.vy = 0;
+  }
+
+  /** A damage-over-time effect from a hero's ability. */
+  private addDot(from: Unit, to: Unit, total: number, duration: number, ability: AbilityId, tick = 1): void {
+    if (!to.alive || total <= 0) return;
+    this.addEffect(to, { kind: 'dot', remaining: duration, tickEvery: tick, tickTimer: tick, amount: (total * tick) / duration, sourceId: from.id, ability });
+  }
+
+  /** The other enemy nearest to `u` (within `radius`), if any. */
+  private nextEnemy(u: Unit, radius: number, exclude: Unit[] = []): Unit | undefined {
+    const others = this.units.filter((o) => o.side === 'enemy' && o.alive && o !== u && !exclude.includes(o) && !this.isSheep(o) && dist(o, u) <= radius);
+    return others.length ? nearest(u, others) : undefined;
   }
 
   /** Perform the ability in `slot`. Returns false if there was no valid target. */
   private cast(h: Unit, slot: number, byPlayer: boolean): boolean {
-    const slotState = h.abilities![slot];
-    const id = slotState.id;
+    const a = h.abilities![slot];
+    const id = a.id;
     const t = ABILITY_TUNING;
-    const to = this.abilityTarget(h, id, byPlayer);
+    const to = this.abilityTarget(h, a, byPlayer);
     if (!to) return false;
-    const k = this.abilityScale(h, slotState);
+    const k = this.abilityScale(h, a);
+    const m = !!a.mastery;
+    const ev = (target?: Unit) => this.events.push({ type: 'ability', from: h.id, ability: id, to: target?.id });
 
     switch (id) {
+      // --- Warrior
       case 'taunt':
         this.applyTaunt(h, to);
         break;
-      case 'thunderclap': {
-        const hit = this.enemiesNear(h, t.thunderclap.radius);
-        this.events.push({ type: 'ability', from: h.id, ability: id });
-        for (const e of hit) {
+      case 'heroicStrike': {
+        h.targetId = to.id;
+        ev(to);
+        this.damage(h, to, this.roll(t.heroicStrike.damage * k), { ability: id, threatScale: t.heroicStrike.threatBonus });
+        const other = m ? this.nextEnemy(to, t.heroicStrike.cleaveRadius) : undefined;
+        if (other) this.damage(h, other, this.roll(t.heroicStrike.damage * k * t.heroicStrike.cleave), { ability: id, threatScale: t.heroicStrike.threatBonus });
+        break;
+      }
+      case 'thunderclap':
+        ev();
+        for (const e of this.enemiesNear(h, t.thunderclap.radius)) {
           this.damage(h, e, this.roll(t.thunderclap.damage * k), { threatScale: t.thunderclap.threatBonus, ability: id, aoe: true });
           this.addEffect(e, { kind: 'slow', remaining: t.thunderclap.slow, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+          if (m) this.addEffect(e, { kind: 'weaken', remaining: 6, tickEvery: 0, tickTimer: 0, amount: t.thunderclap.aftershock, sourceId: h.id, ability: id });
         }
         break;
-      }
-      case 'heal': {
-        const amount = Math.min(to.maxHp - to.hp, this.roll(t.heal.amount * k));
-        to.hp += amount;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.events.push({ type: 'heal', from: h.id, to: to.id, amount });
-        this.addHealThreat(h, amount);
+      case 'whirlwind':
+        ev();
+        for (const e of this.enemiesNear(h, t.whirlwind.radius)) {
+          this.damage(h, e, this.roll(t.whirlwind.damage * k), { ability: id, aoe: true });
+          if (m) this.damage(h, e, this.roll(t.whirlwind.damage * k * t.whirlwind.secondHit), { ability: id, aoe: true });
+        }
+        break;
+      case 'shieldBlock':
+        this.addEffect(h, {
+          kind: 'block',
+          remaining: m ? t.shieldBlock.masteryDuration : t.shieldBlock.duration,
+          tickEvery: 0,
+          tickTimer: 0,
+          amount: m ? t.shieldBlock.masteryReduction : t.shieldBlock.reduction,
+          sourceId: h.id,
+        });
+        ev(h);
+        break;
+      case 'shieldBash':
+      case 'gouge':
+      case 'hammerOfJustice': {
+        ev(to);
+        const stun =
+          id === 'shieldBash' ? (m ? t.shieldBash.masteryStun : t.shieldBash.stun) : id === 'gouge' ? (m ? t.gouge.masteryStun : t.gouge.stun) : m ? t.hammerOfJustice.masteryStun : t.hammerOfJustice.stun;
+        this.applyStun(h, to, stun);
+        const dmg = id === 'shieldBash' ? t.shieldBash.damage : id === 'hammerOfJustice' ? t.hammerOfJustice.damage : 0;
+        if (dmg) this.damage(h, to, this.roll(dmg * k), { ability: id });
         break;
       }
+      case 'lastStand':
+        ev(h);
+        this.healUnit(h, h, h.maxHp * (m ? t.lastStand.masteryHeal : t.lastStand.heal));
+        if (m) this.addEffect(h, { kind: 'block', remaining: t.lastStand.masteryBlockTime, tickEvery: 0, tickTimer: 0, amount: t.lastStand.masteryBlock, sourceId: h.id + 100000 });
+        break;
+      case 'rallyingShout':
+        ev();
+        for (const ally of this.allies()) {
+          this.addEffect(ally, { kind: 'empower', remaining: t.rallyingShout.duration, tickEvery: 0, tickTimer: 0, amount: t.rallyingShout.bonus, sourceId: h.id });
+          if (m) this.healUnit(h, ally, ally.maxHp * t.rallyingShout.masteryHeal);
+        }
+        break;
+      // --- Priest
+      case 'heal':
+        ev(to);
+        this.healUnit(h, to, this.roll(t.heal.amount * k * (m ? t.heal.mastery : 1)));
+        break;
       case 'renew': {
-        const ticks = t.renew.duration / t.renew.tick;
-        to.effects = (to.effects ?? []).filter((e) => e.kind !== 'hot');
-        this.addEffect(to, { kind: 'hot', remaining: t.renew.duration, tickEvery: t.renew.tick, tickTimer: t.renew.tick, amount: (t.renew.total * k) / ticks, sourceId: h.id });
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        const apply = (u: Unit) => {
+          const ticks = t.renew.duration / t.renew.tick;
+          u.effects = (u.effects ?? []).filter((e) => !(e.kind === 'hot' && e.ability === 'renew'));
+          this.addEffect(u, { kind: 'hot', remaining: t.renew.duration, tickEvery: t.renew.tick, tickTimer: t.renew.tick, amount: (t.renew.total * k) / ticks, sourceId: h.id, ability: id });
+          this.events.push({ type: 'ability', from: h.id, ability: id, to: u.id });
+        };
+        apply(to);
+        const second = m ? this.renewCandidates().find((u) => u !== to) : undefined;
+        if (second) apply(second);
         break;
       }
       case 'fortitude':
         this.applyFortitude(h, t.fortitude.duration);
-        this.events.push({ type: 'ability', from: h.id, ability: id });
+        ev();
         break;
-      case 'heroicStrike':
-        h.targetId = to.id;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.damage(h, to, this.roll(t.heroicStrike.damage * k), { ability: id, threatScale: t.heroicStrike.threatBonus });
+      case 'powerShield':
+        this.addEffect(to, { kind: 'shield', remaining: t.powerShield.duration, tickEvery: 0, tickTimer: 0, amount: Math.round(t.powerShield.absorb * k), sourceId: h.id, ability: m ? 'powerShield' : undefined });
+        ev(to);
         break;
-      case 'fireball':
-      case 'sinisterStrike': {
-        let size = id === 'fireball' ? t.fireball.damage : t.sinisterStrike.damage;
-        if (id === 'sinisterStrike' && this.hasTrait(h, 'comboPoints') && h.comboPoints) {
-          size *= 1 + h.comboPoints * TRAIT_TUNING.comboBonusPerPoint;
-          h.comboPoints = 0;
-        }
-        h.targetId = to.id;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        if (id === 'fireball') this.shoot(h, to, this.roll(size * k), { ability: id, burn: t.fireball.burnPerSecond * k, big: true });
-        else this.damage(h, to, this.roll(size * k), { ability: id });
+      case 'guardianSpirit':
+        this.addEffect(to, { kind: 'guardian', remaining: t.guardianSpirit.duration, tickEvery: 0, tickTimer: 0, amount: m ? t.guardianSpirit.masterySaveAt : t.guardianSpirit.saveAt, sourceId: h.id });
+        ev(to);
+        break;
+      case 'holyNova': {
+        const x = m ? t.holyNova.mastery : 1;
+        ev();
+        for (const ally of this.allies()) this.healUnit(h, ally, this.roll(t.holyNova.heal * k * x));
+        for (const e of this.enemiesNear(h, this.novaRadius(a))) this.damage(h, e, this.roll(t.holyNova.damage * k * x), { ability: id, aoe: true });
         break;
       }
+      case 'chainOfLight': {
+        ev();
+        const jumps = m ? t.chainOfLight.masteryJumps : t.chainOfLight.jumps;
+        const falloff = m ? t.chainOfLight.masteryFalloff : t.chainOfLight.falloff;
+        const order = this.allies().sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp);
+        order.slice(0, jumps + 1).forEach((ally, i) => this.healUnit(h, ally, this.roll(t.chainOfLight.amount * k * Math.pow(falloff, i))));
+        break;
+      }
+      // --- Mage
+      case 'fireball': {
+        h.targetId = to.id;
+        ev(to);
+        const burn = t.fireball.burnPerSecond * k * (m ? 2 : 1);
+        this.shoot(h, to, this.roll(t.fireball.damage * k), { ability: id, burn, big: true, spread: m });
+        break;
+      }
+      case 'iceLance': {
+        h.targetId = to.id;
+        ev(to);
+        const shatter = m && (this.hasEffect(to, 'slow') || this.hasEffect(to, 'stun')) ? t.iceLance.shatter : 1;
+        this.shoot(h, to, this.roll(t.iceLance.damage * k * shatter), { ability: id, big: shatter > 1 });
+        break;
+      }
+      case 'arcaneBarrage': {
+        ev();
+        const pool = this.enemyCandidates(h, 0);
+        const n = m ? t.arcaneBarrage.masteryMissiles : t.arcaneBarrage.missiles;
+        for (let i = 0; i < n && pool.length; i++) {
+          const target = pool[Math.floor(this.rng() * pool.length)];
+          this.shoot(h, target, this.roll(t.arcaneBarrage.damage * k), { ability: id });
+        }
+        break;
+      }
+      case 'blizzard': {
+        const b = t.blizzard;
+        this.zones.push({
+          id: this.nextId++,
+          x: to.x,
+          y: to.y,
+          radius: b.radius * (m ? b.masteryRadius : 1),
+          remaining: b.duration,
+          tickTimer: 0.5,
+          damage: b.damagePerSecond * k * (m ? b.masteryDamage : 1),
+          sourceId: h.id,
+          ability: id,
+        });
+        ev(to);
+        break;
+      }
+      case 'frostNova':
+        ev();
+        for (const e of this.enemiesNear(h, t.frostNova.radius)) {
+          this.damage(h, e, this.roll(t.frostNova.damage * k), { ability: id, aoe: true });
+          this.applyStun(h, e, m ? t.frostNova.masteryFreeze : t.frostNova.freeze);
+        }
+        break;
       case 'polymorph':
         this.applyPolymorph(h, to);
         break;
       case 'kick':
       case 'counterspell': {
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        ev(to);
         if (this.interruptible(to)) {
           this.endCast(to, true);
-          const silence = id === 'kick' ? t.kick.silence : t.counterspell.silence;
+          const silence = id === 'kick' ? (m ? t.kick.masterySilence : t.kick.silence) : m ? t.counterspell.masterySilence : t.counterspell.silence;
           this.addEffect(to, { kind: 'silence', remaining: silence, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
           this.events.push({ type: 'notice', id: to.id, text: id === 'kick' ? 'Interrupted!' : 'Countered!', tone: 'good' });
+          if (m && id === 'kick') this.applyStun(h, to, t.kick.masteryStun);
+          if (m && id === 'counterspell') this.damage(h, to, this.roll(t.counterspell.masteryDamage * k), { ability: id });
         }
         if (id === 'kick') this.damage(h, to, t.kick.damage);
         break;
       }
-      case 'whirlwind':
-        this.events.push({ type: 'ability', from: h.id, ability: id });
-        for (const e of this.enemiesNear(h, t.whirlwind.radius)) this.damage(h, e, this.roll(t.whirlwind.damage * k), { ability: id, aoe: true });
-        break;
-      case 'shieldBlock':
-        this.addEffect(h, { kind: 'block', remaining: t.shieldBlock.duration, tickEvery: 0, tickTimer: 0, amount: t.shieldBlock.reduction, sourceId: h.id });
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: h.id });
-        break;
-      case 'evasion':
-        this.addEffect(h, { kind: 'evasion', remaining: t.evasion.duration, tickEvery: 0, tickTimer: 0, amount: t.evasion.dodge, sourceId: h.id });
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: h.id });
-        break;
-      case 'powerShield':
-        this.addEffect(to, { kind: 'shield', remaining: t.powerShield.duration, tickEvery: 0, tickTimer: 0, amount: Math.round(t.powerShield.absorb * k), sourceId: h.id });
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        break;
-      case 'prayerOfHealing': {
-        this.events.push({ type: 'ability', from: h.id, ability: id });
-        const worst = this.lowestAlly();
-        for (const ally of this.units) {
-          if (ally.side !== 'hero' || !ally.alive) continue;
-          const extra = ally === worst ? t.prayerOfHealing.bonus : 0;
-          this.healUnit(h, ally, this.roll((t.prayerOfHealing.amount + extra) * k));
-        }
-        break;
-      }
-      case 'iceLance':
+      // --- Rogue
+      case 'sinisterStrike':
       case 'eviscerate': {
-        let size = (id === 'iceLance' ? t.iceLance.damage : t.eviscerate.damage) * k;
-        if (id === 'eviscerate' && this.hasTrait(h, 'comboPoints') && h.comboPoints) {
+        let size = (id === 'sinisterStrike' ? t.sinisterStrike.damage : t.eviscerate.damage) * k;
+        if (this.hasTrait(h, 'comboPoints') && h.comboPoints) {
           size *= 1 + h.comboPoints * TRAIT_TUNING.comboBonusPerPoint;
           h.comboPoints = 0;
         }
+        if (id === 'eviscerate' && m && to.hp < to.maxHp * t.eviscerate.executeBelow) size *= 2;
         h.targetId = to.id;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        if (id === 'iceLance') this.shoot(h, to, this.roll(size), { ability: id });
-        else this.damage(h, to, this.roll(size), { ability: id, big: true });
+        ev(to);
+        this.damage(h, to, this.roll(size), { ability: id, big: id === 'eviscerate' });
+        if (id === 'sinisterStrike' && m) this.addDot(h, to, t.sinisterStrike.bleed * k, t.sinisterStrike.bleedDuration, id);
         break;
       }
-      case 'blizzard': {
-        const b = t.blizzard;
-        this.zones.push({ id: this.nextId++, x: to.x, y: to.y, radius: b.radius, remaining: b.duration, tickTimer: 0.5, damage: b.damagePerSecond * k, sourceId: h.id, ability: id });
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+      case 'evasion':
+        this.addEffect(h, { kind: 'evasion', remaining: t.evasion.duration, tickEvery: 0, tickTimer: 0, amount: t.evasion.dodge, sourceId: h.id, ability: m ? 'evasion' : undefined });
+        ev(h);
         break;
-      }
+      case 'fanOfKnives':
+        ev();
+        for (const e of this.enemiesNear(h, t.fanOfKnives.radius)) {
+          this.damage(h, e, this.roll(t.fanOfKnives.damage * k), { ability: id, aoe: true });
+          if (m) this.addDot(h, e, t.fanOfKnives.poison * k, t.fanOfKnives.poisonDuration, id);
+        }
+        break;
+      // --- Paladin
       case 'judgement': {
         h.targetId = to.id;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        const before = to.hp;
-        this.damage(h, to, this.roll(t.judgement.damage * k), { ability: id });
-        const dealt = Math.max(0, before - Math.max(0, to.hp));
-        const ally = this.mostInjuredAlly();
-        if (ally && dealt > 0) this.healUnit(h, ally, dealt * (this.hasTrait(h, 'zeal') ? 1 : t.judgement.healShare));
+        ev(to);
+        const strike = (target: Unit, factor: number) => {
+          const before = target.hp;
+          this.damage(h, target, this.roll(t.judgement.damage * k * factor), { ability: id });
+          const dealt = Math.max(0, before - Math.max(0, target.hp));
+          const ally = this.mostInjuredAlly();
+          if (ally && dealt > 0) this.healUnit(h, ally, dealt * (this.hasTrait(h, 'zeal') ? 1 : t.judgement.healShare));
+        };
+        strike(to, 1);
+        if (m) {
+          const others = this.units.filter((u) => u.side === 'enemy' && u.alive && u !== to && !this.isSheep(u) && dist(h, u) - h.radius - u.radius <= t.judgement.range);
+          if (others.length) strike(nearest(h, others), t.judgement.second);
+        }
         break;
       }
       case 'radiantLight':
-      case 'mercy':
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.healUnit(h, to, this.roll((id === 'mercy' ? t.mercy.amount : t.radiantLight.amount) * k));
-        break;
-      case 'hallowedGround': {
-        const g = t.hallowedGround;
-        this.zones.push({ id: this.nextId++, x: h.x, y: h.y, radius: g.radius, remaining: g.duration, tickTimer: 0.5, damage: g.damagePerSecond * k, sourceId: h.id, ability: id });
-        this.events.push({ type: 'ability', from: h.id, ability: id });
+      case 'mercy': {
+        ev(to);
+        const amount = this.roll((id === 'mercy' ? t.mercy.amount : t.radiantLight.amount) * k);
+        this.healUnit(h, to, amount);
+        if (id === 'radiantLight' && m && to !== h) this.healUnit(h, h, amount * t.radiantLight.beacon);
+        if (id === 'mercy' && m) this.addEffect(to, { kind: 'block', remaining: t.mercy.graceTime, tickEvery: 0, tickTimer: 0, amount: 0.5, sourceId: h.id + 200000 });
         break;
       }
+      case 'hallowedGround': {
+        const g = t.hallowedGround;
+        this.zones.push({
+          id: this.nextId++,
+          x: h.x,
+          y: h.y,
+          radius: g.radius,
+          remaining: g.duration,
+          tickTimer: 0.5,
+          damage: g.damagePerSecond * k,
+          sourceId: h.id,
+          ability: id,
+          heal: m ? g.healPerSecond * k : undefined,
+        });
+        ev();
+        break;
+      }
+      case 'exorcism': {
+        h.targetId = to.id;
+        ev(to);
+        const holy = to.side === 'enemy' && FACTION[to.kind as EnemyKind] !== 'goblin' ? t.exorcism.holyBonus : 1;
+        this.damage(h, to, this.roll(t.exorcism.damage * k * holy), { ability: id, big: holy > 1 });
+        if (m) this.addDot(h, to, t.exorcism.burn * k, t.exorcism.burnDuration, id);
+        break;
+      }
+      // --- Warlock
       case 'hexBolt':
         h.targetId = to.id;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
-        this.shoot(h, to, this.roll(t.hexBolt.damage * k), { ability: id });
+        ev(to);
+        this.shoot(h, to, this.roll(t.hexBolt.damage * k), { ability: id, rot: m ? t.hexBolt.rot * k : undefined });
         break;
       case 'wither': {
         const w = t.wither;
         const bonus = this.hasTrait(h, 'agony') ? 1 + TRAIT_TUNING.agonyBonus : 1;
-        const ticks = w.duration / w.tick;
-        this.addEffect(to, { kind: 'dot', remaining: w.duration, tickEvery: w.tick, tickTimer: w.tick, amount: (w.total * k * bonus) / ticks, sourceId: h.id, ability: id });
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        this.addDot(h, to, w.total * k * bonus, w.duration, id, w.tick);
+        const eff = to.effects?.find((e) => e.kind === 'dot' && e.ability === 'wither' && e.sourceId === h.id);
+        if (eff && m) eff.contagion = true;
+        ev(to);
         break;
       }
       case 'soulDrain': {
         h.targetId = to.id;
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        ev(to);
         const before = to.hp;
         this.damage(h, to, this.roll(t.soulDrain.damage * k), { ability: id });
         const dealt = Math.max(0, before - Math.max(0, to.hp));
         const ally = this.mostInjuredAlly();
-        if (ally && dealt > 0) this.healUnit(h, ally, dealt);
+        if (ally && dealt > 0) this.healUnit(h, ally, dealt * (m ? t.soulDrain.mastery : 1));
         break;
       }
       case 'enfeeble':
-        this.addEffect(to, { kind: 'weaken', remaining: t.enfeeble.duration, tickEvery: 0, tickTimer: 0, amount: t.enfeeble.reduction, sourceId: h.id, ability: id });
-        this.events.push({ type: 'ability', from: h.id, ability: id, to: to.id });
+        this.addEffect(to, { kind: 'weaken', remaining: t.enfeeble.duration, tickEvery: 0, tickTimer: 0, amount: m ? t.enfeeble.masteryReduction : t.enfeeble.reduction, sourceId: h.id, ability: id });
+        if (m) this.addEffect(to, { kind: 'slow', remaining: t.enfeeble.duration, tickEvery: 0, tickTimer: 0, amount: 0, sourceId: h.id });
+        ev(to);
+        break;
+      case 'doom':
+        this.addEffect(to, { kind: 'doom', remaining: t.doom.delay, tickEvery: 0, tickTimer: 0, amount: Math.round(t.doom.damage * k * (m ? t.doom.mastery : 1)), sourceId: h.id, ability: id });
+        ev(to);
+        break;
+      case 'curseOfRuin':
+        this.addEffect(to, { kind: 'vulnerable', remaining: t.curseOfRuin.duration, tickEvery: 0, tickTimer: 0, amount: m ? t.curseOfRuin.masteryBonus : t.curseOfRuin.bonus, sourceId: h.id, ability: id });
+        ev(to);
         break;
     }
 
@@ -1453,13 +1734,15 @@ export class Battle {
       this.events.push({ type: 'notice', id: h.id, text: 'Arcane Surge!', tone: 'info' });
     }
     h.resource = h.resource! - cost;
-    slotState.cooldown = this.abilityCooldown(slotState);
+    a.cooldown = this.abilityCooldown(a);
     return true;
   }
 
+
   private addEffect(u: Unit, effect: Effect): void {
     u.effects ??= [];
-    const same = u.effects.find((e) => e.kind === effect.kind && e.sourceId === effect.sourceId);
+    // One of each kind per source (and per ability, so a Rogue's bleed and poison stack).
+    const same = u.effects.find((e) => e.kind === effect.kind && e.sourceId === effect.sourceId && e.ability === effect.ability);
     if (same) Object.assign(same, effect);
     else u.effects.push(effect);
   }
@@ -1474,11 +1757,11 @@ export class Battle {
       e.tickTimer += e.tickEvery;
       const amount = Math.round(e.amount);
       if (e.kind === 'hot') {
-        const healed = Math.min(u.maxHp - u.hp, amount);
+        const source = this.unit(e.sourceId);
+        const healed = Math.min(u.maxHp - u.hp, Math.round(source ? this.healAmount(source, u, amount) : amount));
         u.hp += healed;
         if (healed > 0) {
           this.events.push({ type: 'tick', to: u.id, amount: healed, kind: 'hot', from: e.sourceId });
-          const source = this.unit(e.sourceId);
           if (source) this.addHealThreat(source, healed);
         }
       } else {
@@ -1487,6 +1770,17 @@ export class Battle {
       }
       if (!u.alive) break;
     }
+    if (!u.alive) return;
+    // Doom lands when it runs out.
+    for (const e of u.effects) {
+      if (e.kind !== 'doom' || e.remaining > 1e-6) continue;
+      const source = this.unit(e.sourceId);
+      if (source && u.alive) {
+        this.events.push({ type: 'notice', id: u.id, text: 'DOOM!', tone: 'good' });
+        this.damage(source, u, e.amount, { ability: 'doom', big: true });
+      }
+    }
+    if (!u.alive) return;
     for (const e of u.effects) if (e.remaining <= 1e-6 && e.kind === 'fortitude') this.removeFortitude(u, e);
     u.effects = u.effects.filter((e) => e.remaining > 1e-6);
   }
@@ -1523,20 +1817,38 @@ export class Battle {
       }
     }
     // Defensive effects on the target.
+    // Party buffs on the attacker (Rallying Shout) and curses on the target (Curse of Ruin).
+    if (from.side === 'hero') {
+      const empower = Math.max(0, ...(from.effects ?? []).filter((e) => e.kind === 'empower').map((e) => e.amount));
+      if (empower) amount = Math.round(amount * (1 + empower));
+    }
+    const ruin = Math.max(0, ...(to.effects ?? []).filter((e) => e.kind === 'vulnerable').map((e) => e.amount));
+    if (ruin) amount = Math.round(amount * (1 + ruin));
     if (to.side === 'hero') {
       const evasion = to.effects?.find((e) => e.kind === 'evasion');
       if (evasion && !opts.tick && this.rng() < evasion.amount) {
         this.events.push({ type: 'notice', id: to.id, text: 'Dodge', tone: 'info' });
+        // Riposte: answer every dodge.
+        if (evasion.ability === 'evasion' && from.alive && from.side === 'enemy') {
+          const k = 1 + LEVEL_SCALING * ((to.level ?? 1) - 1);
+          this.damage(to, from, Math.round(ABILITY_TUNING.evasion.riposte * k * (to.might ?? 1)), { ability: 'evasion' });
+        }
         return;
       }
-      const block = to.effects?.find((e) => e.kind === 'block');
-      if (block) amount = Math.round(amount * (1 - block.amount));
+      // Several blocks (Shield Block, Last Stand, Grace) don't stack: the strongest counts.
+      const block = Math.max(0, ...(to.effects ?? []).filter((e) => e.kind === 'block').map((e) => e.amount));
+      if (block) amount = Math.round(amount * (1 - block));
       const shield = to.effects?.find((e) => e.kind === 'shield');
       if (shield) {
         const absorbed = Math.min(shield.amount, amount);
         shield.amount -= absorbed;
         amount -= absorbed;
         if (shield.amount <= 0) shield.remaining = 0;
+        // Reflective Shield: the attacker takes half of what was absorbed.
+        if (shield.ability === 'powerShield' && absorbed > 0 && from.alive && from.side === 'enemy') {
+          const caster = this.unit(shield.sourceId);
+          if (caster) this.damage(caster, from, Math.round(absorbed * ABILITY_TUNING.powerShield.reflect), { ability: 'powerShield', tick: true });
+        }
         if (absorbed > 0 && amount === 0) {
           this.events.push({ type: 'notice', id: to.id, text: 'Absorbed', tone: 'info' });
           return;
@@ -1562,6 +1874,14 @@ export class Battle {
       amount = Math.round(amount * (1 + TRAIT_TUNING.rageDamageAtMax * (from.resource! / from.maxResource!)));
     }
     if (this.time > SUDDEN_DEATH.after) amount = Math.round(amount * this.damageRamp);
+    // Guardian Spirit: a killing blow leaves the hero standing instead.
+    const guardian = to.side === 'hero' && amount >= to.hp ? to.effects?.find((e) => e.kind === 'guardian') : undefined;
+    if (guardian) {
+      to.effects = to.effects!.filter((e) => e !== guardian);
+      to.hp = Math.round(to.maxHp * guardian.amount);
+      amount = 0;
+      this.events.push({ type: 'notice', id: to.id, text: 'Saved!', tone: 'good' });
+    }
     to.hp -= amount;
     if (from.side === 'hero' && to.side === 'enemy') {
       to.threat ??= {};
@@ -1575,10 +1895,21 @@ export class Battle {
       to.hp = 0;
       to.alive = false;
       for (const e of to.effects ?? []) if (e.kind === 'fortitude') this.removeFortitude(to, e);
+      // Contagion: a withering enemy passes the curse on as it dies.
+      const contagion = to.effects?.find((e) => e.kind === 'dot' && e.ability === 'wither' && e.contagion);
       to.effects = [];
       if (this.focusId === to.id) this.focusId = null;
       this.events.push({ type: 'death', id: to.id });
-      if (to.side === 'enemy') this.soulHarvest();
+      if (to.side === 'enemy') {
+        this.soulHarvest();
+        const caster = contagion ? this.unit(contagion.sourceId) : undefined;
+        const next = contagion ? this.nextEnemy(to, 400) : undefined;
+        if (caster && next) {
+          const w = ABILITY_TUNING.wither;
+          this.addEffect(next, { ...contagion!, remaining: w.duration, tickTimer: w.tick });
+          this.events.push({ type: 'notice', id: next.id, text: 'Contagion', tone: 'good' });
+        }
+      }
     }
   }
 

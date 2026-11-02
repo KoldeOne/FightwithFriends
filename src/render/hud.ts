@@ -127,7 +127,7 @@ export class Hud {
     const w = this.s.battle.wave;
     this.waveText.setText(`ROUND ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
     const lives = this.s.run ? ` · ${'♥'.repeat(this.s.run.lives)}` : '';
-    if (this.s.state === 'placing' || this.s.state === 'recruit' || this.s.state === 'choosing') {
+    if (this.s.state === 'ready' || this.s.state === 'recruit' || this.s.state === 'choosing') {
       this.hudText.setText(`${w.name ?? ''}${lives}`);
     } else {
       const ramp = this.s.battle.damageRamp;
@@ -225,7 +225,7 @@ export class Hud {
       const def = ABILITIES[a.id];
       const cost = this.s.battle.abilityCost(h, a.id);
       const costText = cost ? `${cost} ${RESOURCES[h.resourceKind!].label.toLowerCase()}` : 'free';
-      const ups = [a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(' · ');
+      const ups = [a.mastery ? ABILITIES[a.id].mastery.name : '', a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(' · ');
       const cd = this.s.battle.abilityCooldown(a);
       this.showTooltip(
         `${h.label}: ${def.name}`,

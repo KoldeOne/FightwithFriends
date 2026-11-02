@@ -1,7 +1,7 @@
 import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
-import { ABILITIES, HERO_MOVE, PASSIVES, RESOURCES, TRAITS, WORLD } from '../sim/content';
-import { type Unit } from '../sim/types';
+import { BOSS_INFO, BOSS_RULES, ABILITIES, HERO_MOVE, PASSIVES, RESOURCES, TRAITS, WORLD } from '../sim/content';
+import { type EnemyKind, type Unit } from '../sim/types';
 import { COLORS, effectInfo } from './theme';
 
 /** The inspect window: stats, abilities and effects of one unit. */
@@ -70,7 +70,7 @@ export class Inspect {
         const cost = this.s.battle.abilityCost(u, a.id);
         const costText = cost ? `${cost} ${RESOURCES[u.resourceKind!].label.toLowerCase()}` : 'free';
         const cd = this.s.battle.abilityCooldown(a);
-        const ups = [a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(', ');
+        const ups = [a.mastery ? ABILITIES[a.id].mastery.name : '', a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(', ');
         lines.push(`• ${def.name}${ups ? ` (${ups})` : ''} — cost ${costText}, ${cd % 1 ? cd.toFixed(1) : cd}s cooldown`);
         lines.push(`   ${this.s.battle.abilityEffectText(u, a)}`);
       }
@@ -79,7 +79,12 @@ export class Inspect {
       const notes = [u.isElite ? 'Elite' : '', u.isCaster ? 'Caster (can be interrupted)' : ''].filter(Boolean);
       if (notes.length) lines.push(notes.join(' · '));
       if (u.casting) lines.push(`Casting: ${u.casting.spell} (${u.casting.remaining.toFixed(1)}s)${u.casting.unstoppable ? ' — unstoppable' : ''}`);
-      if (u.isBoss) lines.push('Boss: after an interrupt, its next heavy cast is unstoppable.');
+      const boss = BOSS_INFO[u.kind as EnemyKind];
+      if (boss) {
+        lines.push('', 'Boss moves:');
+        for (const move of boss.moves) lines.push(`• ${move.name}: ${move.text}`);
+        lines.push(BOSS_RULES);
+      }
     }
     const effects = (u.effects ?? []).filter((e) => e.remaining > 0);
     if (effects.length) {
