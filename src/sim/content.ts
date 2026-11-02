@@ -186,7 +186,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   whirlwind: {
     id: 'whirlwind', name: 'Whirlwind', cls: 'warrior', cost: 25, cooldown: 6, scales: true,
     description: 'Hits every nearby enemy, with high threat.',
-    mastery: { name: 'Bladestorm', text: 'Spins twice: a second hit for 50%.' },
+    mastery: { name: 'Bladestorm', text: 'Spins twice: a second hit for 60%.' },
   },
   shieldBlock: {
     id: 'shieldBlock', name: 'Shield Block', cls: 'warrior', cost: 15, cooldown: 12, scales: false,
