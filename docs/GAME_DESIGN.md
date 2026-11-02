@@ -1,659 +1,408 @@
 # FightwithFriends — Game Design Document
 
-> **Status:** Design phase — no code yet.
-> **Working title:** FightwithFriends
-> **Platform:** Mobile browser (tested on Android), portrait orientation
+> **Status:** Playable prototype, drafted from the code on 2026-11-02.
+> **Platform:** Mobile browser (tested on Android), portrait, 540x960 canvas.
+> **Play it:** https://koldeone.github.io/FightwithFriends/
 
-This document records every design decision made so far. Items marked
-**(proposed)** were suggested but not explicitly confirmed. Open questions are
-collected at the end.
+This document describes the game **as it is built today**. Numbers come from
+`src/sim/content.ts` and `src/sim/run.ts`. When the code and this doc disagree,
+the code wins; please update the doc.
 
----
-
-## 0. Arena overhaul (current direction, 2026-11-01)
-
-The game moved from castle-gate defence to an **arena auto-battler**, inspired
-by guild-management arena games (inspiration only: our own names, art and
-systems). This section overrides the gate, wave-spawning and party-of-four
-parts of the sections below; the classes, abilities, aggro, rewards and
-levelling still apply.
-
-- **The board.** Each side has a **4 x 3 grid** of tiles (row 0 is the front).
-  Enemies start on their tiles at the top, heroes on theirs at the bottom.
-  No gate: a round is won when every enemy is down, lost when every hero is.
-- **Placement phase.** Before each round the enemy line-up is visible. Tap a
-  hero, then a tile, to move it (tapping a taken tile swaps the two). The
-  layout is kept between rounds. Then **Fight!** and the heroes act on their
-  own, moving freely around the arena.
-- **Party size.** Start with **3 heroes**. A **4th** joins after beating the
-  **round 10 boss**, a **5th** after the **round 20 boss**. With 4 classes and
-  5 slots, classes may repeat. A recruit is any class you choose; it joins at
-  the party's level with the rewards it would have auto-picked so far.
-- **Enemy side** fields the same number: 3 → 4 → 5.
-  - **Rounds 1-10: goblins** — Grunt, Archer, Shaman (healer), Brute (elite,
-    telegraphed Smash). Round 1 is three Grunts. **Boss: Goblin Warchief.**
-  - **Rounds 11-20: undead** — Skeleton, Bone Archer, Death Cultist (healer),
-    Ghoul (fast), Abomination (elite). **Boss: The Bone King.**
-  - **Rounds 21+: demons** — Fire Imp, Hellhound, Fiend, Shadow Caller (healer),
-    Pit Brute (elite); a different line-up every round, growing stronger every
-    round. **A Demon Lord every 10th round.**
-  - Each faction has the same five roles, so new enemies reuse the existing
-    behaviours (melee, ranged, healer, smasher) with their own stats.
-- **Lives.** **3 per run.** Losing a round costs one; you retry the same round
-  (and can rearrange). At zero the run ends. Runs are endless; the best round
-  reached is remembered.
-- **Between rounds.** Everyone is back to full health; everyone levels up;
-  a reward choice every 5 rounds (unchanged).
-- **Sudden death.** After 60 seconds every hit lands harder (+5% per second),
-  so healer-heavy fights can't stall.
-- **Balance (first pass).** Enemy strength: 1.6 → 2.3 over goblins, 3.2 → 4.5
-  over undead, then +0.25 a round from 4.9. In simulation, AI-only runs (no
-  placement changes) usually end between rounds 26 and 36; the bosses are the
-  big spikes.
-
-**Open questions for the arena:** enemy and boss sprites; whether recruits
-should be offered (choose 1 of 3) rather than free picks; a bench for more
-than 5 heroes; whether bosses get unique abilities beyond their heavy slam.
+- Items marked **(proposed)** are ideas we haven't built.
+- Ideas from the original castle-gate design that we dropped or set aside are in
+  §12. The full original doc is in
+  [archive/GAME_DESIGN_v1.md](archive/GAME_DESIGN_v1.md).
 
 ---
 
 ## 1. Concept
 
-A party of four fantasy heroes defends a castle gate against waves of enemies
-marching down from the top of the screen. Combat is real-time and largely
-automatic — the player steps in with a few key taps (focus a target, fire a big
-spell, interrupt a boss). Each run is 30 waves; between runs, the player spends
-tokens to permanently upgrade the castle's professions.
+**FightwithFriends** is an **arena auto-battler** for phones. You pick a party
+of fantasy heroes, place them on a small board and watch them fight a matching
+enemy team. Between rounds the heroes level up, and every 5 rounds you choose
+one new ability or upgrade for each hero. The run is endless, and you have 3
+lives.
+
+It takes inspiration from guild-management arena games, but the names, art
+and systems are our own.
 
 ### Design pillars
 
-1. **Easy, low-tap mobile play.** Tap a couple of times here and there to make
-   key decisions — never constant tapping.
-2. **Auto-battler with a manual override.** The whole game can play itself;
-   manual play adds precision, especially on bosses.
-3. **Team roles matter.** Tank, healer, and DPS each have a clear job, driven by
-   an aggro system.
-4. **Every run is different.** Ability and gear choices build a new hero each run.
-5. **Start small, build up.** Singleplayer first, 5 classes first, simple art
-   first — but structured so multiplayer and more classes can be added later.
+1. **Low-tap mobile play.** Your decisions are the team, where each hero stands
+   and the rewards. You never tap during combat. All heroes are AI.
+2. **Team roles matter.** Tanks, healers and damage dealers each have a clear
+   job, driven by an aggro (threat) system.
+3. **Every run is different.** Reward choices give each hero a different build
+   every run.
+4. **Readable at a glance.** Cast bars, aggro warnings, buff icons and an
+   inspect window explain why things happen.
+5. **Start small, build up.** Four classes and simple pixel art for now, with
+   the structure in place for more classes, enemies and meta progression.
 
-### Guiding design rules
+### Design rules
 
-- **Every ability must earn its slot.** No abilities with cooldowns so long they
-  barely matter; single-target effects must be strong or party-wide.
-- **Slow, defensive play is valid.** It is never punished.
-- **Any party composition can work.** A balanced team is the safe choice, but no
-  single class lineup is required.
+- **Every ability must earn its slot.** Cooldowns are short enough to matter.
+  Single-target effects must be strong.
+- **Any party can work.** A tank, a healer and damage dealers is the safe
+  choice, but classes can repeat and no line-up is required.
+- **Deterministic simulation.** The same seed and choices always play out the
+  same way. This keeps tests and balance runs reliable.
 
 ---
 
-## 2. Party (as built: full auto-battler)
+## 2. Run structure
 
-- **You build the team, the heroes fight on their own.** There are no ability
-  buttons; all four heroes are AI-controlled and all four move.
-- **Team builder:** fill 4 slots from the class list. **Classes can repeat**
-  (e.g. two Mages). A classic team (1 tank, 1 healer, 2 damage) is suggested,
-  not required. Duplicates are labeled "Mage", "Mage 2".
-- **Your decisions:** the team, and each hero's reward every 5 waves.
-- Tapping a unit only **inspects** it; tapping a hero's panel shows its
-  abilities and passive.
-- More classes will be added to the team builder later.
+| Rule | Value |
+|---|---|
+| Lives | **3** per run. Losing a round costs one, and you **retry the same round**. At 0 lives the run ends. |
+| Length | **Endless.** Your best round is saved and shown on the title screen. |
+| Party size | **3** heroes for rounds 1–10, **4** for rounds 11–20, **5** from round 21. |
+| Enemy count | Matches the party size (3, then 4, then 5). |
+| Between rounds | All heroes return to full health and **level up** (+6% stats per level). |
+| Rewards | Each hero gets one reward choice **every 5 rounds** (see §5). |
+| Saving | The run autosaves to localStorage (`RunState` v3) after every round and change. |
 
-### Multiplayer (future)
+### Flow of one round
 
-The simulation still supports a player-controlled hero (used by tests), so a
-future mode could hand a hero to a person.
+1. **Placement.** The enemy line-up is shown on its tiles at the top. Tap a
+   hero, then a tile, to move it. Tapping a tile that's already taken swaps the
+   two heroes. The layout is kept between rounds. Press **Fight!**.
+2. **Intro banner** with the round name (for example "Round 5 — Elite: Goblin
+   Brute").
+3. **Combat.** Everyone acts on their own. You can pause, inspect units and
+   read tooltips (§9).
+4. **Result.**
+   - **Win:** a short slow-motion beat on the last kill, then level-ups. On
+     every 5th round you also pick a reward.
+   - **Loss:** you lose a life and can retry the round, after moving heroes if
+     you like. A retry uses a different seed, so it isn't an exact replay.
+   - **Out of lives:** the run ends and your best round is recorded.
 
-## 3. Classes
+### Recruits
 
-Classes are based on classic fantasy MMO archetypes. **Each class has its own
-identity and limits which roles it can fill.** All classes are available from
-the start (no class unlocks); the first version ships with the 5 starter
-classes and the rest are added in later updates.
+After you beat the bosses on rounds **10** and **20**, a party slot opens. You
+can pick **any class** for it, including one you already have.
 
-| Class | Tank | Healer | DPS | Resource | Version |
-|---|:-:|:-:|:-:|---|---|
-| Warrior | ✅ | | ✅ | Rage | Starter |
-| Paladin | ✅ | ✅ | ✅ | Mana | Starter |
-| Priest | | ✅ | ✅ | Mana | Starter |
-| Mage | | | ✅ | Mana | Starter |
-| Rogue | | | ✅ | Energy | Starter |
-| Druid | ✅ | ✅ | ✅ | Varies by form | Later |
-| Shaman | | ✅ | ✅ | Mana | Later |
-| Warlock | | | ✅ | Mana | Later |
-| Hunter | | | ✅ | Mana / Focus | Later |
+- The recruit joins at the party's level.
+- It also gets the rewards it would have auto-picked so far, so it isn't behind
+  the rest of the party.
+- It goes on a free tile: front row for Warriors and Rogues, back row for
+  everyone else.
+
+### Team builder
+
+At the start of a run you fill **3 slots** from the 4 classes. Classes can
+repeat, and duplicates are labeled "Mage", "Mage 2" and so on. The default
+team is Warrior, Priest and Mage.
+
+---
+
+## 3. The board
+
+- The arena sits between the top bar and the hero panels, from y 104 to y 790.
+- **Each side has a 4 x 3 grid of tiles.** Row 0 is the front row, nearest the
+  middle of the arena.
+  - Columns are at x = 90, 210, 330 and 450.
+  - Hero rows are at y = 560, 645 and 730.
+  - Enemy rows are at y = 360, 275 and 190.
+  - Each tile is 112 x 80.
+- **Default placement:** Warriors and Rogues in the front row, everyone else in
+  the back. Columns fill in the order 1, 2, 0, 3.
+- Tiles only set where units **start**. Once the fight begins, everyone moves
+  freely (§6).
+
+---
+
+## 4. Classes
+
+| Class | Role | HP | Attack | Range | Resource | Notes |
+|---|---|--:|---|--:|---|---|
+| **Warrior** | Tank / melee | 340 | 9 every 1.0s | 14 | Rage | Threat ×1.5; the party's tank |
+| **Rogue** | Melee DPS | 210 | 10 every 0.6s | 120 | Energy | Threat ×0.7 |
+| **Mage** | Ranged DPS and control | 170 | 20 every 1.8s | 380 | Mana | |
+| **Priest** | Healer | 190 | 5 every 1.5s | 340 | Mana | Each auto attack also heals an ally for 22 |
+
+Hero movement speed is 60.
 
 ### Resources
 
-- **Mana:** starts full, drains as you cast.
-- **Rage:** starts empty, builds from dealing and taking damage.
-- **Energy:** small pool that refills quickly — frequent small bursts.
+| Resource | Start | Max | Regen |
+|---|--:|--:|---|
+| **Rage** | 0 | 100 | +0.6 per damage dealt, +0.5 per damage taken |
+| **Mana** | 100 | 100 | 3 per second |
+| **Energy** | 100 | 100 | 12 per second |
 
-### Naming and art
+### Kit
 
-Ability names below are **working names**. Many match World of Warcraft and must
-be **renamed before any public release**. Never use WoW icons or art — use
-original or properly licensed assets (see §12).
+Each hero has **5 ability slots**: the starting ability plus 4 more earned
+during the run. Class traits also take a slot. Each hero also has an
+always-on **starting passive**, which doesn't take a slot.
+
+| Class | Starting ability | Starting passive | Earnable pool | Trait |
+|---|---|---|---|---|
+| Warrior | Heroic Strike | **Taunt:** automatically taunts an enemy attacking an ally (every 8s) | Thunderclap, Shield Block, Whirlwind | **Rage:** hits up to 20% harder at full rage |
+| Priest | Heal | **Power Word: Fortitude:** the whole party has +20% max HP | Renew, Power Shield, Prayer of Healing | **Inner Focus:** Renew costs half while the whole party is above 80% HP |
+| Mage | Fireball | **Polymorph:** every 15s, turns an enemy into a sheep (elites first, then casters; never bosses) | Ice Lance, Blizzard, Counterspell | **Arcane Surge:** 25% chance that Fireball costs no mana |
+| Rogue | Sinister Strike | **Stealth:** starts hidden; the first hit deals double damage; re-stealths after 5s out of combat | Eviscerate, Kick, Evasion | **Combo Points:** auto attacks build up to 5 points; Sinister Strike spends them for +15% damage each |
+
+### Ability numbers (base, before level and upgrades)
+
+| Ability | Cost | Cooldown | Effect |
+|---|--:|--:|---|
+| Heroic Strike | 15 | 3s | 26 damage, extra threat |
+| Thunderclap | 20 | 6s | 12 damage in a 120 radius; high threat; slows attacks (×1.3 attack time) |
+| Whirlwind | 25 | 6s | 20 damage to every nearby enemy |
+| Shield Block | 15 | 12s | 50% less damage taken for 5s |
+| Heal | 25 | 3s | Heals 80 |
+| Renew | 20 | 3s | Heals 60 over 9s |
+| Power Shield | 20 | 6s | Absorbs 60 damage |
+| Prayer of Healing | 40 | 10s | Heals the whole party for 35 |
+| Fireball | 30 | 4s | 45 damage plus a 15 burn over 3s |
+| Ice Lance | 12 | 2s | 28 damage |
+| Blizzard | 35 | 12s | 9 damage per second for 6s on the biggest enemy group; slows |
+| Counterspell | 0 | 12s | Interrupts a cast and locks the enemy out of casting |
+| Sinister Strike | 40 | 1.5s | 32 damage |
+| Eviscerate | 35 | 6s | 55 damage |
+| Kick | 0 | 10s | 8 damage; interrupts a cast (range 420) |
+| Evasion | 0 | 20s | Dodge 75% of attacks for 6s |
+
+Taunt, Fortitude and Polymorph still exist as ability definitions, but they're
+only used through the passives now.
 
 ---
 
-## 4. Hero kit
+## 5. Hero progression (within a run)
 
-Every hero has up to **5 ability slots**:
-
-| Part | Count | Notes |
-|---|---|---|
-| **Auto attack** | 1 | Always on (the Priest's auto attack includes a small free heal) |
-| **Starting ability** | 1 | Fixed per class: Warrior **Heroic Strike**, Priest **Heal**, Mage **Fireball**, Rogue **Sinister Strike** |
-| **Starting passive** | 1 | Always on, no button: Warrior **Taunt** (auto-taunts enemies attacking allies), Priest **Power Word: Fortitude** (party +20% max health), Mage **Polymorph** (auto-sheeps an enemy every 15s — elites, then casters, first), Rogue **Stealth** (starts hidden; first hit out of stealth deals double; re-stealths after 5s out of combat) |
-| **Earned abilities** | 4 | Empty at the start; filled from the class's pool through level-up rewards during the run |
-| **Class traits** | 0 at start | Passive traits are reward options during a run, not part of the starting kit |
-
-- Earned abilities can be **any mix of active and passive**.
-- **Buttons on screen:** 5 large slots directly under the gate, shown even when empty (empty slots show "+"). Passives have no button; active passive effects (e.g. Stealth, Fortitude) show as buff icons.
-- All actives can **autocast** (auto mode).
-- Each class has a pool of **~8 earnable abilities** (may expand later).
-- The class select screen shows all **5 slots** per class (the starting ability
-  filled in, 4 empty "Earn in run" slots) with the starting passive listed below.
-- **Interrupts are earned, not starting abilities.** Enemy casters (e.g. the
-  Goblin Shaman) appear a few waves in, by which time Kick (Rogue) or
-  Counterspell (Mage) can have been earned.
-
-### Out-of-range indicator
-
-An ability button gets a **red outline** when it has nothing in range to hit
-(e.g. the focused target is too far away). The outline clears as soon as a
-target is in range. With a focus target set, abilities only go to that target.
-
----
-
-## 5. Class ability pools (draft)
-
-Abilities below are the earnable pool (traits are listed as earnable passives). Pools are drafts and will be tuned in testing.
-
-### Warrior — Tank / DPS
-- **Starting ability:** Heroic Strike — a heavy rage-spending strike with extra threat.
-- **Starting passive:** Taunt — automatically taunts an enemy attacking an ally (every 8s).
-- **Trait:** Rage — builds from dealing and taking damage; up to +20% damage at full rage.
-
-| Ability | Type | Leans | Effect |
-|---|---|---|---|
-| Thunderclap | Active | Tank | AoE damage + threat; slows enemy attacks |
-| Shield Block | Active | Tank | Big damage reduction for a few seconds |
-| Demoralizing Shout | Passive (aura) | Tank | Nearby enemies deal less damage |
-| Whirlwind | Active | DPS | AoE damage to nearby enemies |
-| Execute | Active | DPS | Big hit on low-health enemies |
-| Heroic Strike | Active | DPS | Rage-spending heavy single-target hit |
-| Battle Shout | Passive (aura) | Shared | Nearby heroes deal more damage |
-| Sunder Armor | Passive (on hit) | Shared | Attacks reduce the target's armor |
-
-
-
-### Paladin — Tank / Healer / DPS
-- **Starting ability:** Hammer of Justice — stuns an enemy and interrupts its cast.
-- **Trait:** Holy Power — each heal or attack gives a small heal/shield to a nearby ally.
-
-| Ability | Type | Leans | Effect |
-|---|---|---|---|
-| ⭐ Holy Strike | Active | DPS / Shared | Melee hit that also heals the lowest-health ally a little |
-| Consecration | Active | Tank | Holy ground: AoE damage + high threat |
-| Devotion Aura | Passive (aura) | Tank / Shared | Party gains armor |
-| Holy Light | Active | Healer | Big single-target heal |
-| Blessing of Might | Passive | Shared | Party-wide damage boost |
-| Divine Shield | Active | Tank / Healer | Brief immunity; drops threat |
-| Judgment | Active | DPS | Ranged holy burst; weakens the target |
-| Beacon of Light | Passive | Healer | Your heals also partly heal the tank |
-
-### Priest — Healer / DPS
-- **Starting ability:** Heal — a strong heal on one ally.
-- **Starting passive:** Power Word: Fortitude — the whole party has +20% maximum health.
-- **Trait:** Inner Focus — Renew costs half while the whole party is above 80% health.
-
-| Ability | Type | Leans | Effect |
-|---|---|---|---|
-| Renew | Active | Healer | Heal over time on an ally |
-| Power Shield | Active | Healer | Absorbs damage on an ally |
-| Prayer of Healing | Active | Healer | Heals the whole party |
-| Holy Nova | Active | Shared | Small AoE heal for allies + small AoE damage |
-| Spirit Aura | Passive (aura) | Shared | Party regenerates resources faster |
-| Shadow Word: Pain | Active | DPS | Damage over time |
-| Mind Blast | Active | DPS | Big single-target shadow hit |
-| Fade | Passive (proc) | Shared | Automatically drops threat when you pull aggro |
-
-### Mage — DPS (ranged AoE and control)
-- **Starting ability:** Fireball.
-- **Starting passive:** Polymorph — every 15s, sheeps an enemy for 10s (not bosses); elites first, then casters.
-- **Earnable:** Counterspell — interrupts an enemy cast and locks it out of casting.
-- **Trait:** Arcane Surge — Fireball has a 25% chance to cost no mana.
-
-| Ability | Type | Leans | Effect |
-|---|---|---|---|
-| Frostbolt | Active | DPS / Control | Single-target hit that slows |
-| Blizzard | Active (ground) | DPS | AoE zone that damages and slows; high threat risk |
-| Meteor | Active (ground) | DPS | Huge delayed AoE — the "big moment" tap |
-| Frost Nova | Active | Control | Freezes nearby enemies in place |
-| Ignite | Passive | DPS | Fire spells leave burning damage |
-| Ice Barrier | Active | Defense | Shields yourself when you pull aggro |
-| Arcane Intellect | Passive (aura) | Shared | Party gains resource capacity |
-
-### Rogue — DPS (melee single-target burst, self threat management)
-- **Starting ability:** Sinister Strike.
-- **Starting passive:** Stealth — starts each wave hidden (enemies can't target him); the first hit
-  out of stealth deals double damage; re-stealths after 5s out of combat.
-- **Earnable:** Kick — interrupts an enemy cast and locks it out of casting. Kick has its
-  own range (same as Taunt), separate from the Rogue's short melee reach.
-- **Trait:** Combo Points — auto attacks build points (max 5); Sinister Strike spends them
-  for +15% damage each.
-
-| Ability | Type | Leans | Effect |
-|---|---|---|---|
-| Eviscerate | Active | DPS | Big finisher hit |
-| Blade Flurry | Active | DPS | Also hits a second nearby enemy |
-| Poisons | Passive | DPS | Attacks apply poison damage over time |
-| Slice and Dice | Passive | DPS | Increased attack speed |
-| Expose Weakness | Passive | Shared | Your target takes more damage from everyone |
-| Feint | Active | Shared | Drops your threat on the target |
-| Evasion | Active | Defense | Dodge most attacks for a few seconds |
-
-### Later classes (notes only)
-- **Druid:** Starting ability Rebirth (combat revive). Trait Shapeshift — role direction
-  sets the form (bear = tank, cat = DPS, tree = healer). Pool includes Roots,
-  Innervate, Faerie Fire.
-- **Shaman:** Has an interrupt. Can self-revive once per wave.
-- **Warlock:** Soulstone — pre-cast on an ally so they can revive.
-- **Hunter:** Not yet designed.
+- **Level-ups.** Every hero gains a level after each round won. Each level adds
+  **+6%** to health, damage and healing.
+- **Reward choice every 5 rounds.** Each hero is offered **3 options**:
+  - After rounds **5, 10, 15 and 20**, the options are **new abilities** from
+    the class pool (until the slots are full).
+  - Otherwise, the options are drawn from these upgrades:
+    - **Class trait.** Takes an ability slot.
+    - **Empowered X:** +25% effect per rank.
+    - **Quick X:** 20% shorter cooldown per rank, up to 2 ranks.
+    - **Vitality:** +10% max HP per rank.
+    - **Might:** +10% damage and healing per rank.
+- **Choose for me / Auto picks.** "Choose for me" turns Auto picks on and fills
+  in every remaining choice. The AI pick order is:
+  1. a new ability, in pool order
+  2. the trait
+  3. Empowered on the starting ability
+  4. Might
+  5. otherwise the first option
+- The offers are seeded by the run's seed, round and slot, so they are the same
+  if you reload.
 
 ---
 
 ## 6. Combat
 
-### Screen layout (portrait)
-
-```
-┌─────────────────────┐
-│   ☠  ☠    ☠   ☠     │  ← Enemies spawn at the top and march down
-│     ☠      ☠        │
-│   ~~ground spell~~  │  ← Battlefield: ground-targeted spells land here
-│                     │
-│      🛡 TANK        │  ← Front
-│   ⚔ DPS   ⚔ DPS     │  ← Middle
-│      ✚ HEALER       │  ← Back
-│▓▓▓▓▓▓[ GATE ]▓▓▓▓▓▓▓│  ← The gate (fail state)
-├─────────────────────┤
-│ [Sig][A1][A2][A3]   │  ← Ability buttons + resource bar (thumb reach)
-│ ████ Mana   [AUTO]  │
-└─────────────────────┘
-```
-
-**Your hero stands in the center and stays there.** The three AI teammates
-start front (most melee/tanky first), left and right, and **move on their own**:
-
-- They stay **close to the party** — within ~130px of your hero — never off alone.
-- **Speed 60** (goblin grunts 38, runners 75).
-- **Heroes physically block enemies**; teammates don't overlap.
-- **Tank:** steps out to meet whatever is going after the party or the gate.
-- **Melee damage:** moves in on enemies already being fought, attacking from the
-  side so it doesn't block the path to the tank.
-- **Ranged / healer:** hold position, back away from enemies coming for them,
-  and step forward if nothing is in range.
-- Every wave starts back in formation.
-
 ### Basics
 
-- **Real-time.** Pausing is allowed mid-wave; saving is not.
-- **Auto attacks and auto-casting** handle most of the fighting.
-- **Focus target:** tap an enemy to make your hero's automatic attacks hit only
-  that enemy (e.g. finish off a boss).
-- **Manual abilities** spend the class resource; some are **ground-targeted**
-  (aim at a spot on the battlefield).
+- The simulation runs at a fixed step of 0.05s, and the renderer interpolates
+  between steps. A round is **won** when every enemy is down and **lost** when
+  every hero is down.
+- **Sudden death.** After **60 seconds**, all damage increases by 5% per
+  second, so healer-heavy fights can't stall.
 
 ### Aggro (threat)
 
-- Each enemy attacks whoever has the **most threat** on it.
-- **Damage generates threat. Healing generates threat, but less than damage.**
-- **No limit** on how many enemies one hero can hold.
-- Tanks generate extra threat, use **AoE threat abilities** to grab groups, and
-  **Taunt** to win enemies back.
-- DPS who do too much damage **pull aggro** and get attacked; AoE damage can
-  pull whole groups if the tank hasn't invested in AoE threat.
-- **Aggro indicator on your hero:** no icon normally → **orange** icon when close
-  to pulling aggro → **red** icon when you have aggro.
+- Enemies attack whoever has the most threat on them. Damage creates threat,
+  multiplied by the class's threat multiplier. Healing creates **0.3×** the
+  amount healed as threat, split across the enemies already in combat.
+- **Pulling aggro:** a hero has to pass **110%** of the current target's threat
+  to take the enemy's attention. This stops targets from flip-flopping.
+- **Warning icon** (orange) at **80%** of the top threat; red when the hero has
+  aggro.
+- **Careful AI:** non-tank heroes hold back attacks that would put them over
+  **90%** of the tank's threat. This includes the Rogue's ×2 ambush hit.
+- **Taunt** forces an enemy to attack the Warrior (range 420).
 
-### The gate
+### Hero AI and movement
 
-- **Not a major mechanic.** Mainly the fail state: the **run ends when the gate falls**.
-- Enemies that **no hero is holding** head for the gate.
-- Some enemy types (fast **flyers**, **speedrunners**) can slip past to the gate
-  if no one grabs aggro on them.
-- If the **whole party dies**, every enemy goes for the gate.
+- Heroes steer with easing (they speed up and slow down on arrival) and stop
+  just inside their attack range.
+- **Melee heroes** close in and **flank** instead of blocking each other.
+- **Ranged heroes** step up when nothing is in range.
+- Heroes stay within **140px** of the party's anchor point (the leash). When
+  it's quiet, they drift back toward their start tile.
+- Heroes use abilities on their own when it makes sense:
+  - heals on the most hurt ally
+  - interrupts on enemy casts
+  - Blizzard on the biggest group
+  - Shield Block when taking hits
 
-### Control and interrupts
+### Enemy AI
 
-- **Polymorph:** bosses are immune; elites can be sheeped. A sheep is the
-  **lowest-priority target** — only attacked when nothing else is left —
-  and **ignores AoE damage**.
-- **Bosses have cast bars** (spell name + filling bar, large and readable).
-  Interrupting them helps the party a lot.
-- **Several classes can interrupt** (Rogue Kick, Paladin Hammer of Justice,
-  Shaman later). No class is required.
-- **Unstopped boss casts are painful but survivable** — never an automatic wipe.
+| Behaviour | Who | What it does |
+|---|---|---|
+| Melee | Grunt, Skeleton, Ghoul, Hellhound, Fiend | Moves in. Melee enemies **surround** their target instead of stacking on top of each other. |
+| Ranged | Archer, Bone Archer, Fire Imp | Keeps its distance and shoots. Projectile damage lands when the shot arrives. |
+| Healer | Shaman (Mend), Death Cultist (Dark Mend), Shadow Caller (Shadow Mend) | Casts for **2.5s** to heal a hurt ally (missing at least 40 HP) for **70**. 7s cooldown. Can be interrupted. |
+| Smasher | Brute (Smash), Abomination (Slam), Pit Brute (Crush), and all bosses | Telegraphed cast for **1.8s**, then a hit for **2.9×** its damage, plus **1.25×** splash within 70px. 8s cooldown. Can be interrupted. |
 
-### Wave length and stalemates
-
-- Waves last **~2 minutes** typically; faster with aggressive builds, slower with
-  defensive/healing-heavy builds. Slow play is **not punished**.
-- **Guaranteed baseline damage** (heroes always deal some damage) so every wave
-  ends eventually.
-- **No hard enrage timers** on bosses.
-
-### Revives
-
-- **Between waves:** dead heroes are revived **for free** by the castle.
-- **During a wave:** only through specific class abilities (Druid Rebirth,
-  Warlock Soulstone, Shaman self-revive). Revives in combat should be rare.
+- **Elites** (Brute, Abomination, Pit Brute) are the Mage's first Polymorph
+  targets. Casters are next.
+- **Bosses** are immune to Polymorph.
 
 ---
 
 ## 7. Enemies
 
-### Counts and spawning
+### Factions
 
-- **3–5 enemies per wave early, 6–8 late.** Small numbers so targeting matters.
-- **Waves 1–5:** all enemies spawn at the start.
-- **Waves 6+:** a starting group, then **reinforcements** after some time.
-- Spawn patterns can mix as the run progresses.
+| Rounds | Faction | Melee | Ranged | Healer | Fast | Elite | Boss |
+|---|---|---|---|---|---|---|---|
+| 1–10 | **Goblins** | Grunt 220 HP / 22 | Archer 130 / 16 | Shaman 150 | — | Brute 620 / 24 | **Goblin Warchief** 1100, *Skull Crack* |
+| 11–20 | **Undead** | Skeleton 260 / 24 | Bone Archer 150 / 18 | Death Cultist 170 | Ghoul 180 / 18 (speed 60) | Abomination 760 / 28 | **The Bone King** 1700, *Grave Cleave* |
+| 21+ | **Demons** | Fiend 320 / 28 | Fire Imp 160 / 20 | Shadow Caller 200 | Hellhound 220 / 22 (speed 65) | Pit Brute 900 / 32 | **Demon Lord** 1800, *Hellfire Slam* (every 10th round) |
 
-### Tiers
+(These are base numbers. The round's strength multiplier scales enemy HP and
+damage.)
 
-**Normal → Elite → Boss.** Elites are tougher enemies that appear in later waves
-and alongside bosses.
+### Line-ups
 
-### Archetypes (draft)
+- **Rounds 1–20** have hand-made, named line-ups, for example:
+  - Round 1, "Grunt Squad": three Grunts
+  - Round 5, "Elite: Goblin Brute"
+  - Round 10, "BOSS: Goblin Warchief"
+  - Round 11, "The Risen"
+  - Round 14, "Elite: Abomination"
+  - Round 20, "BOSS: The Bone King"
+- **Rounds 21+** cycle through **5 demon line-ups**, mirrored on alternate
+  rounds. Every 10th round uses the Demon Lord line-up.
 
-| Enemy | Behavior | Why you'd focus it |
+### Strength curve
+
+| Rounds | Enemy strength (HP and damage multiplier) |
+|---|---|
+| 1–10 | 1.6 + 0.08 per round (about 1.7 → 2.4) |
+| 11–20 | 3.2 + 0.14 per round (about 4.7 → 6.0) |
+| 21+ | 4.9 + 0.25 per round, with no cap |
+
+The bosses are the big difficulty spikes. In simulation, AI-only runs (with no
+placement changes) usually end **between rounds 26 and 36**.
+
+---
+
+## 8. Game feel
+
+- **Smooth motion.** Rendering is interpolated between simulation steps, units
+  steer with easing, and units are softly pushed apart so they don't overlap.
+- **Projectiles.** Ranged damage lands when the shot arrives.
+- **Hit feedback.**
+  - Every hit: a white flash, a small knockback and sparks.
+  - Heavy hits: a small screen shake and a brief hit-pause.
+  - Last kill: a slow-motion beat.
+- **Numbers.** Rapid hits on the same target merge into one number.
+- **Sound.** All sound effects are synthesized in the browser, with no audio
+  files. You can mute in the top bar, and the setting is remembered.
+- **Art.** Heroes use 32x32 pixel-art sprites drawn at 2x
+  (`art/heroes/make-sprites.ps1`). Enemies are still coloured discs with
+  letters.
+
+---
+
+## 9. UI
+
+- **Top bar:** a big round number, with the line-up name, lives (♥), enemies
+  left and the fight clock underneath; pause and sound buttons.
+- **Hero panels** (bottom): one per hero, showing HP, resource and ability
+  icons with cooldowns. Tap a panel to inspect that hero.
+- **Ability tooltips:** hover over or tap an ability to see its damage or
+  healing numbers (scaled by level and upgrades), cost, cooldown and upgrade
+  ranks.
+- **Buff icons:** up to 4 small lettered icons under each unit's health bar.
+  Buffs come first; debuffs have a red outline. Examples: Evasion, Renew,
+  Shield, Slowed.
+- **Inspect window:** tap any unit, hero or enemy, to see:
+  - HP, resource, attack, auto-heal and move speed
+  - tank threat
+  - passive, abilities (with cost, cooldown and effect text), traits and active
+    effects
+  - for enemies: whether it's an elite or caster, and its current cast
+
+  The window updates live. Tap empty ground to close it.
+- **Pause** doesn't block anything. While paused you can still inspect units
+  and open tooltips.
+- **Aggro icons:** orange "!" for a warning, red when the hero has aggro.
+- **Cast bars:** shown above enemies that are casting.
+
+---
+
+## 10. Tech
+
+- TypeScript, Phaser 3.90 (Scale.FIT), Vite and Vitest.
+- `src/sim` holds the pure, deterministic simulation: a seeded RNG and no
+  Phaser. `src/render` draws it.
+- GitHub Actions deploys to GitHub Pages.
+- A debug handle (`window.__game`) is used for automated browser checks.
+
+---
+
+## 11. Future directions (proposed)
+
+Ideas that fit the arena game and haven't been built yet:
+
+- **More classes and synergies**, for example a Paladin (tank/healer hybrid),
+  Hunter or Warlock. Possibly party bonuses for class or role combinations.
+- **Gear** found during a run: weapon, armor and trinket, picked from 1 of 3.
+- **Meta progression between runs**, a lighter version of the old castle idea
+  (§12).
+- **Enemy and boss sprites.**
+- **Unique boss abilities** beyond the heavy slam.
+- **Balance tool:** batch-simulate runs and report where they end.
+- **Multiplayer:** the sim still supports a player-controlled hero (tests use
+  it), so a friend could take a hero later.
+
+---
+
+## 12. Dropped and parked ideas
+
+These come from the original castle-gate design (see
+[archive/GAME_DESIGN_v1.md](archive/GAME_DESIGN_v1.md)).
+
+| Idea | Status | Why / note |
 |---|---|---|
-| Brute | Slow, tough, hits hard | Usually let the tank hold it |
-| Runner | Fast, fragile, heads for the gate | Kill it before it slips past |
-| Archer/Caster | Stays back, attacks the back row | Protects your healer |
-| Shaman | Heals/shields other enemies | Kill or interrupt it first |
-| Flyer | Ignores the line, goes for the gate or heroes | The tank can't easily hold it |
-
-### Wave patterns (as built, chapter 1)
-
-| Wave | Pattern |
-|---|---|
-| 1 | Goblin push |
-| 2 | Runner rush |
-| 3 | Shamans (first casters) |
-| 4 | Flanked! (groups from both sides) |
-| 5 | Elite: Goblin Brute |
-| 6 | Reinforcements |
-| 7 | Flank and rush |
-| 8 | Brute and casters |
-| 9 | Surrounded |
-| 10 | Warband |
-| 11 | Shaman circle |
-| 12 | Twin Brutes |
-| 13 | Runner flood |
-| 14 | Pincer |
-| 15 | Final assault |
-
-**Goblin Brute (elite):** big and slow; winds up a telegraphed **Smash** (cast
-bar, red ring) that hits its target hard and splashes nearby heroes. It can be
-interrupted (Kick, Counterspell), Polymorphed (elites first), or Shield Blocked.
-
-### Factions and bosses (proposed)
-
-| Chapter | Waves | Faction | Bosses |
-|---|---|---|---|
-| 1 | 1–10 | Goblins | Mini-boss wave 5, faction leader wave 10 |
-| 2 | 11–20 | Undead | Mini-boss wave 15, faction leader wave 20 |
-| 3 | 21–30 | Demons | Mini-boss wave 25, faction leader wave 30 |
-
-Bosses come with a few supporting enemies (e.g. "the boss is shielded while its
-2 shamans live").
-
----
-
-## 8. Run structure
-
-- **30 waves** per run, with a **boss every 5 waves** (5, 10, 15, 20, 25, 30).
-- **Beating wave 30 is a win.** The run then continues into **endless mode** (§8a).
-- **No branching map** — waves come in a fixed sequence.
-- **Run length:** ~60+ minutes of fighting, split across sessions via saving.
-
-### 8a. Endless mode
-
-- After wave 30, endless mode is **one single continuous wave**.
-- Enemies arrive **automatically in groups at set intervals**, each group a
-  little harder than the last (gradual, not steep).
-- Tuned so the party is **overwhelmed within ~10 minutes** at most.
-- No between-wave screen during endless mode — it ends when the gate falls.
-
-### Between-wave screen
-
-Appears after every wave:
-1. **Level-up choice** (1 of 3)
-2. **Loot choice** (1 of 3)
-3. **Equip / swap gear**
-4. **Autosave**
-5. **Next wave**
-
-A **"Choose for me"** button makes all choices automatically.
-
-### Auto controls (as built)
-
-- **AUTO** (top bar, next to Pause): the AI plays your hero.
-- **Choose for me** (button on the reward screen): turns AUTO on and picks;
-  AUTO keeps picking future rewards until it's turned off.
-
-### Auto controls (original plan)
-
-- **One Full Auto toggle** covers both combat and between-wave choices.
-- In Full Auto, a **5-second countdown** ("Next wave in 5… tap to stop") runs on
-  the between-wave screen.
-- An **AUTO button** is always visible during waves to take over instantly.
-- "Choose for me" is also available as a one-time option when auto is off.
-
-### Saving
-
-- **Only between waves** (autosave after every wave).
-- Mid-wave: **pause, but no save**.
-
----
-
-## 9. Hero progression (within a run)
-
-Nothing about heroes carries over between runs.
-
-### Leveling (as built)
-
-- 1 level per cleared wave: +6% health, damage and healing for everyone.
-- **A reward choice every 5 waves** (after waves 5 and 10 in the current
-  15-wave run; 15, 20, 25 in the full game), offering new abilities. **You
-  pick one reward for each of your four heroes**, in turn. Other waves show a quick "Level up!" and continue on their own
-  (3s, or tap Continue). In the current 10-wave chapter that is one choice.
-- **Auto picks.** "Choose for me" on the reward screen turns Auto picks on and
-  picks for the remaining heroes; while it's on, future reward screens pick
-  automatically. Turn it off in the top bar to choose yourself.
-- Other waves offer upgrades: Empowered (+25% effect) or Quick (−20% cooldown)
-  versions of your abilities, the class's passive trait, Vitality (+10% max
-  health) or Might (+10% damage & healing).
-- Ability tooltips: hover an ability button with the mouse.
-
-### Leveling (original plan)
-
-- **Fixed:** 1 level per cleared wave.
-- Each level gives **small automatic stat gains** plus a **choice of 1 of 3**:
-  learn a new ability, or upgrade an existing one.
-- **Safety net:** until all 4 ability slots are filled, at least 1 of the 3
-  choices is always a new ability.
-- Once all slots are full, level-ups offer upgrades only.
-- **Upgrades:** mostly simple (+damage, +targets, −cooldown), with occasional
-  **transforming upgrades** offered after boss waves (e.g. "Thunderclap also taunts").
-- **Choices happen on the between-wave screen**, never mid-fight.
-
-### AI heroes
-
-- Choose their own abilities, upgrades, and gear.
-- The reward pool is **weighted toward the hero's direction** (while still
-  offering meaningful choices).
-
-### Gear
-
-- **3 slots:** weapon, armor, trinket.
-- **Found only during a run** — no permanent gear.
-- After each wave the player **picks 1 of 3** gear pieces for their hero; AI
-  heroes handle their own loot.
-- **Quality tiers.** Harder fights have better odds of rare loot; rare loot can
-  still drop anywhere.
-- **Stats on all gear; special effects on rare and better items** (e.g.
-  "Whirlwind hits 1 extra target").
-
----
-
-## 10. Castle and professions (permanent progression)
-
-All permanent progression lives in the castle's **professions**. They are
-upgraded **only between runs** and give **passive bonuses** during every run.
-All professions can be owned; tokens decide which grow first.
-
-| Profession | Passive effect in runs |
-|---|---|
-| **Blacksmithing** | Better gear stats and rarity odds; at high levels, each hero starts with a gear piece |
-| **Enchanting** | Higher chance of special effects on gear |
-| **Alchemy** | The party starts each wave with a small buff |
-| **Engineering** | Builds and powers towers on the wall (~10–20% of one DPS hero's damage) |
-| **Tailoring** | Makes banners; higher levels unlock more banner choices |
-| **Inscription** | The castle provides a support effect borrowed from a class not in the party, plus unique castle effects |
-
-### Banners
-
-- **Choose 1 active banner per run**, locked at the start of the run.
-- Banners are **buffs only** (never revives). Examples: Banner of War (+party
-  damage), Banner of Stone (+party armor), Banner of Vigor (+resource regen).
-
----
-
-## 11. Economy
-
-### Currency
-
-**Tokens are the only currency.** (Gold was removed.)
-
-**Tokens buy:**
-- Profession upgrades
-- Starting-ability unlocks
-
-### Earning tokens (first-pass numbers)
-
-| Source | Amount |
-|---|---|
-| Each wave cleared | 1, more in later waves |
-| Each boss defeated | +5 |
-| First-time milestones (first clear of wave 10, 20, 30) | +25 each |
-| Winning a run (wave 30) | +20 |
-| Endless mode | Tokens per enemy group survived (amount TBD) |
-
-- **Losing runs keep** all tokens earned up to that point.
-- **Auto mode earns the same** tokens as manual play.
-- Expected: ~25 tokens for an early loss, ~80 for a full win, ~60 average.
-
-### Pacing
-
-- **Medium:** ~40–50 runs to fully upgrade everything.
-- Total spend: ~2,400 (6 professions × 10 levels, rising costs) + ~300
-  (starting-ability unlocks) ≈ **2,700 tokens**.
-
-### Difficulty tiers
-
-- **Fixed ladder:** tiers come in a set order. Each tier adds **a stat increase
-  plus one new rule**, and keeps every rule from the tiers below it.
-- Winning a tier **unlocks the next**. ~5 tiers to start.
-
-| Tier | Numbers | New rule |
-|---|---|---|
-| 1 | Base | None — the normal game |
-| 2 | +10% enemy HP/damage | Elite Surge — more elites per wave |
-| 3 | +20% | Swift Reinforcements — reinforcements arrive sooner |
-| 4 | +30% | Empowered Bosses — each boss gains an extra spell |
-| 5 | +40% | Hardened Casters — enemy casts finish faster |
-
-- **5 tiers to start**; new tiers can be added in updates.
-- **Rewards:** +25% tokens per tier, plus slightly better loot odds during the run.
-- **Any unlocked tier can be chosen**, and replaying a lower tier pays that tier's
-  **full** tokens — playing easier is never punished.
-- **Rules apply from wave 1**, but the stat increase **ramps up over the first
-  few waves** so early waves aren't brutal before a build exists.
-- **Endless mode uses the tier's numbers and rules.**
-- **Progress is tracked per account.** Optional cosmetic badges per class
-  (e.g. "beat Tier 4 with a Mage") with no gameplay effect.
-- **The AI never gets worse at higher tiers.**
-- **Endless mode** provides a "best wave" high-score chase alongside tiers.
-
----
-
-## 11b. Game feel (as built)
-
-- **Smooth motion:** drawing is interpolated between simulation steps; units
-  steer with easing (accelerate, slow on arrival) instead of snapping.
-- **Melee enemies surround their target** instead of stacking.
-- **Projectiles:** ranged damage lands when the shot arrives.
-- **Hit feedback:** white flash, small knockback, sparks; heavy hits add a
-  small screen shake and a 50ms hit-pause.
-- **Numbers:** rapid hits on the same target merge into one number; yours and
-  damage to heroes are prominent, teammates' hits are smaller.
-- **Rhythm:** wave intro banner ("Wave 4 — Flanked!"), "Reinforcements!" /
-  "Flankers incoming!" callouts, slow motion on the last kill.
-- **Sound:** synthesized in the browser (no audio files); Sound ON/OFF in the
-  top bar.
-
-## 12. Theme and art
-
-- **Setting:** classic high fantasy — a castle under siege.
-- **Tone:** heroic and classic, with a light touch.
-- **Enemies:** goblins → undead → demons across the three chapters.
-- **First version art:** simple shapes and icons, to prove the game is fun.
-- **Later art:** pixel art from free/licensed packs.
-- **Asset sources:** Kenney.nl (free for any use), game-icons.net (credit
-  required), itch.io asset packs.
+| Castle gate, enemies marching in waves, flank spawns | **Dropped** | Replaced by the arena board |
+| Player-controlled hero, ability buttons, focus target, Full Auto toggle | **Dropped** | The game is fully AI. Only the sim's test path remains. |
+| 30-wave runs with a win at wave 30 | **Dropped** | Runs are now endless, with 3 lives |
+| Revives | **Dropped** | Lives and round retries cover this |
+| Castle professions (Blacksmithing, Enchanting, Alchemy, Engineering, Tailoring, Inscription) | **Parked** | Possible base for meta progression |
+| Tokens (the only currency) | **Parked** | Goes with meta progression |
+| Banners (1 per run) | **Parked** | |
+| Difficulty tiers (5-tier ladder with rules) | **Parked** | Endless rounds plus a best-round score cover this for now |
+| Starting-ability unlocks (3 options per class) | **Parked** | |
+| Gear and loot | **Parked** | See §11 |
+| Paladin, Druid, Shaman, Warlock, Hunter | **Parked** | See §11 |
+| ~8 abilities per class pool | **Reduced** | 3 earnable abilities per class, plus a trait |
+| Out-of-range red outline on ability buttons | **Dropped** | There are no ability buttons |
 
 ---
 
 ## 13. Open questions
 
-1. **Difficulty tiers:** exact stat ramp and later tiers beyond 5.
-2. **Endless mode:** token rewards per group; whether bosses appear in it.
-3. **Hero movement:** built — your hero stays put in the center; AI teammates
-   move on their own within ~130px of your hero (speed 60), heroes body-block
-   enemies. Revisit: the Rogue's damage buff and Kick's long range (both were
-   workarounds for standing still), and whether careful-AI rules still fit.
-4. **Bosses:** specific bosses, abilities, and cast-bar spells.
-5. **Enemy abilities:** details per archetype and faction.
-6. **Starting-ability options:** the 2 unlockable options for Paladin, Priest,
-   Mage, and Rogue.
-7. **Gate:** gate HP and whether any profession improves it.
-8. **Banner list:** full list and which Tailoring levels unlock them.
-9. **Inscription:** which borrowed effects are available and how they scale.
-10. **Ability pool size:** 8 per class may need to grow.
-11. **Later classes:** full design for Druid, Shaman, Warlock, Hunter.
-12. **Exact numbers:** damage, HP, threat values, costs — set during testing.
-13. **Final ability names and art** (rename WoW-derived working names).
-14. **Race per class (parked for later):** let players change the race of each
+**Arena**
+
+1. **Recruits:** keep free picks, or offer a choice of 1 from 3?
+2. **Bench:** allow more than 5 heroes, with a bench?
+3. **Bosses:** give bosses unique abilities beyond the heavy slam?
+4. **Enemy and boss sprites.**
+5. **Rogue reach:** the Rogue is "melee" but has a 120 range. Kick's 420 range
+   is also long. Both were workarounds from when heroes stood still. Should we
+   shorten them now that heroes move?
+6. **Pool size:** 3 earnable abilities plus a trait fill the 5 slots by round
+   20. After that, rewards are only upgrades. Should the pools grow, or should
+   players be able to swap abilities?
+7. **Placement depth:** the board sets only starting positions. Should tiles
+   matter more, for example front-row damage reduction or adjacency bonuses?
+
+**Carried over**
+
+8. **Exact numbers:** damage, HP, threat and costs, to be tuned in playtests.
+9. **Final ability names and art:** rename the working names taken from WoW
+   before any public release. Use original or properly licensed art only.
+10. **Later classes:** full designs.
+11. **Race per class (parked for later):** let players change the race of each
     class. Set aside on 2026-11-01 to revisit later.
-
----
-
-## 14. Suggested first playable version (proposed)
-
-The smallest version that tests whether a wave is fun on a phone:
-
-- Portrait battlefield with simple shapes
-- 4 heroes (1 player-controlled, 3 AI) from the 5 starter classes
-- Aggro system with the orange/red indicator
-- A handful of waves including one boss with a cast bar
-- Between-wave screen with level-up and loot choices
-- Full Auto toggle
-
-Castle professions, tokens, difficulty tiers, and endless mode come after the
-core combat feels good.
