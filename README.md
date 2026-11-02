@@ -1,7 +1,7 @@
 # FightwithFriends
 
-A portrait-mode browser game: a party of four heroes defends a castle gate
-against waves of enemies. Built to play on a phone.
+A portrait-mode browser game: manage a guild of heroes fighting round after
+round in an arena. Built to play on a phone.
 
 - **Design:** [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)
 - **Current plan:** [docs/FIRST_PLAYABLE.md](docs/FIRST_PLAYABLE.md)
@@ -9,18 +9,24 @@ against waves of enemies. Built to play on a phone.
 
 ## Status
 
-A playable 15-wave auto-battler prototype:
+A playable arena auto-battler:
 
-- **Build a team of four** (classes can repeat): Warrior, Priest, Mage, Rogue.
+- **Start with 3 heroes** (classes can repeat): Warrior, Priest, Mage, Rogue.
+  A 4th joins after the round 10 boss, a 5th after the round 20 boss.
+- **Placement before every round:** the enemy line-up is on the board; tap a
+  hero, then a tile on your 4x3 grid to move them. Then press Fight.
 - **The heroes fight on their own** — they move, hold aggro, heal, interrupt
   and use their abilities. Tap a unit to inspect it; tap a hero panel for its
   abilities.
-- **Waves** have named patterns (rushes, flanks, casters, elite Goblin Brutes
-  with a telegraphed Smash). Everyone levels up each wave.
-- **Rewards every 5 waves:** pick one new ability or upgrade for each hero,
-  or use "Choose for me" / Auto picks. Autosave between waves.
-- **Feel:** smooth motion, projectiles, hit feedback, merged numbers, wave
-  intros, slow-mo finish, synthesized sound.
+- **Rounds:** goblins (1-10, Goblin Warchief boss), undead (11-20, The Bone
+  King), then demons (21+, a Demon Lord every 10th round) that get stronger
+  every round. The enemy fields as many fighters as you do (3 → 4 → 5).
+- **3 lives:** losing a round costs one; rearrange and retry. Runs are
+  endless; your best round is remembered. Sudden death after 60s.
+- **Rewards every 5 rounds:** pick one new ability or upgrade for each hero,
+  or use "Choose for me" / Auto picks. Autosave between rounds.
+- **Feel:** smooth motion, projectiles, hit feedback, merged numbers, round
+  intros, slow-mo finish, synthesized sound, pixel-art hero sprites.
 
 Top bar: **Speed** (testing aid), **Sound**, **Auto picks**, **Pause**.
 

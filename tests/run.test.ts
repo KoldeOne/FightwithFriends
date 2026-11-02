@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
-import { DEFAULT_TEAM, makeWave, RUN_WAVES, SPOTS } from '../src/sim/content';
-import { applyReward, autoChoose, completeWave, isChoiceWave, newRun, rewardOptions, type RunState } from '../src/sim/run';
+import { BOARD, DEFAULT_TEAM, enemyTilePos, heroTilePos, makeRound, partySize, SPOTS, START_LIVES } from '../src/sim/content';
+import { applyReward, completeWave, isChoiceWave, loseRound, needsRecruit, newRun, recruit, rewardOptions, type RunState } from '../src/sim/run';
 
 function playWave(run: RunState): Battle {
-  const b = new Battle({ seed: run.seed + run.wave, wave: makeWave(run.wave), team: run.team, builds: run.builds });
+  const b = new Battle({ seed: run.seed + run.wave + run.lives * 7, wave: makeRound(run.wave), team: run.team, builds: run.builds, placement: run.placement });
   while (b.outcome === 'running' && b.time < 900) b.step(STEP);
   return b;
 }
@@ -38,22 +38,22 @@ describe('Run and rewards', () => {
     const run = newRun(DEFAULT_TEAM, 1);
     applyReward(run.builds[2], { kind: 'vitality' });
     applyReward(run.builds[2], { kind: 'might' });
-    const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage', builds: run.builds });
-    const fresh = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage' });
+    const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage', builds: run.builds });
+    const fresh = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage' });
     expect(b.player!.maxHp).toBe(Math.round(fresh.player!.maxHp * 1.1));
     expect(b.player!.damage).toBeCloseTo(fresh.player!.damage * 1.1);
   });
 
   it('options are the same for the same run and wave (no reroll by reloading)', () => {
     const run = newRun(DEFAULT_TEAM, 42);
-    expect(rewardOptions(run, 3)).toEqual(rewardOptions(run, 3));
+    expect(rewardOptions(run, 2)).toEqual(rewardOptions(run, 2));
   });
 
   it('AI teammates pick for themselves and everyone levels up', () => {
     const run = newRun(DEFAULT_TEAM, 3);
     run.wave = 5; // a choice wave
     const picks = completeWave(run, [undefined, rewardOptions(run, 1)[0]]);
-    expect(picks.filter(Boolean)).toHaveLength(4); // the rest were chosen automatically
+    expect(picks.filter(Boolean)).toHaveLength(3); // the rest were chosen automatically
     for (const b of run.builds) expect(b.level).toBe(2);
     expect(run.wave).toBe(6);
   });
@@ -62,7 +62,7 @@ describe('Run and rewards', () => {
     const run = newRun(DEFAULT_TEAM, 1);
     applyReward(run.builds[2], { kind: 'power', id: 'fireball' });
     applyReward(run.builds[2], { kind: 'haste', id: 'fireball' });
-    const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: 'mage', builds: run.builds });
+    const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage', builds: run.builds });
     const slot = b.player!.abilities![0];
     expect(b.abilityScale(b.player!, slot)).toBeCloseTo(1.25);
     expect(b.abilityCooldown(slot)).toBeCloseTo(4 * 0.8);
@@ -71,40 +71,103 @@ describe('Run and rewards', () => {
   it('levels carry into battle as more health', () => {
     const run = newRun(DEFAULT_TEAM, 1);
     run.builds[0].level = 5;
-    const b = new Battle({ seed: 1, wave: makeWave(1), builds: run.builds });
+    const b = new Battle({ seed: 1, wave: makeRound(1), builds: run.builds });
     const w = b.heroes.find((h) => h.kind === 'warrior')!;
-    const fresh = new Battle({ seed: 1, wave: makeWave(1) }).heroes.find((h) => h.kind === 'warrior')!;
+    const fresh = new Battle({ seed: 1, wave: makeRound(1) }).heroes.find((h) => h.kind === 'warrior')!;
     expect(w.maxHp).toBeGreaterThan(fresh.maxHp);
   });
 
-  it('waves get bigger, casters arrive from wave 3, reinforcements from wave 6', () => {
-    expect(makeWave(1).spawns.length).toBe(3);
-    expect(makeWave(2).spawns.some((s) => s.kind === 'shaman')).toBe(false);
-    expect(makeWave(3).spawns.some((s) => s.kind === 'shaman')).toBe(true);
-    expect(makeWave(4).spawns.some((s) => s.y !== undefined)).toBe(true); // flank
-    expect(makeWave(5).spawns.some((s) => s.kind === 'brute')).toBe(true); // elite
-    expect(makeWave(6).spawns.some((s) => s.time > 10)).toBe(true);
-    expect(makeWave(10).spawns.length).toBeGreaterThan(makeWave(1).spawns.length);
-    for (let n = 1; n <= RUN_WAVES; n++) expect(makeWave(n).name).toBeTruthy();
+  it('the enemy side grows 3 -> 4 -> 5 with the party, with a boss every 10th round', () => {
+    expect(makeRound(1).spawns.map((s) => s.kind)).toEqual(['grunt', 'grunt', 'grunt']);
+    for (let n = 1; n <= 40; n++) {
+      const r = makeRound(n);
+      expect(r.spawns).toHaveLength(partySize(n));
+      expect(r.name).toBeTruthy();
+      expect(r.boss).toBe(n % 10 === 0);
+      expect(r.spawns.filter((s) => ['warchief', 'boneKing', 'demonLord'].includes(s.kind))).toHaveLength(n % 10 === 0 ? 1 : 0);
+    }
+    expect(makeRound(11).spawns.every((s) => ['skeleton', 'boneArcher', 'cultist', 'ghoul', 'abomination'].includes(s.kind))).toBe(true);
+    // Rounds after 20 change line-up every round and keep getting stronger.
+    for (let n = 21; n < 40; n++) {
+      expect(makeRound(n + 1).spawns).not.toEqual(makeRound(n).spawns);
+      expect(makeRound(n + 1).strength!).toBeGreaterThan(makeRound(n).strength!);
+    }
   });
 
-  it('a full AI-played run can be completed', () => {
-    let finished = 0;
+  it('enemies start on their board tiles, visible before the fight', () => {
+    const r = makeRound(4);
+    const b = new Battle({ seed: 1, wave: r, team: DEFAULT_TEAM });
+    expect(b.time).toBe(0);
+    expect(b.enemies).toHaveLength(r.spawns.length);
+    for (const e of b.enemies) expect(BOARD.enemyRowY).toContain(e.y);
+    expect(b.enemies[1]).toMatchObject(enemyTilePos({ col: 0, row: 2 }));
+  });
+
+  it('heroes stand on their tiles; placing onto a taken tile swaps the two', () => {
+    const run = newRun(DEFAULT_TEAM, 1);
+    // Default layout: warrior up front, priest and mage behind.
+    expect(run.placement[0].row).toBe(0);
+    expect(run.placement[1].row).toBe(2);
+    expect(run.placement[2].row).toBe(2);
+    const b = new Battle({ seed: 1, wave: makeRound(1), team: run.team, builds: run.builds, placement: run.placement });
+    const [w, p] = [0, 1].map((slot) => b.heroes.find((h) => h.slot === slot)!);
+    expect(w).toMatchObject(heroTilePos(run.placement[0]));
+    const priestTile = { ...p.tile! };
+    const warriorTile = { ...w.tile! };
+    expect(b.placeHero(0, priestTile)).toBe(true);
+    expect(w.tile).toEqual(priestTile);
+    expect(p.tile).toEqual(warriorTile);
+    expect(b.placement[0]).toEqual(priestTile);
+    b.step(STEP);
+    expect(b.placeHero(0, warriorTile)).toBe(false); // no moving once the fight is on
+  });
+
+  it('after the round 10 and 20 bosses a new hero joins, at the party level', () => {
+    const run = newRun(DEFAULT_TEAM, 5);
+    while (run.wave <= 10) {
+      expect(needsRecruit(run)).toBe(false);
+      completeWave(run);
+    }
+    expect(needsRecruit(run)).toBe(true);
+    recruit(run, 'rogue');
+    expect(run.team).toHaveLength(4);
+    expect(run.placement).toHaveLength(4);
+    expect(new Set(run.placement.map((t) => `${t.col},${t.row}`)).size).toBe(4);
+    expect(run.builds[3].level).toBe(run.builds[0].level);
+    expect(run.builds[3].abilities.length).toBe(run.builds[0].abilities.length); // caught up on rewards
+    while (run.wave <= 20) completeWave(run);
+    expect(needsRecruit(run)).toBe(true);
+    recruit(run, 'mage');
+    expect(run.team).toHaveLength(5);
+    expect(needsRecruit(run)).toBe(false);
+  });
+
+  it('losing a round costs a life; the run ends at zero', () => {
+    const run = newRun(DEFAULT_TEAM, 1);
+    expect(run.lives).toBe(START_LIVES);
+    expect(loseRound(run)).toBe(true);
+    expect(loseRound(run)).toBe(true);
+    expect(loseRound(run)).toBe(false);
+    expect(run.lives).toBe(0);
+  });
+
+  it('an AI-played run gets through the first 20 rounds (with lives to spare)', () => {
+    let made = 0;
     for (const seed of [11, 12, 13, 14]) {
       const run = newRun(DEFAULT_TEAM, seed);
-      while (run.wave <= RUN_WAVES) {
-        const b = playWave(run);
-        if (b.outcome !== 'victory') break;
-        completeWave(run);
+      while (run.wave <= 20 && run.lives > 0) {
+        if (needsRecruit(run)) recruit(run, 'rogue');
+        if (playWave(run).outcome === 'victory') completeWave(run);
+        else loseRound(run);
       }
-      if (run.wave > RUN_WAVES) finished++;
+      if (run.wave > 20) made++;
     }
-    expect(finished).toBeGreaterThanOrEqual(3);
+    expect(made).toBeGreaterThanOrEqual(3);
   });
 
   it('teams can repeat classes', () => {
     const run = newRun(['mage', 'mage', 'priest', 'warrior'], 1);
-    const b = new Battle({ seed: 1, wave: makeWave(1), team: run.team, builds: run.builds });
+    const b = new Battle({ seed: 1, wave: makeRound(1), team: run.team, builds: run.builds });
     expect(b.heroes.map((h) => h.label).sort()).toEqual(['Mage', 'Mage 2', 'Priest', 'Warrior']);
     run.wave = 5;
     const picks = completeWave(run);
@@ -187,7 +250,7 @@ describe('New earnable abilities', () => {
 describe('Formation', () => {
   it("the player's hero starts in the center; AI teammates front, left and right", () => {
     for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
-      const b = new Battle({ seed: 1, wave: makeWave(1), playerClass: cls });
+      const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: cls });
       expect([b.player!.x, b.player!.y]).toEqual([SPOTS.center.x, SPOTS.center.y]);
       const others = b.heroes.filter((h) => h.kind !== cls);
       expect(others).toHaveLength(3);

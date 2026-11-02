@@ -10,6 +10,53 @@ collected at the end.
 
 ---
 
+## 0. Arena overhaul (current direction, 2026-11-01)
+
+The game moved from castle-gate defence to an **arena auto-battler**, inspired
+by guild-management arena games (inspiration only: our own names, art and
+systems). This section overrides the gate, wave-spawning and party-of-four
+parts of the sections below; the classes, abilities, aggro, rewards and
+levelling still apply.
+
+- **The board.** Each side has a **4 x 3 grid** of tiles (row 0 is the front).
+  Enemies start on their tiles at the top, heroes on theirs at the bottom.
+  No gate: a round is won when every enemy is down, lost when every hero is.
+- **Placement phase.** Before each round the enemy line-up is visible. Tap a
+  hero, then a tile, to move it (tapping a taken tile swaps the two). The
+  layout is kept between rounds. Then **Fight!** and the heroes act on their
+  own, moving freely around the arena.
+- **Party size.** Start with **3 heroes**. A **4th** joins after beating the
+  **round 10 boss**, a **5th** after the **round 20 boss**. With 4 classes and
+  5 slots, classes may repeat. A recruit is any class you choose; it joins at
+  the party's level with the rewards it would have auto-picked so far.
+- **Enemy side** fields the same number: 3 → 4 → 5.
+  - **Rounds 1-10: goblins** — Grunt, Archer, Shaman (healer), Brute (elite,
+    telegraphed Smash). Round 1 is three Grunts. **Boss: Goblin Warchief.**
+  - **Rounds 11-20: undead** — Skeleton, Bone Archer, Death Cultist (healer),
+    Ghoul (fast), Abomination (elite). **Boss: The Bone King.**
+  - **Rounds 21+: demons** — Fire Imp, Hellhound, Fiend, Shadow Caller (healer),
+    Pit Brute (elite); a different line-up every round, growing stronger every
+    round. **A Demon Lord every 10th round.**
+  - Each faction has the same five roles, so new enemies reuse the existing
+    behaviours (melee, ranged, healer, smasher) with their own stats.
+- **Lives.** **3 per run.** Losing a round costs one; you retry the same round
+  (and can rearrange). At zero the run ends. Runs are endless; the best round
+  reached is remembered.
+- **Between rounds.** Everyone is back to full health; everyone levels up;
+  a reward choice every 5 rounds (unchanged).
+- **Sudden death.** After 60 seconds every hit lands harder (+5% per second),
+  so healer-heavy fights can't stall.
+- **Balance (first pass).** Enemy strength: 1.6 → 2.3 over goblins, 3.2 → 4.5
+  over undead, then +0.25 a round from 4.9. In simulation, AI-only runs (no
+  placement changes) usually end between rounds 26 and 36; the bosses are the
+  big spikes.
+
+**Open questions for the arena:** enemy and boss sprites; whether recruits
+should be offered (choose 1 of 3) rather than free picks; a bench for more
+than 5 heroes; whether bosses get unique abilities beyond their heavy slam.
+
+---
+
 ## 1. Concept
 
 A party of four fantasy heroes defends a castle gate against waves of enemies

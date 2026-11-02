@@ -1,22 +1,63 @@
-import type { AbilityId, EnemyKind, HeroClass, PassiveId, ResourceKind, SpawnDef, TraitId, Unit, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroClass, PassiveId, ResourceKind, SpawnDef, Tile, TraitId, Unit, WaveDef } from './types';
 
 /** World is a fixed portrait canvas; the renderer scales it to the screen. */
 export const WORLD = {
   width: 540,
   height: 960,
-  /** Top edge of the gate wall. */
-  gateY: 770,
-  gateHeight: 26,
   /** Top edge of the HUD panel. */
   hudTop: 810,
   spawnY: -24,
 };
 
-export const GATE_MAX_HP = 600;
+/** The arena floor: units stay between these heights. */
+export const ARENA = { top: 104, bottom: 790 };
+
+/**
+ * The board: each side has 4 columns x 3 rows of tiles. Row 0 is the front row
+ * (closest to the middle). Enemies stand at the top, heroes at the bottom.
+ */
+export const BOARD = {
+  cols: 4,
+  rows: 3,
+  colX: [90, 210, 330, 450],
+  heroRowY: [560, 645, 730],
+  enemyRowY: [360, 275, 190],
+  tileW: 112,
+  tileH: 80,
+};
+
+export function heroTilePos(t: Tile): { x: number; y: number } {
+  return { x: BOARD.colX[t.col], y: BOARD.heroRowY[t.row] };
+}
+
+export function enemyTilePos(t: Tile): { x: number; y: number } {
+  return { x: BOARD.colX[t.col], y: BOARD.enemyRowY[t.row] };
+}
+
+/** The hero tile under a point, or null. */
+export function heroTileAt(x: number, y: number): Tile | null {
+  const col = BOARD.colX.findIndex((cx) => Math.abs(x - cx) <= BOARD.tileW / 2);
+  const row = BOARD.heroRowY.findIndex((cy) => Math.abs(y - cy) <= BOARD.tileH / 2);
+  return col >= 0 && row >= 0 ? { col, row } : null;
+}
+
+/**
+ * Party size by round: 3 heroes to start, a 4th after beating the round 10
+ * boss, a 5th after the round 20 boss. Enemies field the same number.
+ */
+export function partySize(round: number): number {
+  return round <= 10 ? 3 : round <= 20 ? 4 : 5;
+}
+
+/** Lives per run: losing a round costs one; the run ends at zero. */
+export const START_LIVES = 3;
+
+/** After this many seconds, sudden death: all damage ramps up so fights can't stall. */
+export const SUDDEN_DEATH = { after: 60, perSecond: 0.05 };
 
 type UnitStats = Pick<
   Unit,
-  'label' | 'radius' | 'maxHp' | 'damage' | 'attackInterval' | 'range' | 'attackStyle' | 'speed' | 'heal' | 'goesForGate' | 'threatMultiplier' | 'isTank' | 'isCaster' | 'isElite'
+  'label' | 'radius' | 'maxHp' | 'damage' | 'attackInterval' | 'range' | 'attackStyle' | 'speed' | 'heal' | 'threatMultiplier' | 'isTank' | 'isCaster' | 'isElite' | 'isBoss' | 'ai' | 'spell'
 >;
 
 export const HERO_STATS: Record<HeroClass, UnitStats> = {
@@ -26,7 +67,7 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
   priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
 };
 
-/** Starting spots for a team of four (front, left, right, back). */
+/** Starting spots for a team with a player-controlled hero (tests only). */
 export const SPOTS = {
   center: { x: 270, y: 630 },
   front: { x: 270, y: 560 },
@@ -37,39 +78,90 @@ export const SPOTS = {
 
 /**
  * Hero movement. Heroes stay within `leash` of the party's anchor and move at
- * `speed` px/s (goblin grunts: 38, runners: 75).
+ * `speed` px/s (goblin grunts: 38, ghouls: 60).
  */
 export const HERO_MOVE = { speed: 60, leash: 140 };
 
 /** Who goes up front first: tanks, then melee, then ranged, healers at the back. */
 const ROLE_ORDER: HeroClass[] = ['warrior', 'rogue', 'mage', 'priest'];
 
-/** The default team (one of each). */
-export const DEFAULT_TEAM: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
+/** The default starting team for a run (tank, healer, damage). */
+export const DEFAULT_TEAM: HeroClass[] = ['warrior', 'priest', 'mage'];
+
+/** One of each class: a battle's team when none is given. */
+export const ONE_OF_EACH: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
+
+/** Front-liners fill the front row; everyone else starts in the back row. */
+const FRONT_LINE: HeroClass[] = ['warrior', 'rogue'];
+/** Columns filled first: the middle, then the edges. */
+const COL_ORDER = [1, 2, 0, 3];
+
+/** A sensible starting layout: tanks and melee up front, ranged and healers behind. */
+export function defaultPlacement(team: HeroClass[]): Tile[] {
+  const out: Tile[] = [];
+  const used = new Set<string>();
+  const order = team.map((cls, slot) => ({ cls, slot })).sort((a, b) => ROLE_ORDER.indexOf(a.cls) - ROLE_ORDER.indexOf(b.cls) || a.slot - b.slot);
+  for (const { cls, slot } of order) out[slot] = freeTile(used, FRONT_LINE.includes(cls) ? [0, 1, 2] : [2, 1, 0]);
+  return out;
+}
+
+/** First free tile, trying rows in the given order. Marks it used. */
+export function freeTile(used: Set<string>, rows: number[]): Tile {
+  for (const row of rows) {
+    for (const col of COL_ORDER) {
+      const key = `${col},${row}`;
+      if (!used.has(key)) {
+        used.add(key);
+        return { col, row };
+      }
+    }
+  }
+  return { col: 0, row: 0 };
+}
 
 /**
  * Where each team member starts. `slot` is the index in `team`. With a
- * player-controlled hero (used by tests and a possible future mode), that hero
- * stands in the center; otherwise the team is laid out by role.
+ * player-controlled hero (tests only), that hero stands in the center;
+ * otherwise each hero stands on its board tile.
  */
-export function formationFor(team: HeroClass[], player?: HeroClass): { slot: number; cls: HeroClass; x: number; y: number }[] {
+export function formationFor(team: HeroClass[], player?: HeroClass, placement?: Tile[]): { slot: number; cls: HeroClass; x: number; y: number; tile?: Tile }[] {
   const slots = team.map((cls, slot) => ({ slot, cls }));
   const playerSlot = player ? slots.find((s) => s.cls === player) : undefined;
-  const rest = slots.filter((s) => s !== playerSlot).sort((a, b) => ROLE_ORDER.indexOf(a.cls) - ROLE_ORDER.indexOf(b.cls) || a.slot - b.slot);
   if (playerSlot) {
+    const rest = slots.filter((s) => s !== playerSlot).sort((a, b) => ROLE_ORDER.indexOf(a.cls) - ROLE_ORDER.indexOf(b.cls) || a.slot - b.slot);
     const spots = [SPOTS.front, SPOTS.left, SPOTS.right, SPOTS.back];
-    return [{ ...playerSlot, ...SPOTS.center }, ...rest.map((s, i) => ({ ...s, ...spots[i] }))];
+    return [{ ...playerSlot, ...SPOTS.center }, ...rest.map((s, i) => ({ ...s, ...spots[i % spots.length] }))];
   }
-  const spots = [SPOTS.front, SPOTS.left, SPOTS.right, SPOTS.back];
-  return rest.map((s, i) => ({ ...s, ...spots[i % spots.length], y: spots[i % spots.length].y + Math.floor(i / spots.length) * 40 }));
+  const tiles = placement && placement.length === team.length ? placement : defaultPlacement(team);
+  return slots.map((s) => ({ ...s, ...heroTilePos(tiles[s.slot]), tile: { ...tiles[s.slot] } }));
 }
 
+/**
+ * Enemy base stats; each round's `strength` multiplies health and damage.
+ * Three factions: goblins, undead, demons. Each has a basic melee, a ranged
+ * attacker, a healer, an elite smasher and a boss.
+ */
 export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
+  // Goblins
   grunt: { label: 'Goblin Grunt', radius: 17, maxHp: 220, damage: 22, attackInterval: 1.3, range: 8, attackStyle: 'melee', speed: 38 },
   archer: { label: 'Goblin Archer', radius: 15, maxHp: 130, damage: 16, attackInterval: 1.8, range: 260, attackStyle: 'ranged', speed: 32 },
-  shaman: { label: 'Goblin Shaman', radius: 16, maxHp: 150, damage: 8, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true },
-  brute: { label: 'Goblin Brute', radius: 24, maxHp: 620, damage: 24, attackInterval: 1.6, range: 10, attackStyle: 'melee', speed: 30, isElite: true },
-  runner: { label: 'Goblin Runner', radius: 13, maxHp: 90, damage: 14, attackInterval: 1.0, range: 6, attackStyle: 'melee', speed: 75, goesForGate: true },
+  shaman: { label: 'Goblin Shaman', radius: 16, maxHp: 150, damage: 8, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true, ai: 'healer', spell: 'Mend' },
+  brute: { label: 'Goblin Brute', radius: 24, maxHp: 620, damage: 24, attackInterval: 1.6, range: 10, attackStyle: 'melee', speed: 30, isElite: true, ai: 'smasher', spell: 'Smash' },
+  warchief: { label: 'Goblin Warchief', radius: 28, maxHp: 1100, damage: 22, attackInterval: 1.4, range: 10, attackStyle: 'melee', speed: 34, isElite: true, isBoss: true, ai: 'smasher', spell: 'Skull Crack' },
+  // Undead
+  skeleton: { label: 'Skeleton', radius: 17, maxHp: 260, damage: 24, attackInterval: 1.2, range: 8, attackStyle: 'melee', speed: 36 },
+  boneArcher: { label: 'Bone Archer', radius: 15, maxHp: 150, damage: 18, attackInterval: 1.7, range: 270, attackStyle: 'ranged', speed: 32 },
+  cultist: { label: 'Death Cultist', radius: 16, maxHp: 170, damage: 9, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true, ai: 'healer', spell: 'Dark Mend' },
+  ghoul: { label: 'Ghoul', radius: 15, maxHp: 180, damage: 18, attackInterval: 0.8, range: 6, attackStyle: 'melee', speed: 60 },
+  abomination: { label: 'Abomination', radius: 26, maxHp: 760, damage: 28, attackInterval: 1.7, range: 10, attackStyle: 'melee', speed: 28, isElite: true, ai: 'smasher', spell: 'Slam' },
+  boneKing: { label: 'The Bone King', radius: 30, maxHp: 1700, damage: 28, attackInterval: 1.4, range: 10, attackStyle: 'melee', speed: 32, isElite: true, isBoss: true, ai: 'smasher', spell: 'Grave Cleave' },
+  // Demons
+  imp: { label: 'Fire Imp', radius: 14, maxHp: 160, damage: 20, attackInterval: 1.5, range: 280, attackStyle: 'ranged', speed: 40 },
+  hellhound: { label: 'Hellhound', radius: 16, maxHp: 220, damage: 22, attackInterval: 0.9, range: 6, attackStyle: 'melee', speed: 65 },
+  fiend: { label: 'Fiend', radius: 19, maxHp: 320, damage: 28, attackInterval: 1.2, range: 8, attackStyle: 'melee', speed: 38 },
+  shadowCaller: { label: 'Shadow Caller', radius: 16, maxHp: 200, damage: 10, attackInterval: 2.0, range: 240, attackStyle: 'ranged', speed: 30, isCaster: true, ai: 'healer', spell: 'Shadow Mend' },
+  pitBrute: { label: 'Pit Brute', radius: 27, maxHp: 900, damage: 32, attackInterval: 1.6, range: 10, attackStyle: 'melee', speed: 30, isElite: true, ai: 'smasher', spell: 'Crush' },
+  demonLord: { label: 'Demon Lord', radius: 32, maxHp: 1800, damage: 28, attackInterval: 1.4, range: 10, attackStyle: 'melee', speed: 34, isElite: true, isBoss: true, ai: 'smasher', spell: 'Hellfire Slam' },
 };
 
 export const RESOURCES: Record<ResourceKind, { label: string; max: number; start: number; regen: number }> = {
@@ -157,10 +249,10 @@ export const UPGRADE = { powerPerRank: 0.25, hastePerRank: 0.8, vitalityPerRank:
 export const NEW_ABILITY_AFTER_WAVES = [5, 10, 15, 20];
 
 /**
- * A reward choice screen only appears after these waves; every other wave just
- * levels everyone up automatically.
+ * A reward choice screen appears after every 5th round; other rounds just
+ * level everyone up automatically.
  */
-export const CHOICE_AFTER_WAVES = [5, 10, 15, 20, 25];
+export const CHOICE_EVERY = 5;
 
 /** Per level after 1: +6% max health, damage and healing. */
 export const LEVEL_SCALING = 0.06;
@@ -193,11 +285,15 @@ export const TRAIT_TUNING = {
   comboBonusPerPoint: 0.15,
 };
 
-/** Goblin Brute's telegraphed Smash: a cast bar, then a heavy hit with splash. Interruptible. */
-export const BRUTE_SMASH = { name: 'Smash', castTime: 1.8, damage: 70, splash: 30, splashRadius: 70, cooldown: 8 };
+/**
+ * Smashers' telegraphed hit (Brute's Smash, bosses' slams): a cast bar, then a
+ * heavy hit with splash. Interruptible. Damage scales with the unit's own
+ * damage (a base Goblin Brute: 70 to the target, 30 splash).
+ */
+export const BRUTE_SMASH = { castTime: 1.8, damageFactor: 2.9, splashFactor: 1.25, splashRadius: 70, cooldown: 8 };
 
-/** Goblin Shaman's heal spell. It must walk within `range` of the goblin it heals. */
-export const SHAMAN_MEND = { name: 'Mend', castTime: 2.5, heal: 70, cooldown: 7, minMissing: 40, range: 90 };
+/** Healers' heal spell (scaled by round strength). It must walk within `range` of the ally it heals. */
+export const SHAMAN_MEND = { castTime: 2.5, heal: 70, cooldown: 7, minMissing: 40, range: 90 };
 
 export interface PassiveDef {
   id: PassiveId;
@@ -241,69 +337,78 @@ export const AGGRO = {
   warningAt: 0.8,
   /** Careful AI DPS won't attack if it would push them past this fraction. */
   cautionAt: 0.9,
-  /** Runners ignore heroes until someone has at least this much threat on them. */
-  runnerThreshold: 40,
   tauntCooldown: 8,
   tauntDuration: 3,
   tauntRange: 420,
 };
 
-/** Waves in a run (the first playable is chapter 1: 10 waves). */
-export const RUN_WAVES = 15;
+/** A line-up entry: enemy kind on board column, row (row 0 = front). */
+type Slot = [EnemyKind, number, number];
 
 /**
- * Wave N has a pattern: a main push from the top, runner rushes, shaman
- * casters, flanks from the sides, and elite Brutes. Enemy health and damage
- * also grow each wave.
+ * Hand-made line-ups. Rounds 1-10: goblins (3 enemies, the Warchief on 10).
+ * Rounds 11-20: undead (4 enemies, the Bone King on 20).
  */
-export function makeWave(n: number): WaveDef {
-  // Small deterministic generator so a wave is the same every time.
-  let seed = n * 9301 + 49297;
-  const rand = () => {
-    seed = (seed * 9301 + 49297) % 233280;
-    return seed / 233280;
-  };
-  /** A tight group arriving from the top. */
-  const top = (time: number, kinds: EnemyKind[]): SpawnDef[] => {
-    const cx = 170 + rand() * 200;
-    return kinds.map((kind, i) => ({ time: time + i * 0.35, kind, x: cx + (rand() - 0.5) * 110 }));
-  };
-  /** A tight group coming in from the left or right edge. */
-  const side = (time: number, from: 'left' | 'right', kinds: EnemyKind[]): SpawnDef[] => {
-    const cy = 230 + rand() * 140;
-    const x = from === 'left' ? -24 : WORLD.width + 24;
-    return kinds.map((kind, i) => ({ time: time + i * 0.4, kind, x, y: cy + (rand() - 0.5) * 80 }));
-  };
-  const patterns: Record<number, { name: string; spawns: SpawnDef[] }> = {
-    1: { name: 'Goblin push', spawns: top(0, ['grunt', 'archer', 'grunt']) },
-    2: { name: 'Runner rush', spawns: [...top(0, ['grunt', 'grunt', 'archer']), ...top(6, ['runner', 'runner'])] },
-    3: { name: 'Shamans', spawns: top(0, ['grunt', 'shaman', 'grunt', 'archer']) },
-    4: { name: 'Flanked!', spawns: [...side(0, 'left', ['grunt', 'archer']), ...side(1.5, 'right', ['grunt', 'grunt', 'shaman'])] },
-    5: { name: 'Elite: Goblin Brute', spawns: top(0, ['brute', 'grunt', 'archer', 'shaman']) },
-    6: { name: 'Reinforcements', spawns: [...top(0, ['grunt', 'grunt', 'archer', 'shaman']), ...top(20, ['grunt', 'runner', 'grunt'])] },
-    7: { name: 'Flank and rush', spawns: [...side(0, 'left', ['grunt', 'archer']), ...side(0.5, 'right', ['grunt', 'shaman']), ...top(9, ['runner', 'runner', 'runner'])] },
-    8: { name: 'Brute and casters', spawns: [...top(0, ['brute', 'grunt', 'shaman', 'archer']), ...top(18, ['grunt', 'shaman', 'grunt'])] },
-    9: { name: 'Surrounded', spawns: [...top(0, ['grunt', 'grunt', 'archer', 'shaman']), ...side(12, 'left', ['runner', 'runner']), ...side(16, 'right', ['brute', 'grunt'])] },
-    10: {
-      name: 'Warband',
-      spawns: [...top(0, ['brute', 'grunt', 'grunt', 'archer', 'shaman']), ...side(16, 'left', ['grunt', 'shaman']), ...side(22, 'right', ['runner', 'runner', 'brute'])],
-    },
-    11: { name: 'Shaman circle', spawns: [...top(0, ['grunt', 'shaman', 'shaman', 'grunt', 'archer']), ...side(14, 'left', ['shaman', 'grunt'])] },
-    12: { name: 'Twin Brutes', spawns: [...top(0, ['brute', 'grunt', 'archer']), ...top(10, ['brute', 'shaman', 'grunt'])] },
-    13: { name: 'Runner flood', spawns: [...top(0, ['grunt', 'grunt', 'archer']), ...side(5, 'left', ['runner', 'runner', 'runner']), ...side(9, 'right', ['runner', 'runner', 'runner'])] },
-    14: { name: 'Pincer', spawns: [...side(0, 'left', ['brute', 'grunt', 'shaman']), ...side(0.5, 'right', ['grunt', 'grunt', 'archer']), ...top(15, ['grunt', 'runner', 'archer'])] },
-    15: {
-      name: 'Final assault',
-      spawns: [
-        ...top(0, ['brute', 'grunt', 'grunt', 'archer', 'shaman']),
-        ...side(14, 'left', ['brute', 'shaman', 'runner']),
-        ...side(20, 'right', ['grunt', 'archer', 'runner', 'runner']),
-        ...top(28, ['grunt', 'grunt', 'shaman']),
-      ],
-    },
-  };
-  const p = patterns[n] ?? patterns[15];
-  return { number: n, name: p.name, spawns: p.spawns, strength: 1 + (n - 1) * 0.11 };
+const LINEUPS: Record<number, { name: string; slots: Slot[] }> = {
+  1: { name: 'Grunt Squad', slots: [['grunt', 0, 0], ['grunt', 1, 0], ['grunt', 2, 0]] },
+  2: { name: 'Archer Support', slots: [['grunt', 1, 0], ['grunt', 2, 0], ['archer', 1, 2]] },
+  3: { name: 'The Shaman', slots: [['grunt', 1, 0], ['archer', 2, 1], ['shaman', 1, 2]] },
+  4: { name: 'Twin Archers', slots: [['grunt', 2, 0], ['archer', 0, 2], ['archer', 3, 2]] },
+  5: { name: 'Elite: Goblin Brute', slots: [['brute', 1, 0], ['grunt', 2, 0], ['shaman', 2, 2]] },
+  6: { name: 'Skirmishers', slots: [['grunt', 0, 0], ['grunt', 3, 0], ['archer', 1, 1]] },
+  7: { name: 'Healer Line', slots: [['grunt', 1, 0], ['shaman', 0, 2], ['shaman', 3, 2]] },
+  8: { name: 'Brute and Bows', slots: [['brute', 2, 0], ['archer', 0, 1], ['archer', 3, 1]] },
+  9: { name: 'Double Brute', slots: [['brute', 1, 0], ['brute', 2, 0], ['shaman', 1, 2]] },
+  10: { name: 'BOSS: Goblin Warchief', slots: [['warchief', 1, 1], ['grunt', 0, 0], ['shaman', 3, 2]] },
+  11: { name: 'The Risen', slots: [['skeleton', 0, 0], ['skeleton', 1, 0], ['skeleton', 2, 0], ['boneArcher', 1, 2]] },
+  12: { name: 'Ghoul Pack', slots: [['ghoul', 0, 0], ['ghoul', 3, 0], ['skeleton', 1, 0], ['cultist', 2, 2]] },
+  13: { name: 'Bone Volley', slots: [['skeleton', 1, 0], ['boneArcher', 0, 2], ['boneArcher', 2, 2], ['boneArcher', 3, 1]] },
+  14: { name: 'Elite: Abomination', slots: [['abomination', 1, 0], ['skeleton', 2, 0], ['cultist', 0, 2], ['boneArcher', 3, 2]] },
+  15: { name: 'Dark Rites', slots: [['skeleton', 1, 0], ['skeleton', 2, 0], ['cultist', 0, 2], ['cultist', 3, 2]] },
+  16: { name: 'Hunting Ghouls', slots: [['ghoul', 0, 0], ['ghoul', 1, 0], ['ghoul', 3, 0], ['boneArcher', 2, 2]] },
+  17: { name: 'Flesh Wall', slots: [['abomination', 1, 0], ['abomination', 2, 0], ['boneArcher', 0, 2], ['cultist', 3, 2]] },
+  18: { name: 'Siege Line', slots: [['skeleton', 0, 0], ['skeleton', 3, 0], ['boneArcher', 1, 2], ['boneArcher', 2, 2]] },
+  19: { name: 'Graveyard Shift', slots: [['abomination', 1, 0], ['ghoul', 0, 0], ['ghoul', 3, 0], ['cultist', 2, 2]] },
+  20: { name: 'BOSS: The Bone King', slots: [['boneKing', 1, 1], ['skeleton', 0, 0], ['skeleton', 3, 0], ['cultist', 2, 2]] },
+};
+
+/** Rounds 21+: demons, 5 enemies. One of these each round (never the same twice in a row). */
+const DEMON_LINEUPS: { name: string; slots: Slot[] }[] = [
+  { name: 'Imp Swarm', slots: [['fiend', 1, 0], ['fiend', 2, 0], ['imp', 0, 2], ['imp', 2, 2], ['imp', 3, 2]] },
+  { name: 'Hellhounds', slots: [['hellhound', 0, 0], ['hellhound', 1, 0], ['hellhound', 3, 0], ['fiend', 2, 0], ['shadowCaller', 1, 2]] },
+  { name: 'Elite: Pit Brute', slots: [['pitBrute', 1, 0], ['fiend', 2, 0], ['imp', 0, 2], ['imp', 3, 2], ['shadowCaller', 2, 2]] },
+  { name: 'Fire and Shadow', slots: [['fiend', 1, 0], ['hellhound', 2, 0], ['imp', 0, 1], ['shadowCaller', 1, 2], ['shadowCaller', 3, 2]] },
+  { name: 'Twin Pit Brutes', slots: [['pitBrute', 1, 0], ['pitBrute', 2, 0], ['hellhound', 3, 0], ['imp', 0, 2], ['shadowCaller', 2, 2]] },
+];
+
+const DEMON_BOSS: Slot[] = [['demonLord', 1, 1], ['fiend', 0, 0], ['fiend', 3, 0], ['imp', 1, 2], ['shadowCaller', 2, 2]];
+
+/**
+ * Enemy health and damage multiplier for a round. It steps up when a new
+ * faction arrives (your new hero is the answer to that), and after round 20
+ * it keeps climbing faster than your heroes level, so every run ends somewhere.
+ */
+export function roundStrength(n: number): number {
+  if (n <= 10) return 1.6 + (n - 1) * 0.08;
+  if (n <= 20) return 3.2 + (n - 11) * 0.14;
+  return 4.9 + (n - 21) * 0.25;
 }
 
-export const WAVE_1: WaveDef = makeWave(1);
+/**
+ * Round N: every enemy starts on its tile. A boss every 10th round; the enemy
+ * side grows 3 -> 4 -> 5 alongside the party.
+ */
+export function makeRound(n: number): WaveDef {
+  let lineup: { name: string; slots: Slot[] };
+  if (LINEUPS[n]) lineup = LINEUPS[n];
+  else if (n % 10 === 0) lineup = { name: 'BOSS: Demon Lord', slots: DEMON_BOSS };
+  else {
+    const base = DEMON_LINEUPS[(n * 7) % DEMON_LINEUPS.length];
+    // Mirror every other round so repeats don't look identical.
+    lineup = n % 2 ? { name: base.name, slots: base.slots.map(([k, c, r]) => [k, BOARD.cols - 1 - c, r] as Slot) } : base;
+  }
+  const spawns: SpawnDef[] = lineup.slots.map(([kind, col, row]) => ({ time: 0, kind, ...enemyTilePos({ col, row }) }));
+  return { number: n, name: lineup.name, spawns, strength: roundStrength(n), boss: n % 10 === 0 };
+}
+
+export const ROUND_1: WaveDef = makeRound(1);

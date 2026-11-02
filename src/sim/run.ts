@@ -1,17 +1,21 @@
-import { ABILITIES, CHOICE_AFTER_WAVES, CLASS_POOL, DEFAULT_TEAM, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, RUN_WAVES, TRAITS, UPGRADE } from './content';
+import { ABILITIES, CHOICE_EVERY, CLASS_POOL, DEFAULT_TEAM, defaultPlacement, freeTile, HERO_KIT, MAX_ABILITY_SLOTS, NEW_ABILITY_AFTER_WAVES, partySize, START_LIVES, TRAITS, UPGRADE } from './content';
 import { createRng } from './rng';
-import type { AbilityId, HeroBuild, HeroClass, TraitId } from './types';
+import type { AbilityId, HeroBuild, HeroClass, Tile, TraitId } from './types';
 
-/** Everything that carries over between waves in a run. */
+/** Everything that carries over between rounds in a run. */
 export interface RunState {
-  version: 2;
+  version: 3;
   seed: number;
-  /** The chosen team: one class per slot (duplicates allowed). */
+  /** The party: one class per slot (duplicates allowed). Grows 3 -> 4 -> 5. */
   team: HeroClass[];
-  /** The wave about to be fought (1-based). */
+  /** The round about to be fought (1-based). Runs are endless. */
   wave: number;
   /** One build per team slot. */
   builds: HeroBuild[];
+  /** Board tile per team slot; kept between rounds. */
+  placement: Tile[];
+  /** Losing a round costs a life; the run ends at zero. */
+  lives: number;
 }
 
 export type Reward =
@@ -24,13 +28,42 @@ export type Reward =
 
 export const ALL_CLASSES: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
 
-export function newRun(team: HeroClass[] = DEFAULT_TEAM, seed = Date.now() % 1_000_000): RunState {
-  const builds = team.map((cls) => ({ level: 1, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 }));
-  return { version: 2, seed, team: [...team], wave: 1, builds };
+function freshBuild(cls: HeroClass, level = 1): HeroBuild {
+  return { level, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0 }], traits: [], vitality: 0, might: 0 };
 }
 
-export function isRunComplete(run: RunState): boolean {
-  return run.wave > RUN_WAVES;
+export function newRun(team: HeroClass[] = DEFAULT_TEAM, seed = Date.now() % 1_000_000): RunState {
+  return { version: 3, seed, team: [...team], wave: 1, builds: team.map((cls) => freshBuild(cls)), placement: defaultPlacement(team), lives: START_LIVES };
+}
+
+/** Does the party have an open slot to fill before this round (after the round 10 and 20 bosses)? */
+export function needsRecruit(run: RunState): boolean {
+  return run.team.length < partySize(run.wave);
+}
+
+/**
+ * Add a hero to the party. They join at the party's level and with the
+ * rewards they would have picked so far, so they aren't left behind.
+ */
+export function recruit(run: RunState, cls: HeroClass): void {
+  const slot = run.team.length;
+  const level = Math.max(...run.builds.map((b) => b.level));
+  run.team.push(cls);
+  run.builds.push(freshBuild(cls, level));
+  const round = run.wave;
+  for (let w = CHOICE_EVERY; w < round; w += CHOICE_EVERY) {
+    run.wave = w;
+    applyReward(run.builds[slot], autoChoose(cls, rewardOptions(run, slot)));
+  }
+  run.wave = round;
+  const used = new Set(run.placement.map((t) => `${t.col},${t.row}`));
+  run.placement.push(freeTile(used, ['warrior', 'rogue'].includes(cls) ? [0, 1, 2] : [2, 1, 0]));
+}
+
+/** A lost round: costs a life. Returns true if the run goes on (retry the same round). */
+export function loseRound(run: RunState): boolean {
+  run.lives = Math.max(0, run.lives - 1);
+  return run.lives > 0;
 }
 
 function slotsUsed(b: HeroBuild): number {
@@ -41,17 +74,17 @@ function traitFor(cls: HeroClass): TraitId {
   return (Object.values(TRAITS).find((t) => t.cls === cls) ?? TRAITS.rage).id;
 }
 
-/** Does clearing the current wave give a reward choice (vs. an automatic level-up)? */
+/** Does clearing the current round give a reward choice (vs. an automatic level-up)? */
 export function isChoiceWave(run: RunState): boolean {
-  return CHOICE_AFTER_WAVES.includes(run.wave);
+  return run.wave % CHOICE_EVERY === 0;
 }
 
-/** Is the reward after the current wave a "new ability" milestone? */
+/** Is the reward after the current round a "new ability" milestone? */
 export function isAbilityMilestone(run: RunState): boolean {
   return NEW_ABILITY_AFTER_WAVES.includes(run.wave);
 }
 
-/** The next wave after which a new ability will be offered (or null). */
+/** The next round after which a new ability will be offered (or null). */
 export function nextAbilityMilestone(run: RunState): number | null {
   return NEW_ABILITY_AFTER_WAVES.find((w) => w > run.wave) ?? null;
 }
@@ -74,8 +107,8 @@ function upgradeRewards(cls: HeroClass, b: HeroBuild): Reward[] {
 }
 
 /**
- * Three reward options for a level-up. After milestone waves (4 and 9) they
- * are new abilities; otherwise upgrades, the class trait and general boosts.
+ * Three reward options for a level-up. After milestone rounds they are new
+ * abilities; otherwise upgrades, the class trait and general boosts.
  */
 export function rewardOptions(run: RunState, slot: number): Reward[] {
   const cls = run.team[slot];
@@ -137,7 +170,7 @@ export function applyReward(b: HeroBuild, r: Reward): void {
 }
 
 /**
- * Finish a wave: every hero levels up. On choice waves each hero takes its
+ * Finish a round: every hero levels up. On choice rounds each hero takes its
  * pick from `picks` (by team slot); missing picks are chosen automatically.
  */
 export function completeWave(run: RunState, picks: (Reward | null | undefined)[] = []): Reward[] {
@@ -180,7 +213,8 @@ export function describeReward(r: Reward): { tag: string; title: string; text: s
 
 // --- saving -------------------------------------------------------------
 
-const SAVE_KEY = 'fightwithfriends.run.v2';
+const SAVE_KEY = 'fightwithfriends.run.v3';
+const BEST_KEY = 'fightwithfriends.bestRound';
 
 export function saveRun(run: RunState): void {
   try {
@@ -195,7 +229,15 @@ export function loadRun(): RunState | null {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const run = JSON.parse(raw) as RunState;
-    return run?.version === 2 && Array.isArray(run.team) && Array.isArray(run.builds) && run.team.length === run.builds.length ? run : null;
+    const ok =
+      run?.version === 3 &&
+      Array.isArray(run.team) &&
+      Array.isArray(run.builds) &&
+      Array.isArray(run.placement) &&
+      run.team.length === run.builds.length &&
+      run.team.length === run.placement.length &&
+      run.lives > 0;
+    return ok ? run : null;
   } catch {
     return null;
   }
@@ -207,4 +249,24 @@ export function clearRun(): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Highest round ever reached (0 if none). */
+export function bestRound(): number {
+  try {
+    return Number(localStorage.getItem(BEST_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Record a round reached; returns true if it's a new best. */
+export function recordRound(round: number): boolean {
+  if (round <= bestRound()) return false;
+  try {
+    localStorage.setItem(BEST_KEY, String(round));
+  } catch {
+    /* ignore */
+  }
+  return true;
 }

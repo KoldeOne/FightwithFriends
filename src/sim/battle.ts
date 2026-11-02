@@ -2,10 +2,11 @@ import {
   ABILITIES,
   ABILITY_TUNING,
   AGGRO,
+  ARENA,
   ENEMY_STATS,
-  DEFAULT_TEAM,
+  ONE_OF_EACH,
   formationFor,
-  GATE_MAX_HP,
+  heroTilePos,
   HERO_KIT,
   HERO_MOVE,
   HERO_STATS,
@@ -16,13 +17,13 @@ import {
   RESOURCES,
   BRUTE_SMASH,
   SHAMAN_MEND,
+  SUDDEN_DEATH,
   TRAIT_TUNING,
   UPGRADE,
   WORLD,
 } from './content';
 import { createRng } from './rng';
-import type { AbilityId, AbilitySlot, AggroLevel, BattleEvent, Effect, EnemyKind, HeroBuild, HeroClass, Outcome, SpawnDef, TraitId, Unit, WaveDef, Zone } from './types';
-import { GATE_ID } from './types';
+import type { AbilityId, AbilitySlot, AggroLevel, BattleEvent, Effect, EnemyKind, HeroBuild, HeroClass, Outcome, SpawnDef, Tile, TraitId, Unit, WaveDef, Zone } from './types';
 
 interface DamageOpts {
   threatScale?: number;
@@ -62,18 +63,20 @@ export interface BattleOptions {
   playerClass?: HeroClass;
   /** Levels, abilities and traits carried over from earlier waves, per team slot. */
   builds?: HeroBuild[];
+  /** Board tile for each team slot (default: tanks and melee in front). */
+  placement?: Tile[];
 }
 
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
 
 /**
- * Pure combat simulation for one wave. Knows nothing about rendering:
- * the renderer reads `units`, `gate` and drained events each frame.
+ * Pure combat simulation for one arena round. Knows nothing about rendering:
+ * the renderer reads `units` and drained events each frame. The round is won
+ * when every enemy is down and lost when every hero is.
  */
 export class Battle {
   time = 0;
   units: Unit[] = [];
-  gate = { hp: GATE_MAX_HP, maxHp: GATE_MAX_HP };
   outcome: Outcome = 'running';
   readonly wave: WaveDef;
   carefulAI: boolean;
@@ -98,14 +101,50 @@ export class Battle {
     this.wave = opts.wave;
     this.carefulAI = opts.carefulAI ?? true;
     this.pending = [...opts.wave.spawns].sort((a, b) => a.time - b.time);
-    const team = opts.team ?? opts.heroes ?? DEFAULT_TEAM;
-    for (const spot of formationFor(team, opts.playerClass)) {
-      this.addHero(spot.cls, spot.x, spot.y, opts.builds?.[spot.slot], spot.slot);
+    const team = opts.team ?? opts.heroes ?? ONE_OF_EACH;
+    for (const spot of formationFor(team, opts.playerClass, opts.placement)) {
+      this.addHero(spot.cls, spot.x, spot.y, opts.builds?.[spot.slot], spot.slot, spot.tile);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
     // Priest passive: Power Word: Fortitude is up on the whole party all wave.
     const priest = this.units.find((u) => u.side === 'hero' && u.passive === 'fortitudeAura');
     if (priest) this.applyFortitude(priest, Infinity);
+    // Arena enemies are on the board from the start, so you can scout them while placing.
+    this.spawnDue();
+  }
+
+  /**
+   * Move a hero to a board tile before the fight (placement phase). If another
+   * hero stands there, the two swap. Returns false once the fight has started.
+   */
+  placeHero(slot: number, tile: Tile): boolean {
+    if (this.time > 0) return false;
+    const h = this.units.find((u) => u.side === 'hero' && u.slot === slot);
+    if (!h?.tile) return false;
+    const other = this.units.find((u) => u.side === 'hero' && u !== h && u.tile?.col === tile.col && u.tile?.row === tile.row);
+    if (other) this.setTile(other, h.tile);
+    this.setTile(h, tile);
+    return true;
+  }
+
+  /** Each team slot's current tile (for saving the layout). */
+  get placement(): Tile[] {
+    return this.units
+      .filter((u) => u.side === 'hero' && u.tile)
+      .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
+      .map((u) => ({ ...u.tile! }));
+  }
+
+  private setTile(h: Unit, tile: Tile): void {
+    const p = heroTilePos(tile);
+    h.tile = { ...tile };
+    h.x = h.homeX = p.x;
+    h.y = h.homeY = p.y;
+  }
+
+  /** Sudden death: after a while every hit lands harder, so no fight can stall forever. */
+  get damageRamp(): number {
+    return 1 + Math.max(0, this.time - SUDDEN_DEATH.after) * SUDDEN_DEATH.perSecond;
   }
 
   get player(): Unit | undefined {
@@ -252,11 +291,7 @@ export class Battle {
   step(dt: number = STEP): void {
     if (this.outcome !== 'running') return;
     this.time += dt;
-
-    while (this.pending.length && this.pending[0].time <= this.time) {
-      const s = this.pending.shift()!;
-      this.addEnemy(s.kind, s.x + (this.rng() - 0.5) * 16, s.y);
-    }
+    this.spawnDue();
 
     for (const u of this.units) {
       if (!u.alive) continue;
@@ -280,8 +315,7 @@ export class Battle {
     this.separate();
     this.units = this.units.filter((u) => u.alive || u.side === 'hero');
 
-    if (this.gate.hp <= 0) {
-      this.gate.hp = 0;
+    if (!this.units.some((u) => u.side === 'hero' && u.alive)) {
       this.outcome = 'defeat';
     } else if (this.enemiesRemaining === 0) {
       this.outcome = 'victory';
@@ -290,7 +324,16 @@ export class Battle {
 
   // --- spawning -----------------------------------------------------------
 
-  private addHero(cls: HeroClass, x: number, y: number, build?: HeroBuild, slot = 0): void {
+  private spawnDue(): void {
+    while (this.pending.length && this.pending[0].time <= this.time) {
+      const s = this.pending.shift()!;
+      // Arena enemies stand exactly on their tile; anything else gets a little jitter.
+      const jitter = s.y === undefined ? (this.rng() - 0.5) * 16 : 0;
+      this.addEnemy(s.kind, s.x + jitter, s.y);
+    }
+  }
+
+  private addHero(cls: HeroClass, x: number, y: number, build?: HeroBuild, slot = 0, tile?: Tile): void {
     const s = HERO_STATS[cls];
     const kit = HERO_KIT[cls];
     const res = RESOURCES[kit.resource];
@@ -319,6 +362,7 @@ export class Battle {
       homeX: x,
       homeY: y,
       slot,
+      tile,
       idleOffX: (this.rng() - 0.5) * 36,
       idleOffY: (this.rng() - 0.5) * 24,
       hp: Math.round(s.maxHp * scale * vitality),
@@ -368,24 +412,21 @@ export class Battle {
       this.progressCast(e, dt);
       return;
     }
-    if (e.kind === 'shaman' && this.shamanMend(e, dt)) return;
-    if (e.kind === 'brute' && this.bruteSmash(e)) return;
+    if (e.ai === 'healer' && this.shamanMend(e, dt)) return;
+    if (e.ai === 'smasher' && this.bruteSmash(e)) return;
 
     const target = this.chooseEnemyTarget(e);
-    e.targetId = target ? target.id : GATE_ID;
-
-    let gap: number;
-    let tx: number;
-    let ty: number;
-    if (target) {
-      gap = dist(e, target) - e.radius - target.radius;
-      tx = target.x;
-      ty = target.y;
-    } else {
-      gap = WORLD.gateY - (e.y + e.radius);
-      tx = e.x;
-      ty = WORLD.gateY - e.radius;
+    e.targetId = target ? target.id : null;
+    if (!target) {
+      // Nobody visible (e.g. a stealthed rogue): hold still.
+      e.vx = (e.vx ?? 0) * 0.5;
+      e.vy = (e.vy ?? 0) * 0.5;
+      return;
     }
+
+    const gap = dist(e, target) - e.radius - target.radius;
+    const tx = target.x;
+    const ty = target.y;
 
     if (gap <= e.range) {
       e.vx = (e.vx ?? 0) * 0.5;
@@ -393,18 +434,14 @@ export class Battle {
       if (e.cooldown <= 0) {
         e.cooldown = e.attackInterval * (this.hasEffect(e, 'slow') ? ABILITY_TUNING.slowFactor : 1);
         const amount = this.roll(e.damage);
-        if (target && e.attackStyle === 'ranged') this.shoot(e, target, amount);
-        else if (target) this.damage(e, target, amount);
-        else {
-          this.gate.hp -= amount;
-          this.events.push({ type: 'attack', from: e.id, to: GATE_ID, style: e.attackStyle, amount });
-        }
+        if (e.attackStyle === 'ranged') this.shoot(e, target, amount);
+        else this.damage(e, target, amount);
       }
       return;
     }
 
     // Melee enemies spread around their target instead of stacking up.
-    if (target && e.attackStyle === 'melee') {
+    if (e.attackStyle === 'melee') {
       const spot = this.surroundSpot(e, target);
       steer(e, spot.x, spot.y, e.speed, 0, dt);
       return;
@@ -455,7 +492,7 @@ export class Battle {
   /**
    * Aggro rules: a taunt forces the target; otherwise the hero with the most
    * threat, with a 110% margin needed to steal it from the current target.
-   * Enemies with no threat yet go for the nearest hero; runners go for the gate.
+   * Enemies with no threat yet go for the nearest hero.
    */
   private chooseEnemyTarget(e: Unit): Unit | null {
     // Stealthed heroes can't be seen, so they can't be targeted.
@@ -473,9 +510,6 @@ export class Battle {
     if (e.targetId !== null && e.targetId >= 0 && !isVisible(e.targetId)) e.targetId = null;
 
     const top = this.topThreat(e);
-    if (e.goesForGate) {
-      return top.id !== null && top.value >= AGGRO.runnerThreshold ? this.pickWithMargin(e, top) : null;
-    }
     if (top.id === null) {
       // Nobody has hit it yet: keep walking at whoever it picked first.
       const current = e.targetId !== null && e.targetId >= 0 ? this.unit(e.targetId) : undefined;
@@ -486,7 +520,7 @@ export class Battle {
   }
 
   private pickWithMargin(e: Unit, top: { id: number | null; value: number }): Unit | null {
-    const current = e.targetId !== null && e.targetId !== GATE_ID ? this.unit(e.targetId) : undefined;
+    const current = e.targetId !== null ? this.unit(e.targetId) : undefined;
     if (current?.alive && current.side === 'hero') {
       const held = this.threatOf(e, current.id);
       if (top.value <= held * AGGRO.pullFactor) return current;
@@ -503,26 +537,25 @@ export class Battle {
         !this.isSheep(u) &&
         u.targetId !== null &&
         u.targetId !== tank.id &&
-        (u.targetId !== GATE_ID || this.topThreat(u).value > 0) &&
         dist(tank, u) <= AGGRO.tauntRange,
     );
   }
 
   private applyTaunt(tank: Unit, e: Unit): void {
     e.threat ??= {};
-    const floor = e.goesForGate ? AGGRO.runnerThreshold : 0;
-    e.threat[tank.id] = Math.max(this.threatOf(e, tank.id), this.topThreat(e).value, floor) + 1;
+    e.threat[tank.id] = Math.max(this.threatOf(e, tank.id), this.topThreat(e).value) + 1;
     e.tauntedBy = tank.id;
     e.tauntTime = AGGRO.tauntDuration;
     e.targetId = tank.id;
     this.events.push({ type: 'taunt', from: tank.id, to: e.id });
   }
 
-  // --- shaman casting ------------------------------------------------------
+  // --- enemy casting -------------------------------------------------------
 
   /**
-   * Shaman: if a goblin is hurt and Mend is available, walk to within range of
-   * it and start casting. Returns true if it spent this tick on that.
+   * Healers (shaman, cultist, shadow caller): if an ally is hurt and the heal
+   * is ready, walk to within range of it and start casting. Returns true if it
+   * spent this tick on that.
    */
   private shamanMend(e: Unit, dt: number): boolean {
     if (e.castCooldown || this.hasEffect(e, 'silence') || e.y < 0) return false;
@@ -539,19 +572,21 @@ export class Battle {
       e.targetId = null;
       return true;
     }
-    e.casting = { spell: SHAMAN_MEND.name, remaining: SHAMAN_MEND.castTime, total: SHAMAN_MEND.castTime, targetId: hurt.id };
-    this.events.push({ type: 'castStart', from: e.id, spell: SHAMAN_MEND.name, to: hurt.id, duration: SHAMAN_MEND.castTime });
+    const spell = e.spell ?? 'Mend';
+    e.casting = { spell, kind: 'healer', remaining: SHAMAN_MEND.castTime, total: SHAMAN_MEND.castTime, targetId: hurt.id };
+    this.events.push({ type: 'castStart', from: e.id, spell, to: hurt.id, duration: SHAMAN_MEND.castTime });
     return true;
   }
 
-  /** Brute: when it reaches its target, wind up a telegraphed Smash. */
+  /** Smashers (elites, bosses): when in reach of their target, wind up a telegraphed heavy hit. */
   private bruteSmash(e: Unit): boolean {
     if (e.castCooldown || this.hasEffect(e, 'silence')) return false;
     const target = this.chooseEnemyTarget(e);
     if (!target || dist(e, target) - e.radius - target.radius > e.range + 4) return false;
     e.targetId = target.id;
-    e.casting = { spell: BRUTE_SMASH.name, remaining: BRUTE_SMASH.castTime, total: BRUTE_SMASH.castTime, targetId: target.id };
-    this.events.push({ type: 'castStart', from: e.id, spell: BRUTE_SMASH.name, to: target.id, duration: BRUTE_SMASH.castTime });
+    const spell = e.spell ?? 'Smash';
+    e.casting = { spell, kind: 'smasher', remaining: BRUTE_SMASH.castTime, total: BRUTE_SMASH.castTime, targetId: target.id };
+    this.events.push({ type: 'castStart', from: e.id, spell, to: target.id, duration: BRUTE_SMASH.castTime });
     return true;
   }
 
@@ -564,17 +599,17 @@ export class Battle {
     }
     c.remaining -= dt;
     if (c.remaining > 0) return;
-    if (c.spell === SHAMAN_MEND.name) {
-      const amount = Math.min(target.maxHp - target.hp, SHAMAN_MEND.heal);
+    if (c.kind === 'healer') {
+      const amount = Math.min(target.maxHp - target.hp, Math.round(SHAMAN_MEND.heal * (this.wave.strength ?? 1)));
       target.hp += amount;
       this.events.push({ type: 'heal', from: e.id, to: target.id, amount });
-    } else if (c.spell === BRUTE_SMASH.name) {
-      const strength = this.wave.strength ?? 1;
-      this.events.push({ type: 'notice', id: e.id, text: 'SMASH!', tone: 'bad' });
-      this.damage(e, target, Math.round(BRUTE_SMASH.damage * strength), { big: true });
+    } else {
+      this.events.push({ type: 'notice', id: e.id, text: `${c.spell.toUpperCase()}!`, tone: 'bad' });
+      // e.damage already includes the round's strength.
+      this.damage(e, target, Math.round(e.damage * BRUTE_SMASH.damageFactor), { big: true });
       for (const h of this.units) {
         if (h.side !== 'hero' || !h.alive || h.id === target.id) continue;
-        if (dist(h, target) <= BRUTE_SMASH.splashRadius) this.damage(e, h, Math.round(BRUTE_SMASH.splash * strength), { aoe: true });
+        if (dist(h, target) <= BRUTE_SMASH.splashRadius) this.damage(e, h, Math.round(e.damage * BRUTE_SMASH.splashFactor), { aoe: true });
       }
     }
     this.endCast(e, false);
@@ -582,9 +617,9 @@ export class Battle {
 
   private endCast(e: Unit, interrupted: boolean): void {
     if (!e.casting) return;
-    const spell = e.casting.spell;
+    const kind = e.casting.kind;
     e.casting = undefined;
-    e.castCooldown = spell === BRUTE_SMASH.name ? BRUTE_SMASH.cooldown : SHAMAN_MEND.cooldown;
+    e.castCooldown = kind === 'smasher' ? BRUTE_SMASH.cooldown : SHAMAN_MEND.cooldown;
     this.events.push({ type: 'castEnd', from: e.id, interrupted });
   }
 
@@ -601,7 +636,7 @@ export class Battle {
   private polymorphCandidate(h: Unit): Unit | undefined {
     const active = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u));
     if (active.length < 2) return undefined;
-    const valid = active.filter((e) => !e.goesForGate && this.canPolymorph(h, e));
+    const valid = active.filter((e) => this.canPolymorph(h, e));
     const onNonTank = (e: Unit) => {
       const victim = e.targetId !== null && e.targetId >= 0 ? this.unit(e.targetId) : undefined;
       return victim?.side === 'hero' && !victim.isTank;
@@ -696,7 +731,8 @@ export class Battle {
   private desiredSpot(h: Unit): { x: number; y: number } {
     const center = this.anchor();
     const enemies = this.units.filter((u) => u.side === 'enemy' && u.alive && !this.isSheep(u) && u.y > 0);
-    const close = enemies.filter((e) => Math.hypot(e.x - center.x, e.y - center.y) < 320);
+    // In the arena everyone engages; a player-led party (tests) only reacts to enemies close by.
+    const close = this.player ? enemies.filter((e) => Math.hypot(e.x - center.x, e.y - center.y) < 320) : enemies;
     // Relaxed formation: lean toward where the enemies are (or are coming from),
     // with a little personal variation and drift so it never looks rigid.
     const watch = enemies.length ? enemies : this.units.filter((u) => u.side === 'enemy' && u.alive);
@@ -718,7 +754,7 @@ export class Battle {
     };
 
     if (h.isTank) {
-      // Step out to meet whatever is going after the party or the gate, closest to the party first.
+      // Step out to meet whatever is going after the party, closest to the party first.
       const threats = enemies.filter((e) => e.targetId !== h.id);
       const pool = threats.length ? threats : enemies;
       const e = pool.reduce((a, b) => (Math.hypot(b.x - center.x, b.y - center.y) < Math.hypot(a.x - center.x, a.y - center.y) ? b : a));
@@ -758,25 +794,30 @@ export class Battle {
 
   private moveHero(h: Unit, dt: number): void {
     const want = this.desiredSpot(h);
-    // Stay close to the party.
-    const a = this.anchor();
     let wx = want.x;
     let wy = want.y;
-    const fromAnchor = Math.hypot(wx - a.x, wy - a.y);
-    if (fromAnchor > HERO_MOVE.leash) {
-      wx = a.x + ((wx - a.x) / fromAnchor) * HERO_MOVE.leash;
-      wy = a.y + ((wy - a.y) / fromAnchor) * HERO_MOVE.leash;
+    // A player-led party (tests) stays close to the player. In the arena,
+    // heroes go wherever the fight is.
+    if (this.player) {
+      const a = this.anchor();
+      const fromAnchor = Math.hypot(wx - a.x, wy - a.y);
+      if (fromAnchor > HERO_MOVE.leash) {
+        wx = a.x + ((wx - a.x) / fromAnchor) * HERO_MOVE.leash;
+        wy = a.y + ((wy - a.y) / fromAnchor) * HERO_MOVE.leash;
+      }
     }
     wx = Math.min(WORLD.width - h.radius, Math.max(h.radius, wx));
-    wy = Math.min(WORLD.gateY - h.radius - 6, wy);
+    wy = Math.min(ARENA.bottom - h.radius, Math.max(ARENA.top + h.radius, wy));
     steer(h, wx, wy, HERO_MOVE.speed, 0, dt);
   }
 
   /** Would hitting `e` for `amount` push a careful hero past the caution line? */
   private wouldPull(h: Unit, e: Unit, amount: number): boolean {
     // Only hold back on enemies the tank is currently holding. Anything loose —
-    // hitting me, a friend, or the gate — is fair game.
-    const target = e.targetId !== null && e.targetId !== GATE_ID ? this.unit(e.targetId) : undefined;
+    // hitting me or a friend — is fair game. An enemy that hasn't picked anyone
+    // yet (the opening moment of a round) will go for the nearest hero.
+    const visible = this.units.filter((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'stealth'));
+    const target = e.targetId !== null ? this.unit(e.targetId) : visible.length ? nearest(e, visible) : undefined;
     if (!target?.isTank) return false;
     // An enemy already attacking the tank from somewhere the tank can't reach
     // (e.g. an archer) can't be held — holding back would stall the fight.
@@ -893,7 +934,7 @@ export class Battle {
       case 'shieldBlock':
         if (this.hasEffect(h, 'block')) return false;
         // Block an incoming Smash, or when taking a beating.
-        if (this.units.some((e) => e.side === 'enemy' && e.alive && e.casting?.spell === BRUTE_SMASH.name && e.casting.targetId === h.id)) return true;
+        if (this.units.some((e) => e.side === 'enemy' && e.alive && e.casting?.kind === 'smasher' && e.casting.targetId === h.id)) return true;
         return this.attackersOf(h) >= 1 && h.hp < h.maxHp * 0.85;
       case 'powerShield':
         return this.units.some((u) => u.side === 'hero' && u.alive && !this.hasEffect(u, 'shield') && this.attackersOf(u) > 0);
@@ -998,7 +1039,7 @@ export class Battle {
         if (!byPlayer) return this.polymorphCandidate(h) ?? null;
         return (
           this.polymorphCandidate(h) ??
-          this.units.filter((u) => this.canPolymorph(h, u) && !u.goesForGate).sort((a, b) => b.y - a.y)[0] ??
+          this.units.filter((u) => this.canPolymorph(h, u)).sort((a, b) => b.y - a.y)[0] ??
           null
         );
       }
@@ -1207,7 +1248,7 @@ export class Battle {
 
   private addHealThreat(healer: Unit, amount: number): void {
     // Only enemies already in the fight (someone has threat on them) notice healing.
-    const engaged = this.units.filter((u) => u.side === 'enemy' && u.alive && !u.goesForGate && this.topThreat(u).value > 0);
+    const engaged = this.units.filter((u) => u.side === 'enemy' && u.alive && this.topThreat(u).value > 0);
     if (!engaged.length) return;
     const share = (amount * AGGRO.healThreat) / engaged.length;
     for (const e of engaged) {
@@ -1261,6 +1302,7 @@ export class Battle {
     if (this.hasTrait(from, 'rage') && !opts.tick) {
       amount = Math.round(amount * (1 + TRAIT_TUNING.rageDamageAtMax * (from.resource! / from.maxResource!)));
     }
+    if (this.time > SUDDEN_DEATH.after) amount = Math.round(amount * this.damageRamp);
     to.hp -= amount;
     if (from.side === 'hero' && to.side === 'enemy') {
       to.threat ??= {};
@@ -1301,7 +1343,7 @@ export class Battle {
       // Heroes physically block enemies: the enemy is pushed aside.
       for (const h of heroes) push(a, h, 1, 0.7);
       a.x = Math.min(WORLD.width - a.radius, Math.max(a.radius, a.x));
-      a.y = Math.min(WORLD.gateY - a.radius, a.y);
+      a.y = Math.min(ARENA.bottom - a.radius, a.y);
     }
   }
 

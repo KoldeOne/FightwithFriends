@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
-import { HERO_MOVE, makeWave, WAVE_1 } from '../src/sim/content';
+import { HERO_MOVE, makeRound, ROUND_1 } from '../src/sim/content';
 
 function runToEnd(battle: Battle, maxSeconds = 600): void {
   const steps = Math.ceil(maxSeconds / STEP);
@@ -8,35 +8,48 @@ function runToEnd(battle: Battle, maxSeconds = 600): void {
 }
 
 describe('Battle', () => {
-  it('a full party wins wave 1', () => {
+  it('a full party wins round 1', () => {
     for (const seed of [1, 2, 3, 42, 1234]) {
-      const battle = new Battle({ seed, wave: WAVE_1 });
+      const battle = new Battle({ seed, wave: ROUND_1 });
       runToEnd(battle);
       expect(battle.outcome).toBe('victory');
-      expect(battle.gate.hp).toBeGreaterThan(0);
+      expect(battle.heroes.some((h) => h.alive)).toBe(true);
     }
   });
 
   it('is deterministic for the same seed', () => {
-    const a = new Battle({ seed: 7, wave: WAVE_1 });
-    const b = new Battle({ seed: 7, wave: WAVE_1 });
+    const a = new Battle({ seed: 7, wave: ROUND_1 });
+    const b = new Battle({ seed: 7, wave: ROUND_1 });
     runToEnd(a);
     runToEnd(b);
     expect(a.time).toBe(b.time);
-    expect(a.gate.hp).toBe(b.gate.hp);
     expect(a.heroes.map((h) => h.hp)).toEqual(b.heroes.map((h) => h.hp));
   });
 
-  it('with no heroes, enemies break the gate', () => {
-    const battle = new Battle({ seed: 1, wave: WAVE_1, heroes: [] });
+  it('with no heroes, the round is lost', () => {
+    const battle = new Battle({ seed: 1, wave: ROUND_1, heroes: [] });
     runToEnd(battle);
     expect(battle.outcome).toBe('defeat');
-    expect(battle.gate.hp).toBe(0);
+  });
+
+  it('the round is lost when every hero is down', () => {
+    const battle = new Battle({ seed: 1, wave: ROUND_1, heroes: ['mage'] });
+    battle.heroes[0].hp = 1;
+    runToEnd(battle);
+    expect(battle.outcome).toBe('defeat');
+    expect(battle.enemies.some((e) => e.alive)).toBe(true);
+  });
+
+  it('sudden death: hits land harder after a minute, so fights always end', () => {
+    const battle = new Battle({ seed: 1, wave: ROUND_1 });
+    expect(battle.damageRamp).toBe(1);
+    battle.time = 80;
+    expect(battle.damageRamp).toBeCloseTo(2);
   });
 
   it("your hero never moves; AI teammates stay close to the party", () => {
     for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
-      const battle = new Battle({ seed: 3, wave: makeWave(6), playerClass: cls });
+      const battle = new Battle({ seed: 3, wave: makeRound(6), playerClass: cls });
       const p = battle.player!;
       const start = [p.x, p.y];
       let maxFromPlayer = 0;
@@ -127,7 +140,7 @@ describe('Aggro', () => {
     const dpsPulls = (carefulAI: boolean): number => {
       let pulls = 0;
       for (const seed of [1, 2, 3, 4, 5]) {
-        const b = new Battle({ seed, wave: WAVE_1, carefulAI });
+        const b = new Battle({ seed, wave: ROUND_1, carefulAI });
         const last = new Map<number, number | null>();
         while (b.outcome === 'running' && b.time < 600) {
           b.step(STEP);
@@ -142,8 +155,11 @@ describe('Aggro', () => {
       }
       return pulls;
     };
-    expect(dpsPulls(true)).toBe(0);
-    expect(dpsPulls(false)).toBeGreaterThan(0);
+    // In the arena the enemies start within the mage's range, so a shot or burn
+    // already in flight can occasionally tip an enemy over; careful AI keeps it rare.
+    const careful = dpsPulls(true);
+    expect(careful).toBeLessThanOrEqual(1);
+    expect(dpsPulls(false)).toBeGreaterThan(careful * 3);
   });
 });
 
@@ -158,7 +174,7 @@ describe('Starting abilities and player controls', () => {
   };
 
   it('each class starts with exactly one ability', () => {
-    const b = new Battle({ seed: 1, wave: WAVE_1 });
+    const b = new Battle({ seed: 1, wave: ROUND_1 });
     const kit = Object.fromEntries(b.heroes.map((h) => [h.kind, h.abilities!.map((a) => a.id)]));
     expect(kit).toEqual({ warrior: ['heroicStrike'], priest: ['heal'], mage: ['fireball'], rogue: ['sinisterStrike'] });
     const passives = Object.fromEntries(b.heroes.map((h) => [h.kind, h.passive]));
@@ -166,12 +182,12 @@ describe('Starting abilities and player controls', () => {
   });
 
   it('heroes start with no traits', () => {
-    const b = new Battle({ seed: 1, wave: WAVE_1 });
+    const b = new Battle({ seed: 1, wave: ROUND_1 });
     for (const h of b.heroes) expect(h.traits).toEqual([]);
   });
 
   it('learnAbility fills up to 5 slots, no duplicates', () => {
-    const b = new Battle({ seed: 1, wave: WAVE_1 });
+    const b = new Battle({ seed: 1, wave: ROUND_1 });
     const w = hero(b, 'warrior');
     expect(b.learnAbility(w, 'heroicStrike')).toBe(false); // already has it
     for (const id of ['thunderclap', 'heal', 'renew', 'fireball'] as const) expect(b.learnAbility(w, id)).toBe(true);
@@ -180,7 +196,7 @@ describe('Starting abilities and player controls', () => {
   });
 
   it('the player can pick a hero', () => {
-    const b = new Battle({ seed: 1, wave: WAVE_1, playerClass: 'mage' });
+    const b = new Battle({ seed: 1, wave: ROUND_1, playerClass: 'mage' });
     expect(b.player?.kind).toBe('mage');
   });
 
@@ -347,7 +363,7 @@ describe('Starting abilities and player controls', () => {
   });
 
   it('with AUTO off, the AI does not use the player ability', () => {
-    const b = new Battle({ seed: 1, wave: WAVE_1, playerClass: 'mage' });
+    const b = new Battle({ seed: 1, wave: ROUND_1, playerClass: 'mage' });
     b.playerAuto = false;
     while (b.outcome === 'running' && b.time < 600) b.step(STEP);
     expect(b.outcome).toBe('victory');
@@ -356,7 +372,7 @@ describe('Starting abilities and player controls', () => {
 
   it('a party with a player on AUTO still wins wave 1', () => {
     for (const cls of ['warrior', 'priest', 'mage', 'rogue'] as const) {
-      const b = new Battle({ seed: 5, wave: WAVE_1, playerClass: cls });
+      const b = new Battle({ seed: 5, wave: ROUND_1, playerClass: cls });
       while (b.outcome === 'running' && b.time < 600) b.step(STEP);
       expect(b.outcome).toBe('victory');
     }

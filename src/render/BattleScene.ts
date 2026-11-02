@@ -1,24 +1,47 @@
 import Phaser from 'phaser';
 import { Battle, STEP, type AbilityResult } from '../sim/battle';
-import { ABILITIES, ABILITY_TUNING, CHOICE_AFTER_WAVES, DEFAULT_TEAM, HERO_KIT, makeWave, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, RUN_WAVES, TRAITS, WAVE_1, WORLD } from '../sim/content';
+import {
+  ABILITIES,
+  ABILITY_TUNING,
+  ARENA,
+  BOARD,
+  CHOICE_EVERY,
+  DEFAULT_TEAM,
+  HERO_KIT,
+  heroTileAt,
+  makeRound,
+  MAX_ABILITY_SLOTS,
+  partySize,
+  PASSIVES,
+  RESOURCES,
+  ROUND_1,
+  SUDDEN_DEATH,
+  TRAITS,
+  WORLD,
+} from '../sim/content';
 import { sound } from './sound';
 import {
+  ALL_CLASSES,
   autoChoose,
+  bestRound,
   clearRun,
   completeWave,
   describeReward,
   isAbilityMilestone,
   isChoiceWave,
   loadRun,
+  loseRound,
+  needsRecruit,
   nextAbilityMilestone,
   newRun,
+  recordRound,
+  recruit,
   rewardOptions,
   saveRun,
   type Reward,
   type RunState,
 } from '../sim/run';
 import type { AbilityId, BattleEvent, Effect, HeroClass, ResourceKind, Unit } from '../sim/types';
-import { GATE_ID } from '../sim/types';
 import warriorSprite from '../../art/heroes/hero_warrior.png';
 import priestSprite from '../../art/heroes/hero_priest.png';
 import mageSprite from '../../art/heroes/hero_mage.png';
@@ -39,10 +62,26 @@ const COLORS: Record<string, number> = {
   rogue: 0xf1c40f,
   mage: 0x3498db,
   priest: 0xecf0f1,
+  // Goblins: greens
   grunt: 0x6b8e23,
   archer: 0x8fbc4f,
-  runner: 0xb5d33d,
   shaman: 0x8e6bbf,
+  brute: 0x4e6b1f,
+  warchief: 0x2f4f1a,
+  // Undead: bone and grey-violet
+  skeleton: 0xd8d2bf,
+  boneArcher: 0xb9b29a,
+  cultist: 0x5b4a7a,
+  ghoul: 0x7f8f6a,
+  abomination: 0x8a6f7d,
+  boneKing: 0xe8e0c8,
+  // Demons: reds and black
+  imp: 0xe8642c,
+  hellhound: 0x9b2d1f,
+  fiend: 0xb5332b,
+  shadowCaller: 0x3d2a4f,
+  pitBrute: 0x7a1d1d,
+  demonLord: 0x2a0f12,
 };
 
 const LETTERS: Record<string, string> = {
@@ -52,16 +91,34 @@ const LETTERS: Record<string, string> = {
   priest: 'P',
   grunt: 'G',
   archer: 'A',
-  runner: '»',
   shaman: 'S',
+  brute: 'B',
+  warchief: 'W',
+  skeleton: 'Sk',
+  boneArcher: 'A',
+  cultist: 'C',
+  ghoul: 'G',
+  abomination: 'Ab',
+  boneKing: 'K',
+  imp: 'I',
+  hellhound: 'H',
+  fiend: 'F',
+  shadowCaller: 'SC',
+  pitBrute: 'PB',
+  demonLord: 'DL',
 };
 
-const DARK_LETTER = ['priest', 'rogue', 'archer', 'runner'];
+const DARK_LETTER = ['priest', 'rogue', 'archer', 'skeleton', 'boneArcher', 'boneKing'];
 
 const PROJECTILE_COLORS: Record<string, number> = {
   mage: 0xff8c1a,
   priest: 0xfff2a8,
   archer: 0xa0522d,
+  boneArcher: 0xe8e0c8,
+  imp: 0xff5a1f,
+  shaman: 0xb57bff,
+  cultist: 0x9b7bd1,
+  shadowCaller: 0x7a3db8,
 };
 
 const RESOURCE_COLORS: Record<ResourceKind, number> = {
@@ -91,8 +148,13 @@ const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string; color:
 const MAX_BUFF_ICONS = 12;
 const BUFF_ICON = 22;
 const TARGET_BAR_X = 200;
-/** Party panel layout (bottom of the screen). */
-const PARTY = { x: 6, frameW: 128, gap: 4, frameH: 104, box: 22 };
+/** Party panel layout (bottom of the screen): one frame per hero, sized to fit 3-5 heroes. */
+function partyLayout(n: number): { x: number; frameW: number; gap: number; frameH: number; box: number } {
+  const x = 6;
+  const gap = 4;
+  const frameW = Math.floor((WORLD.width - 2 * x - (n - 1) * gap) / n);
+  return { x, frameW, gap, frameH: 104, box: Math.min(22, Math.floor((frameW - 10) / MAX_ABILITY_SLOTS) - 2) };
+}
 const HUD_TARGET_Y = 122;
 
 interface PartyFrame {
@@ -107,6 +169,11 @@ interface PartyFrame {
 function initials(name: string): string {
   const words = name.replace(/[^A-Za-z ]/g, ' ').split(/\s+/).filter(Boolean);
   return words.length > 1 ? (words[0][0] + words[1][0]).toUpperCase() : name.slice(0, 2);
+}
+
+/** Will clearing the current round open a party slot (after the round 10 and 20 bosses)? */
+function needsRecruitAfter(run: RunState): boolean {
+  return partySize(run.wave + 1) > run.team.length;
 }
 
 interface UnitView {
@@ -128,7 +195,8 @@ interface UnitView {
   dead: boolean;
 }
 
-type SceneState = 'choosing' | 'playing' | 'paused' | 'reward' | 'over';
+/** choosing: team builder. recruit: picking a new hero. placing: arranging heroes before the fight. */
+type SceneState = 'choosing' | 'recruit' | 'placing' | 'playing' | 'paused' | 'reward' | 'over';
 
 const DPR = Math.min(window.devicePixelRatio || 1, 3);
 const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
@@ -182,7 +250,7 @@ export class BattleScene extends Phaser.Scene {
   private prevPos = new Map<number, { x: number; y: number }>();
   /** Brief freeze on heavy hits (seconds of real time). */
   private hitStop = 0;
-  /** Wave intro banner time left; the fight starts when it ends. */
+  /** Round intro banner time left; the fight starts when it ends. */
   private introLeft = 0;
   /** Set when the wave ends: short slow-motion before the end screen. */
   private endingLeft = -1;
@@ -190,10 +258,16 @@ export class BattleScene extends Phaser.Scene {
   private numbers = new Map<number, { text: Phaser.GameObjects.Text; total: number; at: number }>();
   private lastReinforcementCall = -99;
 
+  // Placement phase
+  /** Team slot of the hero picked up to move, if any. */
+  private selectedSlot: number | null = null;
+  /** Board tile outlines and highlights. */
+  private tileLayer!: Phaser.GameObjects.Graphics;
+  private placementUi?: Phaser.GameObjects.Container;
+  private suddenDeathShown = false;
+
   // Scenery / HUD
-  private gateWall!: Phaser.GameObjects.Rectangle;
-  private gateBar!: Phaser.GameObjects.Graphics;
-  private gateLabel!: Phaser.GameObjects.Text;
+  private party = partyLayout(3);
   private hudText!: Phaser.GameObjects.Text;
   private waveText!: Phaser.GameObjects.Text;
   private speedButton!: Phaser.GameObjects.Text;
@@ -226,10 +300,22 @@ export class BattleScene extends Phaser.Scene {
     this.tooltip = undefined;
     this.run = data?.run ?? null;
     this.teamPicks = data?.teamPicks ?? '';
+    this.selectedSlot = null;
+    this.placementUi = undefined;
+    this.suddenDeathShown = false;
     const run = this.run;
     this.battle = run
-      ? new Battle({ seed: run.seed * 100 + run.wave, wave: makeWave(run.wave), carefulAI: this.careful, team: run.team, builds: run.builds })
-      : new Battle({ seed: Date.now() % 1_000_000, wave: WAVE_1, carefulAI: this.careful, team: DEFAULT_TEAM });
+      ? new Battle({
+          // Retries (fewer lives) get a different seed, so a rematch isn't an exact replay.
+          seed: run.seed * 100 + run.wave + run.lives * 7,
+          wave: makeRound(run.wave),
+          carefulAI: this.careful,
+          team: run.team,
+          builds: run.builds,
+          placement: run.placement,
+        })
+      : new Battle({ seed: Date.now() % 1_000_000, wave: ROUND_1, carefulAI: this.careful, team: DEFAULT_TEAM });
+    this.party = partyLayout(Math.max(3, this.battle.heroes.length));
 
     this.drawField();
     this.zoneLayer = this.add.graphics().setDepth(5);
@@ -247,13 +333,15 @@ export class BattleScene extends Phaser.Scene {
     this.endingLeft = -1;
     this.lastReinforcementCall = -99;
     this.tweens.timeScale = 1;
-    if (run) {
-      this.state = 'playing';
-      if (this.teamPicks) this.showBanner(this.teamPicks);
-      this.showWaveIntro();
-    } else {
+    if (!run) {
       this.state = 'choosing';
       this.showTeamBuilder();
+    } else if (needsRecruit(run)) {
+      this.state = 'recruit';
+      this.showRecruit();
+    } else {
+      if (this.teamPicks) this.showBanner(this.teamPicks);
+      this.startPlacement();
     }
   }
 
@@ -279,6 +367,12 @@ export class BattleScene extends Phaser.Scene {
     this.updateHud();
     this.drawFocus(time);
     this.drawZones(time);
+    this.drawTiles();
+    if (this.state === 'playing' && !this.suddenDeathShown && this.battle.time > SUDDEN_DEATH.after) {
+      this.suddenDeathShown = true;
+      this.showBanner('Sudden death! Every hit lands harder from now on.', true);
+      sound.play('wave');
+    }
     if (this.battle.outcome !== 'running' && this.state === 'playing') {
       // A beat of slow motion on the last kill (or the gate falling), then the end screen.
       if (this.endingLeft < 0) {
@@ -300,14 +394,14 @@ export class BattleScene extends Phaser.Scene {
     this.auto = on;
   }
 
-  /** "Wave 3 — Shamans": a short banner before the fight begins. */
+  /** "Round 3 — The Shaman": a short banner as the fight begins. */
   private showWaveIntro(): void {
     const w = this.battle.wave;
     this.introLeft = 1.4;
     sound.play('wave');
     const cx = WORLD.width / 2;
-    const title = this.text(cx, 330, `Wave ${w.number}`, 44, '#ffd166').setOrigin(0.5).setFontStyle('bold').setDepth(80);
-    const sub = this.text(cx, 382, w.name ?? '', 20, '#ffffff').setOrigin(0.5).setDepth(80);
+    const title = this.text(cx, 430, w.boss ? 'BOSS FIGHT' : 'FIGHT!', 44, w.boss ? '#ff6b6b' : '#ffd166').setOrigin(0.5).setFontStyle('bold').setDepth(80);
+    const sub = this.text(cx, 482, `Round ${w.number} — ${w.name ?? ''}`, 20, '#ffffff').setOrigin(0.5).setDepth(80);
     for (const t of [title, sub]) {
       t.setStroke('#000000', 5);
       t.setAlpha(0);
@@ -318,29 +412,34 @@ export class BattleScene extends Phaser.Scene {
 
   // --- hero select ----------------------------------------------------------
 
-  /** Pick a team of four: tap classes to fill the slots, tap a slot to empty it. */
+  /** Pick the starting three: tap classes to fill the slots, tap a slot to empty it. */
   private showTeamBuilder(team: HeroClass[] = []): void {
     this.overlay?.destroy();
+    const size = partySize(1);
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.8).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 128, 'Build your team', 32, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
-      this.text(cx, 164, 'Pick four heroes. They fight on their own — you choose the team and their rewards.', 13, '#c9d1e0')
+      this.text(cx, 128, 'Build your guild', 32, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 164, `Pick ${size} heroes. A 4th joins after the round 10 boss, a 5th after round 20.`, 13, '#c9d1e0')
         .setOrigin(0.5)
         .setAlign('center')
         .setWordWrapWidth(480),
     ];
     const saved = loadRun();
-    if (saved && saved.wave <= RUN_WAVES) {
+    if (saved) {
       const names = saved.team.map((c) => LETTERS[c]).join(' ');
-      items.push(this.button(cx, 68, `▶ Continue run: ${names} — wave ${saved.wave}`, 16, '#1e6f50', () => this.scene.restart({ run: saved })));
+      items.push(
+        this.button(cx, 68, `▶ Continue: ${names} — round ${saved.wave}, ${'♥'.repeat(saved.lives)}`, 16, '#1e6f50', () => this.scene.restart({ run: saved })),
+      );
     }
+    const best = bestRound();
+    if (best) items.push(this.text(cx, 186, `Best: round ${best}`, 12, '#ffd166').setOrigin(0.5));
 
-    // The four team slots.
-    const slotW = 108;
-    const slotY = 232;
-    for (let i = 0; i < 4; i++) {
-      const x = cx + (i - 1.5) * (slotW + 8);
+    // The team slots.
+    const slotW = 120;
+    const slotY = 236;
+    for (let i = 0; i < size; i++) {
+      const x = cx + (i - (size - 1) / 2) * (slotW + 10);
       const cls = team[i];
       const bg = this.add
         .rectangle(x, slotY, slotW, 70, cls ? 0x2b3a55 : 0x151b27)
@@ -364,11 +463,41 @@ export class BattleScene extends Phaser.Scene {
     }
     items.push(this.text(cx, slotY + 48, 'Tap a filled slot to remove it. Classes can repeat.', 11, '#8f9bb3').setOrigin(0.5));
 
-    // Class cards: tap to add.
-    const classes: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
+    items.push(
+      ...this.classCards(342, (cls) => {
+        if (team.length >= size) return;
+        this.showTeamBuilder([...team, cls]);
+      }),
+    );
+
+    // Classic team shortcut and Start.
+    items.push(
+      this.text(cx, 732, 'Tip: a classic start is a tank, a healer and a damage dealer.', 12, '#8f9bb3').setOrigin(0.5),
+      this.button(cx - 120, 790, 'Classic team', 16, '#2b3445', () => {
+        sound.play('click');
+        this.showTeamBuilder([...DEFAULT_TEAM]);
+      }),
+    );
+    const ready = team.length === size;
+    const start = this.button(cx + 110, 790, ready ? 'Start run ▶' : `Pick ${size - team.length} more`, 18, ready ? '#2e86de' : '#2b3445', () => {
+      if (!ready) return;
+      sound.unlock();
+      sound.play('click');
+      const run = newRun(team);
+      saveRun(run);
+      this.scene.restart({ run });
+    });
+    items.push(start);
+    this.overlay = this.add.container(0, 0, items).setDepth(100);
+  }
+
+  /** One card per class, stacked from `top`; tapping a card calls `onPick`. */
+  private classCards(top: number, onPick: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
+    const cx = WORLD.width / 2;
     const cardH = 92;
-    classes.forEach((cls, i) => {
-      const y = 342 + i * (cardH + 8);
+    const items: Phaser.GameObjects.GameObject[] = [];
+    ALL_CLASSES.forEach((cls, i) => {
+      const y = top + i * (cardH + 8);
       const kit = HERO_KIT[cls];
       const bg = this.add
         .rectangle(cx, y, 470, cardH, 0x1c2433)
@@ -377,9 +506,8 @@ export class BattleScene extends Phaser.Scene {
         .on('pointerover', () => bg.setFillStyle(0x26314a))
         .on('pointerout', () => bg.setFillStyle(0x1c2433))
         .on('pointerdown', () => {
-          if (team.length >= 4) return;
           sound.play('click');
-          this.showTeamBuilder([...team, cls]);
+          onPick(cls);
         });
       const left = cx - 225;
       items.push(
@@ -392,26 +520,109 @@ export class BattleScene extends Phaser.Scene {
         this.text(left + 64, y + 12, `Passive: ${PASSIVES[kit.passive].name} — ${PASSIVES[kit.passive].short}`, 11, '#9ad1ff'),
       );
     });
+    return items;
+  }
 
-    // Classic team shortcut and Start.
-    items.push(
-      this.text(cx, 732, 'Tip: a classic team is 1 tank, 1 healer and 2 damage.', 12, '#8f9bb3').setOrigin(0.5),
-      this.button(cx - 120, 790, 'Classic team', 16, '#2b3445', () => {
-        sound.play('click');
-        this.showTeamBuilder([...DEFAULT_TEAM]);
+  /** After a boss: pick a class to join the party. */
+  private showRecruit(): void {
+    const run = this.run!;
+    this.overlay?.destroy();
+    const cx = WORLD.width / 2;
+    const level = Math.max(...run.builds.map((b) => b.level));
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.85).setOrigin(0, 0).setInteractive(),
+      this.text(cx, 130, 'Your guild grows!', 32, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 172, `Choose hero ${run.team.length + 1}. From now on the enemy fields ${partySize(run.wave)} fighters too.`, 14, '#ffffff')
+        .setOrigin(0.5)
+        .setAlign('center')
+        .setWordWrapWidth(480),
+      this.text(cx, 204, `They join at level ${level}, with rewards picked for them so far.`, 12, '#8f9bb3').setOrigin(0.5),
+      this.text(cx, 236, `Your party: ${run.team.map((c) => c[0].toUpperCase() + c.slice(1)).join(', ')}`, 13, '#c9d1e0').setOrigin(0.5),
+      ...this.classCards(320, (cls) => {
+        recruit(run, cls);
+        saveRun(run);
+        this.scene.restart({ run, teamPicks: `${cls[0].toUpperCase() + cls.slice(1)} joins the guild!` });
       }),
-    );
-    const ready = team.length === 4;
-    const start = this.button(cx + 110, 790, ready ? 'Start run ▶' : `Pick ${4 - team.length} more`, 18, ready ? '#2e86de' : '#2b3445', () => {
-      if (!ready) return;
-      sound.unlock();
-      sound.play('click');
-      const run = newRun(team);
-      saveRun(run);
-      this.scene.restart({ run });
-    });
-    items.push(start);
+    ];
     this.overlay = this.add.container(0, 0, items).setDepth(100);
+  }
+
+  // --- placement ------------------------------------------------------------
+
+  /** Before each round: the enemy line-up is visible; move heroes between tiles, then Fight. */
+  private startPlacement(): void {
+    this.state = 'placing';
+    this.selectedSlot = null;
+    const cx = WORLD.width / 2;
+    const midY = (BOARD.enemyRowY[0] + BOARD.heroRowY[0]) / 2;
+    const w = this.battle.wave;
+    const fight = this.button(cx, midY + 4, 'Fight! ▶', 22, w.boss ? '#a83232' : '#2e86de', () => this.startFight());
+    this.placementUi = this.add
+      .container(0, 0, [this.text(cx, midY - 48, 'Tap a hero, then a tile to move them.', 14, '#ffffff').setOrigin(0.5).setStroke('#000000', 3), fight])
+      .setDepth(60);
+  }
+
+  private startFight(): void {
+    if (this.state !== 'placing') return;
+    sound.unlock();
+    sound.play('click');
+    this.placementUi?.destroy();
+    this.placementUi = undefined;
+    this.selectedSlot = null;
+    this.battle.setFocus(null);
+    this.state = 'playing';
+    this.showWaveIntro();
+  }
+
+  /** Tap during placement: pick up a hero, or drop the picked-up hero on a tile (swapping if taken). */
+  private placementTap(pointer: Phaser.Input.Pointer): void {
+    const hero = this.battle.heroes.find((h) => Math.hypot(h.x - pointer.x, h.y - pointer.y) <= h.radius + 20);
+    const tile = heroTileAt(pointer.x, pointer.y);
+    if (this.selectedSlot !== null && tile) {
+      sound.play('click');
+      this.battle.placeHero(this.selectedSlot, tile);
+      this.selectedSlot = null;
+      if (this.run) {
+        this.run.placement = this.battle.placement;
+        saveRun(this.run);
+      }
+      return;
+    }
+    if (hero) {
+      sound.play('click');
+      this.selectedSlot = this.selectedSlot === hero.slot ? null : (hero.slot ?? null);
+      this.battle.setFocus(hero.id);
+      return;
+    }
+    // Tap an enemy to scout it.
+    const enemy = this.battle.enemies.find((e) => e.alive && Math.hypot(e.x - pointer.x, e.y - pointer.y) <= e.radius + 20);
+    this.battle.setFocus(enemy ? enemy.id : null);
+    this.selectedSlot = null;
+  }
+
+  /** Board tiles: faint on both sides; during placement, your side is highlighted. */
+  private drawTiles(): void {
+    const g = this.tileLayer;
+    g.clear();
+    const placing = this.state === 'placing';
+    const tile = (x: number, y: number, fill: number, alpha: number, stroke: number, strokeAlpha: number, width = 1) => {
+      const w = BOARD.tileW - 8;
+      const h = BOARD.tileH - 8;
+      g.fillStyle(fill, alpha).fillRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+      g.lineStyle(width, stroke, strokeAlpha).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    };
+    for (const y of BOARD.enemyRowY) for (const x of BOARD.colX) tile(x, y, 0x000000, 0.06, 0x8b1a1a, placing ? 0.35 : 0.12);
+    const selected = this.selectedSlot !== null ? this.battle.heroes.find((h) => h.slot === this.selectedSlot) : undefined;
+    for (const y of BOARD.heroRowY) {
+      for (const x of BOARD.colX) {
+        if (!placing) {
+          tile(x, y, 0x000000, 0.06, 0x2e86de, 0.12);
+          continue;
+        }
+        const here = selected && selected.x === x && selected.y === y;
+        tile(x, y, here ? GOLD : 0x2e86de, here ? 0.25 : selected ? 0.16 : 0.08, here ? GOLD : 0x5dade2, selected ? 0.8 : 0.4, here ? 3 : 1);
+      }
+    }
   }
 
   /** A message across the top of the field for a few seconds. */
@@ -430,8 +641,12 @@ export class BattleScene extends Phaser.Scene {
 
   /** Tap any unit to inspect it (name and health along the bottom). It doesn't change what the AI does. */
   private onFieldTap(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
-    if (this.state !== 'playing' || over.length) return;
-    if (pointer.y > WORLD.gateY) return;
+    if (over.length || pointer.y > WORLD.hudTop) return;
+    if (this.state === 'placing') {
+      this.placementTap(pointer);
+      return;
+    }
+    if (this.state !== 'playing') return;
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.battle.units) {
@@ -471,20 +686,19 @@ export class BattleScene extends Phaser.Scene {
 
   private drawField(): void {
     const g = this.add.graphics();
-    // Grass field with a darker spawn zone at the top.
-    g.fillStyle(0x1d2b1f).fillRect(0, 0, WORLD.width, WORLD.gateY);
-    g.fillStyle(0x16211a).fillRect(0, 0, WORLD.width, 90);
-    g.lineStyle(1, 0x2a3d2c, 1);
-    for (let y = 120; y < WORLD.gateY; y += 80) g.lineBetween(0, y, WORLD.width, y);
-
-    // Castle wall with the gate in the middle.
-    g.fillStyle(0x4a4038).fillRect(0, WORLD.gateY, WORLD.width, WORLD.gateHeight);
-    g.fillStyle(0x5c5047);
-    for (let x = 0; x < WORLD.width; x += 30) g.fillRect(x + 4, WORLD.gateY - 8, 18, 8);
-    this.gateWall = this.add.rectangle(WORLD.width / 2, WORLD.gateY + WORLD.gateHeight / 2, 110, WORLD.gateHeight + 6, 0x7a5230);
-    this.gateWall.setStrokeStyle(2, 0x3b2716);
-    this.gateBar = this.add.graphics().setDepth(2);
-    this.gateLabel = this.text(WORLD.width / 2, WORLD.gateY + WORLD.gateHeight / 2 - 2, 'GATE', 12, '#f5e6c8').setOrigin(0.5).setDepth(3).setFontStyle('bold');
+    // Arena: stone stands around a sand floor, with a line across the middle.
+    g.fillStyle(0x2a2420).fillRect(0, 0, WORLD.width, WORLD.hudTop);
+    g.fillStyle(0x3b322b);
+    for (let y = 8; y < ARENA.top - 4; y += 14) g.fillRect(0, y, WORLD.width, 6);
+    g.fillStyle(0x6b5a43).fillRoundedRect(6, ARENA.top, WORLD.width - 12, ARENA.bottom - ARENA.top + 14, 18);
+    g.fillStyle(0x7a6850).fillRoundedRect(14, ARENA.top + 8, WORLD.width - 28, ARENA.bottom - ARENA.top - 2, 14);
+    // A few darker patches so the sand isn't flat.
+    g.fillStyle(0x705f48, 0.6);
+    for (const [x, y, r] of [[120, 230, 40], [400, 300, 55], [180, 520, 50], [430, 680, 45], [90, 700, 35], [300, 420, 60]]) g.fillCircle(x, y, r);
+    const midY = (BOARD.enemyRowY[0] + BOARD.heroRowY[0]) / 2;
+    g.lineStyle(2, 0x5a4a37, 0.8).lineBetween(24, midY, WORLD.width - 24, midY);
+    g.lineStyle(2, 0x5a4a37, 0.8).strokeCircle(WORLD.width / 2, midY, 40);
+    this.tileLayer = this.add.graphics().setDepth(1);
   }
 
   /** Small testing/utility buttons along the top edge. */
@@ -515,7 +729,7 @@ export class BattleScene extends Phaser.Scene {
     this.add.rectangle(0, top, WORLD.width, WORLD.height - top, 0x0b0e14).setOrigin(0, 0);
     this.add.rectangle(0, top, WORLD.width, 2, 0x2b3445).setOrigin(0, 0);
 
-    // Big wave number at the top center, with enemies left and time underneath.
+    // Big round number at the top center, with the line-up name, lives and time underneath.
     this.waveText = this.text(WORLD.width / 2, 44, '', 30, '#ffd166').setOrigin(0.5, 0).setDepth(50).setFontStyle('bold');
     this.waveText.setStroke('#000000', 5);
     this.hudText = this.text(WORLD.width / 2, 80, '', 13, '#c9d1e0').setOrigin(0.5, 0).setDepth(50);
@@ -525,25 +739,26 @@ export class BattleScene extends Phaser.Scene {
     this.partyFrames = [];
     this.partyBars = this.add.graphics().setDepth(1);
     this.partyCooldowns = this.add.graphics().setDepth(4);
-    const w = PARTY.frameW;
-    for (let i = 0; i < 4; i++) {
-      const x = PARTY.x + i * (w + PARTY.gap);
+    const w = this.party.frameW;
+    const frames = Math.max(3, this.battle.heroes.length);
+    for (let i = 0; i < frames; i++) {
+      const x = this.party.x + i * (w + this.party.gap);
       const y = top + 6;
       const bg = this.add
-        .rectangle(x, y, w, PARTY.frameH, 0x111723)
+        .rectangle(x, y, w, this.party.frameH, 0x111723)
         .setOrigin(0, 0)
         .setStrokeStyle(1, 0x2b3445)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => this.showHeroTooltip(i));
-      const name = this.text(x + 6, y + 4, '', 12, '#ffffff').setFontStyle('bold');
+      const name = this.text(x + 6, y + 4, '', frames > 4 ? 10 : 12, '#ffffff').setFontStyle('bold');
       const hpText = this.text(x + 6, y + 22, '', 10, '#ffffff').setFontStyle('bold').setDepth(2);
       hpText.setStroke('#000000', 3);
       const boxes: PartyFrame['boxes'] = [];
       for (let j = 0; j < MAX_ABILITY_SLOTS; j++) {
-        const bx = x + 5 + j * (PARTY.box + 2) + PARTY.box / 2;
-        const by = y + 58 + PARTY.box / 2;
+        const bx = x + 5 + j * (this.party.box + 2) + this.party.box / 2;
+        const by = y + 58 + this.party.box / 2;
         const box = this.add
-          .rectangle(bx, by, PARTY.box, PARTY.box, 0x151b27)
+          .rectangle(bx, by, this.party.box, this.party.box, 0x151b27)
           .setStrokeStyle(1, 0x2b3445)
           .setInteractive({ useHandCursor: true })
           .on('pointerover', (pointer: Phaser.Input.Pointer) => {
@@ -572,20 +787,18 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    // Gate health, drawn on the gate itself.
-    const { hp, maxHp } = this.battle.gate;
-    const gw = 96;
-    const gx = WORLD.width / 2 - gw / 2;
-    const gy = WORLD.gateY + WORLD.gateHeight - 9;
-    this.gateBar.clear();
-    this.gateBar.fillStyle(0x000000, 0.6).fillRect(gx, gy, gw, 6);
-    this.gateBar.fillStyle(hp / maxHp > 0.3 ? 0xd4a24c : 0xe74c3c).fillRect(gx, gy, (gw * hp) / maxHp, 6);
-    this.gateLabel.setText(`GATE ${Math.ceil(hp)}`);
-
     const t = Math.floor(this.battle.time);
     const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-    this.waveText.setText(`WAVE ${this.battle.wave.number}`);
-    this.hudText.setText(`of ${RUN_WAVES} · ${this.battle.enemiesRemaining} enemies left · ${clock}`);
+    const w = this.battle.wave;
+    this.waveText.setText(`ROUND ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
+    const lives = this.run ? ` · ${'♥'.repeat(this.run.lives)}` : '';
+    if (this.state === 'placing' || this.state === 'recruit' || this.state === 'choosing') {
+      this.hudText.setText(`${w.name ?? ''}${lives}`);
+    } else {
+      const ramp = this.battle.damageRamp;
+      const sudden = ramp > 1 ? ` · SUDDEN DEATH x${ramp.toFixed(1)}` : '';
+      this.hudText.setText(`${w.name ?? ''} · ${this.battle.enemiesRemaining} left · ${clock}${lives}${sudden}`);
+    }
 
     this.speedButton.setText(`Speed ${this.speed}x`);
     this.soundButton.setText(`Sound: ${sound.muted ? 'OFF' : 'ON'}`);
@@ -604,10 +817,10 @@ export class BattleScene extends Phaser.Scene {
     const g = this.partyBars;
     g.clear();
     this.partyCooldowns.clear();
-    const w = PARTY.frameW;
+    const w = this.party.frameW;
     this.partyFrames.forEach((f, i) => {
       const h = this.heroInSlot(i);
-      const x = PARTY.x + i * (w + PARTY.gap);
+      const x = this.party.x + i * (w + this.party.gap);
       const y = WORLD.hudTop + 6;
       if (!h) {
         f.bg.setVisible(false);
@@ -638,9 +851,9 @@ export class BattleScene extends Phaser.Scene {
           b.bg.setFillStyle(COLORS[h.kind]).setStrokeStyle(1, 0x111111);
           b.label.setText(initials(def.name)).setColor(DARK_LETTER.includes(h.kind) ? '#111' : '#fff');
           if (a.cooldown > 0) {
-            const bx = b.bg.x - PARTY.box / 2;
-            const by = b.bg.y - PARTY.box / 2;
-            this.partyCooldowns.fillStyle(0x000000, 0.6).fillRect(bx, by, PARTY.box, PARTY.box * Math.min(1, a.cooldown / this.battle.abilityCooldown(a)));
+            const bx = b.bg.x - this.party.box / 2;
+            const by = b.bg.y - this.party.box / 2;
+            this.partyCooldowns.fillStyle(0x000000, 0.6).fillRect(bx, by, this.party.box, this.party.box * Math.min(1, a.cooldown / this.battle.abilityCooldown(a)));
           }
         } else if (trait) {
           b.bg.setFillStyle(0x24203a).setStrokeStyle(1, 0xb57bff);
@@ -663,7 +876,7 @@ export class BattleScene extends Phaser.Scene {
       this.drawTargetFrame(focus, TARGET_BAR_X, ty, WORLD.width - 16 - TARGET_BAR_X);
     } else {
       this.clearTargetFrame();
-      this.focusText.setText('Tap a hero or goblin to inspect it. Tap a hero panel for its abilities.');
+      this.focusText.setText('Tap a hero or enemy to inspect it. Tap a hero panel for its abilities.');
     }
   }
 
@@ -683,7 +896,7 @@ export class BattleScene extends Phaser.Scene {
     } else if (trait) {
       this.showTooltip(`${h.label}: ${TRAITS[trait].name}`, TRAITS[trait].description, 'Passive — always on', 0xb57bff, true);
     } else {
-      this.showTooltip('Empty slot', 'Earn new abilities from rewards every 5 waves.', '', 0x3a4660, true);
+      this.showTooltip('Empty slot', 'Earn new abilities from rewards every 5 rounds.', '', 0x3a4660, true);
     }
   }
 
@@ -916,7 +1129,7 @@ export class BattleScene extends Phaser.Scene {
         case 'castStart': {
           sound.play('cast');
           const u = this.battle.unit(e.from);
-          if (u && e.spell === 'Smash') {
+          if (u?.ai === 'smasher') {
             const ring = this.add.circle(u.x, u.y, u.radius + 6).setStrokeStyle(4, 0xff4d4d).setDepth(30);
             this.tweens.add({ targets: ring, scale: 2.2, alpha: 0, duration: e.duration * 1000, onComplete: () => ring.destroy() });
           }
@@ -947,8 +1160,10 @@ export class BattleScene extends Phaser.Scene {
         case 'notice': {
           const u = this.battle.unit(e.id);
           const color = e.tone === 'good' ? '#7dff9b' : e.tone === 'bad' ? '#ff6b6b' : '#9ad1ff';
-          if (u) this.floatText(u.x, u.y - u.radius - 30, e.text, color, e.text === 'SMASH!' ? 22 : 16);
-          if (e.text === 'SMASH!') {
+          // A smasher's heavy hit landing (its spell name, shouted).
+          const smash = u?.ai === 'smasher' && e.tone === 'bad';
+          if (u) this.floatText(u.x, u.y - u.radius - 30, e.text, color, smash ? 22 : 16);
+          if (smash) {
             sound.play('smash');
             this.cameras.main.shake(220, 0.01);
           }
@@ -993,29 +1208,22 @@ export class BattleScene extends Phaser.Scene {
   private showAttack(fromId: number, toId: number, style: 'melee' | 'ranged', amount: number, ability?: AbilityId, big?: boolean): void {
     const from = this.battle.unit(fromId);
     const fromView = this.views.get(fromId)?.container;
-    const atGate = toId === GATE_ID;
     // A unit killed by this hit is already gone from the battle, so use where it was last drawn.
-    const toView = atGate ? undefined : this.views.get(toId);
-    const to = atGate ? undefined : this.battle.unit(toId);
-    if (!atGate && !toView) return;
+    const toView = this.views.get(toId);
+    const to = this.battle.unit(toId);
+    if (!toView) return;
     const fx = fromView?.x ?? from?.x ?? 0;
     const fy = fromView?.y ?? from?.y ?? 0;
-    const tx = atGate ? fx : toView!.container.x;
-    const ty = atGate ? WORLD.gateY + 4 : toView!.container.y;
+    const tx = toView.container.x;
+    const ty = toView.container.y;
     const hitHero = to?.side === 'hero';
     const mine = fromId === this.battle.playerId;
     const heavy = big || (ability !== undefined && amount >= 40);
 
     // Numbers: yours and damage to heroes are prominent; teammates' hits are smaller.
-    const color = atGate || hitHero ? '#ff6b6b' : ability ? '#ffd166' : '#ffffff';
+    const color = hitHero ? '#ff6b6b' : ability ? '#ffd166' : '#ffffff';
     const size = heavy ? 20 : ability || mine || hitHero ? 15 : 12;
-    if (atGate) {
-      this.floatText(tx, ty - 18, `${amount}`, color, 16);
-      this.flashGate();
-      sound.play('gate');
-    } else {
-      this.addNumber(toId, amount, color, size, mine || hitHero || ability ? 1 : 0.7);
-    }
+    this.addNumber(toId, amount, color, size, mine || hitHero || ability ? 1 : 0.7);
 
     // Melee: a lunge and a slash.
     if (style === 'melee' && ability !== 'thunderclap' && ability !== 'whirlwind' && fromView) {
@@ -1053,7 +1261,7 @@ export class BattleScene extends Phaser.Scene {
       this.cameras.main.shake(90, 0.004);
       this.hitStop = Math.max(this.hitStop, 0.05);
       sound.play('heavyHit');
-    } else if (!atGate) {
+    } else {
       sound.play('hit');
     }
   }
@@ -1216,48 +1424,59 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private flashGate(): void {
-    this.gateWall.setFillStyle(0xc0392b);
-    this.time.delayedCall(90, () => this.gateWall.setFillStyle(0x7a5230));
-  }
-
   private floatText(x: number, y: number, str: string, color: string, size = 15, alpha = 1): void {
     const t = this.text(x + Phaser.Math.Between(-6, 6), y, str, size, color).setOrigin(0.5).setDepth(40).setFontStyle('bold').setAlpha(alpha);
     t.setStroke('#000000', 3);
     this.tweens.add({ targets: t, y: y - 28, alpha: 0, duration: 700, onComplete: () => t.destroy() });
   }
 
-  // --- end of wave --------------------------------------------------------
+  // --- end of round -------------------------------------------------------
 
   private showEnd(): void {
     const run = this.run;
     const win = this.battle.outcome === 'victory';
-    if (run && win && run.wave < RUN_WAVES) {
+    const cx = WORLD.width / 2;
+    if (run && win) {
+      recordRound(run.wave);
       sound.play('levelUp');
       if (isChoiceWave(run)) this.showRewards();
       else this.showLevelUp();
       return;
     }
     this.state = 'over';
-    const cx = WORLD.width / 2;
-    let title = win ? 'Victory!' : 'The gate has fallen';
+    if (run && loseRound(run)) {
+      // A life lost: rearrange and try the same round again.
+      saveRun(run);
+      this.overlay = this.add
+        .container(0, 0, [
+          this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.65).setOrigin(0, 0).setInteractive(),
+          this.text(cx, 340, 'Defeated', 40, '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
+          this.text(cx, 392, `Lives left: ${'♥'.repeat(run.lives)}`, 20, '#ffffff').setOrigin(0.5),
+          this.text(cx, 426, 'Rearrange your heroes and try again.', 15, '#c9d1e0').setOrigin(0.5),
+          this.button(cx, 500, `Retry round ${run.wave}`, 22, '#2e86de', () => this.scene.restart({ run })),
+        ])
+        .setDepth(100);
+      return;
+    }
+    let title = win ? 'Victory!' : 'Defeated';
     let sub = `Time ${Math.round(this.battle.time)}s`;
     if (run) {
       clearRun();
-      title = win ? 'Chapter 1 complete!' : 'The gate has fallen';
-      sub = win ? `All ${RUN_WAVES} waves survived.` : `You reached wave ${run.wave} of ${RUN_WAVES}.`;
+      recordRound(run.wave);
+      title = 'Your guild has fallen';
+      sub = `You reached round ${run.wave}. Best: round ${bestRound()}.`;
     }
     this.overlay = this.add
       .container(0, 0, [
         this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.65).setOrigin(0, 0).setInteractive(),
-        this.text(cx, 360, title, 38, win ? '#ffd166' : '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
+        this.text(cx, 360, title, 36, win ? '#ffd166' : '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
         this.text(cx, 418, sub, 18, '#c9d1e0').setOrigin(0.5),
         this.button(cx, 500, 'New run', 22, '#2e86de', () => this.scene.restart()),
       ])
       .setDepth(100);
   }
 
-  // --- between waves ------------------------------------------------------
+  // --- between rounds -----------------------------------------------------
 
   /**
    * Reward screen: one pick for each hero in turn ("Choose for Warrior, 1 of 4").
@@ -1276,7 +1495,7 @@ export class BattleScene extends Phaser.Scene {
     const level = run.builds[slot].level;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 124, `Wave ${run.wave} cleared!`, 32, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 124, `Round ${run.wave} cleared!`, 32, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
       this.text(cx, 164, `Level up — everyone is now level ${level + 1}`, 15, '#c9d1e0').setOrigin(0.5),
     ];
     // Which hero we're choosing for, with a row of four dots for progress.
@@ -1340,13 +1559,13 @@ export class BattleScene extends Phaser.Scene {
     const token = ++this.rewardToken;
     const cx = WORLD.width / 2;
     const level = run.builds[0].level + 1;
-    const next = CHOICE_AFTER_WAVES.find((w) => w > run.wave);
+    const next = Math.ceil((run.wave + 1) / CHOICE_EVERY) * CHOICE_EVERY;
     const countdown = this.text(cx, 470, '', 15, '#8f9bb3').setOrigin(0.5);
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.55).setOrigin(0, 0).setInteractive(),
-      this.text(cx, 330, `Wave ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
+      this.text(cx, 330, `Round ${run.wave} cleared!`, 34, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
       this.text(cx, 378, `Level up! Everyone is now level ${level}.`, 18, '#ffffff').setOrigin(0.5),
-      this.text(cx, 408, next && next <= RUN_WAVES ? `Next reward choice after wave ${next}` : '', 13, '#9ad1ff').setOrigin(0.5),
+      this.text(cx, 408, needsRecruitAfter(run) ? 'A new hero joins your guild next!' : `Next reward choice after round ${next}`, 13, '#9ad1ff').setOrigin(0.5),
       countdown,
       this.button(cx, 530, 'Continue', 20, '#2e86de', () => {
         if (this.rewardToken === token) this.takeReward(null);
