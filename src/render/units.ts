@@ -4,7 +4,7 @@ import { STEP } from '../sim/battle';
 import { ABILITIES, ABILITY_TUNING } from '../sim/content';
 import { sound } from './sound';
 import { type AbilityId, type BattleEvent, type Unit } from '../sim/types';
-import { SPRITE_SCALE, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectInfo } from './theme';
+import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectInfo } from './theme';
 
 /** Unit sprites and combat effects: views, projectiles, hits, numbers, deaths. */
 export class UnitLayer {
@@ -34,15 +34,17 @@ export class UnitLayer {
     const container = this.s.add.container(u.x, u.y, [body, flash, letter, hpBar]);
     let sprite: Phaser.GameObjects.Image | undefined;
     let top = -u.radius;
-    const key = `hero-${u.kind}`;
-    if (u.side === 'hero' && this.s.textures.exists(key)) {
+    const key = spriteKey(u);
+    if (this.s.textures.exists(key)) {
       // Keep pixels crisp when scaled up.
       this.s.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
       body.setFillStyle(COLORS[u.kind] ?? 0xffffff, 0.35);
       letter.setVisible(false);
-      sprite = this.s.add.image(0, u.radius * 0.6, key).setOrigin(0.5, 1).setScale(SPRITE_SCALE);
+      const scale = spriteScale(u);
+      sprite = this.s.add.image(0, u.radius * 0.6, key).setScale(scale);
+      sprite.setOrigin(0.5, spriteOriginY(key, sprite.height));
       container.addAt(sprite, 2);
-      top = u.radius * 0.6 - sprite.displayHeight + 8;
+      top = u.radius * 0.6 - (sprite.height - spriteTopRow(key)) * scale + 4;
     }
     container.setDepth(u.side === 'hero' ? 10 : 20);
     let name: Phaser.GameObjects.Text | undefined;
@@ -63,7 +65,7 @@ export class UnitLayer {
       aggroIcon = { container: iconContainer, disc };
     }
     let castLabel: Phaser.GameObjects.Text | undefined;
-    if (u.kind === 'shaman') {
+    if (u.ai) {
       castLabel = this.s.text(0, -u.radius - 34, '', 11, '#e0c3ff').setOrigin(0.5).setFontStyle('bold');
       castLabel.setStroke('#000000', 3);
       container.add(castLabel);
@@ -122,7 +124,10 @@ export class UnitLayer {
       if (u.side === 'hero') v.container.setAlpha(this.s.battle.hasEffect(u, 'stealth') ? 0.45 : 1);
       if (u.side === 'enemy') {
         const sheep = this.s.battle.isSheep(u);
-        v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind]);
+        // With a sprite, the disc is just a faint base; a sheep hides the sprite and shows "baa".
+        v.sprite?.setVisible(!sheep);
+        v.letter.setVisible(sheep || !v.sprite);
+        v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind], v.sprite && !sheep ? 0.35 : 1);
         v.body.setStrokeStyle(3, sheep ? 0xbdb7a6 : this.s.battle.hasEffect(u, 'slow') ? SLOW_STROKE : ENEMY_STROKE);
         v.letter.setText(sheep ? 'baa' : LETTERS[u.kind]).setFontSize(sheep ? 11 : u.radius);
         if (sheep) v.letter.setColor('#555');

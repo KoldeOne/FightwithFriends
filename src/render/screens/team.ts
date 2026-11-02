@@ -4,7 +4,7 @@ import { ABILITIES, DEFAULT_TEAM, HERO_KIT, partySize, PASSIVES, WORLD } from '.
 import { sound } from '../sound';
 import { ALL_CLASSES, bestRound, loadRun, newRun, recruit, saveRun } from '../../sim/run';
 import { type HeroClass } from '../../sim/types';
-import { COLORS, LETTERS, DARK_LETTER } from '../theme';
+import { COLORS, LETTERS, DARK_LETTER, spriteKey, spriteOriginY } from '../theme';
 
 /** Team builder and recruit screens. */
 export class TeamScreens {
@@ -37,7 +37,7 @@ export class TeamScreens {
 
     // The team slots.
     const slotW = 120;
-    const slotY = 236;
+    const slotY = 226;
     for (let i = 0; i < size; i++) {
       const x = cx + (i - (size - 1) / 2) * (slotW + 10);
       const cls = team[i];
@@ -53,18 +53,17 @@ export class TeamScreens {
       items.push(bg);
       if (cls) {
         items.push(
-          this.s.add.circle(x, slotY - 10, 16, COLORS[cls]).setStrokeStyle(2, 0x111111),
-          this.s.text(x, slotY - 10, LETTERS[cls], 15, DARK_LETTER.includes(cls) ? '#222' : '#fff').setOrigin(0.5).setFontStyle('bold'),
-          this.s.text(x, slotY + 18, cls[0].toUpperCase() + cls.slice(1), 12, '#ffffff').setOrigin(0.5),
+          ...this.portrait(cls, x, slotY + 8, 1.2),
+          this.s.text(x, slotY + 22, cls[0].toUpperCase() + cls.slice(1), 12, '#ffffff').setOrigin(0.5),
         );
       } else {
         items.push(this.s.text(x, slotY, `Slot ${i + 1}`, 13, '#5d6880').setOrigin(0.5));
       }
     }
-    items.push(this.s.text(cx, slotY + 48, 'Tap a filled slot to remove it. Classes can repeat.', 11, '#8f9bb3').setOrigin(0.5));
+    items.push(this.s.text(cx, slotY + 44, 'Tap a filled slot to remove it. Classes can repeat.', 11, '#8f9bb3').setOrigin(0.5));
 
     items.push(
-      ...this.classCards(342, (cls) => {
+      ...this.classCards(314, (cls) => {
         if (team.length >= size) return;
         this.showTeamBuilder([...team, cls]);
       }),
@@ -72,7 +71,7 @@ export class TeamScreens {
 
     // Classic team shortcut and Start.
     items.push(
-      this.s.text(cx, 732, 'Tip: a classic start is a tank, a healer and a damage dealer.', 12, '#8f9bb3').setOrigin(0.5),
+      this.s.text(cx, 748, 'Tip: a classic start is a tank, a healer and a damage dealer.', 12, '#8f9bb3').setOrigin(0.5),
       this.s.button(cx - 120, 790, 'Classic team', 16, '#2b3445', () => {
         sound.play('click');
         this.showTeamBuilder([...DEFAULT_TEAM]);
@@ -92,12 +91,27 @@ export class TeamScreens {
   }
 
   /** One card per class, stacked from `top`; tapping a card calls `onPick`. */
+  /** A class's sprite (or its coloured letter disc if there's no sprite), feet at y. */
+  portrait(cls: HeroClass, x: number, y: number, scale: number): Phaser.GameObjects.GameObject[] {
+    const key = spriteKey({ side: 'hero', kind: cls });
+    if (this.s.textures.exists(key)) {
+      this.s.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      const img = this.s.add.image(x, y, key).setScale(scale);
+      return [img.setOrigin(0.5, spriteOriginY(key, img.height))];
+    }
+    return [
+      this.s.add.circle(x, y - 16, 16, COLORS[cls]).setStrokeStyle(2, 0x111111),
+      this.s.text(x, y - 16, LETTERS[cls], 15, DARK_LETTER.includes(cls) ? '#222' : '#fff').setOrigin(0.5).setFontStyle('bold'),
+    ];
+  }
+
   classCards(top: number, onPick: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
     const cx = WORLD.width / 2;
-    const cardH = 92;
+    // Six classes have to fit between the slots and the buttons.
+    const cardH = 68;
     const items: Phaser.GameObjects.GameObject[] = [];
     ALL_CLASSES.forEach((cls, i) => {
-      const y = top + i * (cardH + 8);
+      const y = top + i * (cardH + 6);
       const kit = HERO_KIT[cls];
       const bg = this.s.add
         .rectangle(cx, y, 470, cardH, 0x1c2433)
@@ -112,11 +126,10 @@ export class TeamScreens {
       const left = cx - 225;
       items.push(
         bg,
-        this.s.add.circle(left + 30, y, 22, COLORS[cls]).setStrokeStyle(2, 0x111111),
-        this.s.text(left + 30, y, LETTERS[cls], 20, DARK_LETTER.includes(cls) ? '#222' : '#fff').setOrigin(0.5).setFontStyle('bold'),
-        this.s.text(left + 64, y - 34, cls[0].toUpperCase() + cls.slice(1), 18, '#ffffff').setFontStyle('bold'),
-        this.s.text(left + 170, y - 31, kit.role, 12, '#c9d1e0'),
-        this.s.text(left + 64, y - 8, `Starts with: ${ABILITIES[kit.starting].name}`, 12, '#ffd166'),
+        ...this.portrait(cls, left + 30, y + 30, 1.65),
+        this.s.text(left + 64, y - 29, cls[0].toUpperCase() + cls.slice(1), 17, '#ffffff').setFontStyle('bold'),
+        this.s.text(left + 150, y - 26, kit.role, 11, '#c9d1e0'),
+        this.s.text(left + 64, y - 6, `Starts with: ${ABILITIES[kit.starting].name}`, 12, '#ffd166'),
         this.s.text(left + 64, y + 12, `Passive: ${PASSIVES[kit.passive].name} — ${PASSIVES[kit.passive].short}`, 11, '#9ad1ff'),
       );
     });

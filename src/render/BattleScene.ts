@@ -4,7 +4,7 @@ import { ARENA, BOARD, DEFAULT_TEAM, makeRound, ROUND_1, SUDDEN_DEATH, WORLD } f
 import { sound } from './sound';
 import { needsRecruit, recruit, type RunState } from '../sim/run';
 import { type Unit } from '../sim/types';
-import { HERO_SPRITES, partyLayout, type SceneState, DPR, FONT, HUD } from './theme';
+import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, DPR, FONT, HUD } from './theme';
 import { Hud } from './hud';
 import { Inspect } from './inspect';
 import { UnitLayer } from './units';
@@ -81,6 +81,7 @@ export class BattleScene extends Phaser.Scene {
       : new Battle({ seed: Date.now() % 1_000_000, wave: ROUND_1, carefulAI: this.careful, team: DEFAULT_TEAM });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
 
+    ensurePixelTextures(this);
     this.drawField();
     this.units.zoneLayer = this.add.graphics().setDepth(5);
     this.hud.drawTopBar();

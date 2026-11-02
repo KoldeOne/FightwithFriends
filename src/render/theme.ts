@@ -4,6 +4,7 @@ import priestSprite from '../../art/heroes/hero_priest.png';
 import mageSprite from '../../art/heroes/hero_mage.png';
 import rogueSprite from '../../art/heroes/hero_rogue.png';
 import { MAX_ABILITY_SLOTS, partySize, WORLD } from '../sim/content';
+import { PIXEL_PALETTE, PIXEL_SPRITES } from './pixelArt';
 import { recruit, type RunState } from '../sim/run';
 import { type Effect, type ResourceKind } from '../sim/types';
 
@@ -16,6 +17,55 @@ export const HERO_SPRITES: Record<string, string> = {
 };
 /** Hero sprites are drawn at 2x, standing on their unit disc. */
 export const SPRITE_SCALE = 2;
+
+/** Texture key for a unit's sprite (PNG heroes, or generated pixel art). */
+export function spriteKey(u: { side: string; kind: string }): string {
+  return `${u.side === 'hero' ? 'hero' : 'enemy'}-${u.kind}`;
+}
+
+/** Elites and bosses are drawn bigger. */
+export function spriteScale(u: { isBoss?: boolean; isElite?: boolean }): number {
+  return SPRITE_SCALE * (u.isBoss ? 1.45 : u.isElite ? 1.25 : 1);
+}
+
+/** First row of a sprite with any pixels (so the health bar sits just above the head). */
+export function spriteTopRow(key: string): number {
+  const rows = PIXEL_SPRITES[key];
+  if (!rows) return 3; // the hand-made hero PNGs start about 3 rows down
+  const i = rows.findIndex((r) => /[^.]/.test(r));
+  return (i < 0 ? 0 : i) + SPRITE_PAD;
+}
+
+/**
+ * Generated textures get a transparent border: without it the bottom row (feet)
+ * bleeds onto the top edge when drawn scaled up.
+ */
+const SPRITE_PAD = 2;
+
+/** Origin that puts a sprite's feet (not its padding) on the ground. */
+export function spriteOriginY(key: string, height: number): number {
+  return PIXEL_SPRITES[key] ? (height - SPRITE_PAD) / height : 1;
+}
+
+/** Turn the pixel grids (art/sprites.py) into textures, once per game. */
+export function ensurePixelTextures(scene: Phaser.Scene): void {
+  for (const [key, rows] of Object.entries(PIXEL_SPRITES)) {
+    if (scene.textures.exists(key)) continue;
+    const tex = scene.textures.createCanvas(key, rows[0].length + SPRITE_PAD * 2, rows.length + SPRITE_PAD * 2);
+    if (!tex) continue;
+    const ctx = tex.getContext();
+    rows.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        const c = PIXEL_PALETTE[row[x]];
+        if (!c) continue;
+        ctx.fillStyle = c;
+        ctx.fillRect(x + SPRITE_PAD, y + SPRITE_PAD, 1, 1);
+      }
+    });
+    tex.refresh();
+    tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  }
+}
 
 export const COLORS: Record<string, number> = {
   warrior: 0xc0392b,
