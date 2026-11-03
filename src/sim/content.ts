@@ -26,17 +26,6 @@ export function enemyPos(col: number, row: number): { x: number; y: number } {
   return { x: ENEMY_LAYOUT.colX[col], y: ENEMY_LAYOUT.rowY[row] };
 }
 
-/**
- * Party size by round: 3 heroes to start, a 4th after beating the round 10
- * boss, a 5th after the round 20 boss. Enemies field the same number.
- */
-export function partySize(round: number): number {
-  return round <= 10 ? 3 : round <= 20 ? 4 : 5;
-}
-
-/** Lives per run: losing a round costs one; the run ends at zero. */
-export const START_LIVES = 3;
-
 /** After this many seconds, sudden death: all damage ramps up so fights can't stall. */
 export const SUDDEN_DEATH = { after: 60, perSecond: 0.05 };
 
@@ -49,7 +38,7 @@ export const HERO_STATS: Record<HeroClass, UnitStats> = {
   warrior: { label: 'Warrior', radius: 22, maxHp: 420, damage: 12, attackInterval: 1.0, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.5, isTank: true, armor: 0.25 },
   rogue: { label: 'Rogue', radius: 18, maxHp: 235, damage: 11, attackInterval: 0.6, range: 30, attackStyle: 'melee', speed: 0, threatMultiplier: 0.7 },
   mage: { label: 'Mage', radius: 18, maxHp: 170, damage: 20, attackInterval: 1.8, range: 380, attackStyle: 'ranged', speed: 0 },
-  priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 5, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
+  priest: { label: 'Priest', radius: 18, maxHp: 190, damage: 9, attackInterval: 1.5, range: 340, attackStyle: 'ranged', speed: 0, heal: 22 },
   paladin: { label: 'Paladin', radius: 21, maxHp: 380, damage: 13, attackInterval: 1.2, range: 14, attackStyle: 'melee', speed: 0, threatMultiplier: 1.3, isTank: true, armor: 0.2 },
   warlock: { label: 'Warlock', radius: 18, maxHp: 180, damage: 14, attackInterval: 1.6, range: 360, attackStyle: 'ranged', speed: 0 },
 };
@@ -71,9 +60,6 @@ export const HERO_MOVE = { speed: 60, leash: 140 };
 
 /** Who goes up front first: tanks, then melee, then ranged, healers at the back. */
 const ROLE_ORDER: HeroClass[] = ['warrior', 'paladin', 'rogue', 'mage', 'warlock', 'priest'];
-
-/** The default starting team for a run (tank, healer, damage). */
-export const DEFAULT_TEAM: HeroClass[] = ['warrior', 'priest', 'mage'];
 
 /** One of each class: a battle's team when none is given. */
 export const ONE_OF_EACH: HeroClass[] = ['warrior', 'priest', 'mage', 'rogue'];
@@ -455,9 +441,6 @@ export const ABILITY_TUNING = {
 /** Per-rank upgrade effects. Focus: resource regeneration. */
 export const UPGRADE = { powerPerRank: 0.25, hastePerRank: 0.8, vitalityPerRank: 0.1, mightPerRank: 0.1, focusPerRank: 0.4, maxHaste: 2 };
 
-/** A reward choice appears after every 5th round; other rounds just level everyone up. */
-export const CHOICE_EVERY = 5;
-
 /** Per level after 1: +6% max health, damage and healing. */
 export const LEVEL_SCALING = 0.06;
 
@@ -607,6 +590,9 @@ export const AGGRO = {
 type Slot = [EnemyKind, number, number];
 
 /**
+ * The old fixed round line-ups (before the map). The game builds its fights in
+ * acts.ts now; these stay as handy fixtures for tests.
+ *
  * Hand-made line-ups. Rounds 1-10: goblins (3 enemies, the Warchief on 10).
  * Rounds 11-20: undead (4 enemies, the Bone King on 20).
  */

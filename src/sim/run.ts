@@ -1,21 +1,15 @@
 import { abilityText } from './abilityText';
-import { ABILITIES, CHOICE_EVERY, CLASS_POOL, DEFAULT_TEAM, HERO_KIT, HERO_STATS, MAX_ABILITY_SLOTS, partySize, RESOURCES, START_LIVES, TRAITS, UPGRADE, LEVEL_SCALING } from './content';
+import { ECONOMY, goldFor, makeEncounter } from './acts';
+import { ABILITIES, CLASS_POOL, HERO_KIT, HERO_STATS, LEVEL_SCALING, MAX_ABILITY_SLOTS, RESOURCES, TRAITS, UPGRADE } from './content';
+import { generateActMap, nextNodes, type ActMap, type MapNode } from './map';
 import { createRng } from './rng';
-import type { AbilityId, HeroBuild, HeroClass, TraitId } from './types';
+import type { AbilityId, EnemyKind, HeroBuild, HeroClass, TraitId, WaveDef } from './types';
 
-/** Everything that carries over between rounds in a run. */
-export interface RunState {
-  version: 4;
-  seed: number;
-  /** The party: one class per slot (duplicates allowed). Grows 3 -> 4 -> 5. */
-  team: HeroClass[];
-  /** The round about to be fought (1-based). Runs are endless. */
-  wave: number;
-  /** One build per team slot. */
-  builds: HeroBuild[];
-  /** Losing a round costs a life; the run ends at zero. */
-  lives: number;
-}
+/** The last act; beating its boss wins the run. */
+export const FINAL_ACT = 3;
+/** The first this many campsites you reach are recruit sites (a party of 5). */
+export const RECRUIT_CAMPSITES = 4;
+export const MAX_PARTY = 5;
 
 export type Reward =
   | { kind: 'ability'; id: AbilityId }
@@ -27,57 +21,120 @@ export type Reward =
   | { kind: 'might' }
   | { kind: 'focus' };
 
+/** A reward for one hero in the party (chests, elites, bosses and shops offer these). */
+export interface PartyReward {
+  slot: number;
+  reward: Reward;
+}
+
+export interface ShopItem extends PartyReward {
+  price: number;
+  sold?: boolean;
+}
+
+/** A choice waiting at the current node (saved, so a reload comes back to it). */
+export type Pending =
+  | { kind: 'recruit' }
+  | { kind: 'train' }
+  | { kind: 'upgrade'; source: 'chest' | 'elite' | 'boss' | 'campsite'; options: PartyReward[]; gold?: number }
+  | { kind: 'shop'; stock: ShopItem[]; rerolls: number };
+
+/** Everything about a run in progress. */
+export interface RunState {
+  version: 5;
+  seed: number;
+  act: number;
+  /** The current act's map. */
+  map: ActMap;
+  /** The node you're on (null before the first move of an act). */
+  at: string | null;
+  /** Nodes visited this act, in order (the dotted line on the map). */
+  visited: string[];
+  /** The party: one class per slot (duplicates allowed), up to 5. */
+  team: HeroClass[];
+  builds: HeroBuild[];
+  /** Experience per hero (ECONOMY.xpPerLevel per level). */
+  xp: number[];
+  gold: number;
+  /** Campsites reached so far (the first RECRUIT_CAMPSITES are recruit sites). */
+  campsites: number;
+  status: 'map' | 'fight' | 'won' | 'lost';
+  pending?: Pending;
+  stats: { fights: number; elites: number; bosses: number; gold: number };
+}
+
+/** What a won fight gave: gold, XP per hero (and level-ups), and whether a pick follows. */
+export interface Spoils {
+  gold: number;
+  heroes: { slot: number; xp: number; from: number; to: number; fell: boolean }[];
+  pick: boolean;
+  actCleared: boolean;
+  won: boolean;
+}
+
 export const ALL_CLASSES: HeroClass[] = ['warrior', 'paladin', 'priest', 'mage', 'warlock', 'rogue'];
 
 const isTrait = (id: AbilityId | TraitId): id is TraitId => id in TRAITS;
 
-function freshBuild(cls: HeroClass, level = 1): HeroBuild {
-  return { level, abilities: [{ id: HERO_KIT[cls].starting, power: 0, haste: 0, mastery: false }], traits: [], vitality: 0, might: 0, focus: 0 };
+/** Abilities a class can start with (its usual opener plus any active from its pool). */
+export function firstAbilityOptions(cls: HeroClass): AbilityId[] {
+  return [HERO_KIT[cls].starting, ...CLASS_POOL[cls].filter((id): id is AbilityId => !isTrait(id))];
 }
 
-export function newRun(team: HeroClass[] = DEFAULT_TEAM, seed = Date.now() % 1_000_000): RunState {
-  return { version: 4, seed, team: [...team], wave: 1, builds: team.map((cls) => freshBuild(cls)), lives: START_LIVES };
+function freshBuild(first: AbilityId, level = 1): HeroBuild {
+  return { level, abilities: [{ id: first, power: 0, haste: 0, mastery: false }], traits: [], vitality: 0, might: 0, focus: 0 };
 }
 
-/** Does the party have an open slot to fill before this round (after the round 10 and 20 bosses)? */
-export function needsRecruit(run: RunState): boolean {
-  return run.team.length < partySize(run.wave);
+function nodeRng(run: RunState, salt: number): () => number {
+  let h = 0;
+  for (const ch of run.at ?? 'start') h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return createRng(run.seed * 31 + run.act * 7741 + h + salt * 104729);
 }
 
-/**
- * Add a hero to the party. They join at the party's level and with the
- * rewards they would have picked so far, so they aren't left behind.
- */
-export function recruit(run: RunState, cls: HeroClass): void {
-  const slot = run.team.length;
-  const level = Math.max(...run.builds.map((b) => b.level));
-  run.team.push(cls);
-  run.builds.push(freshBuild(cls, level));
-  const round = run.wave;
-  for (let w = CHOICE_EVERY; w < round; w += CHOICE_EVERY) {
-    run.wave = w;
-    applyReward(run.builds[slot], autoChoose(cls, rewardOptions(run, slot)));
+function shuffle<T>(rng: () => number, list: T[]): T[] {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
   }
-  run.wave = round;
+  return out;
 }
 
-/** A lost round: costs a life. Returns true if the run goes on (retry the same round). */
-export function loseRound(run: RunState): boolean {
-  run.lives = Math.max(0, run.lives - 1);
-  return run.lives > 0;
+/** Start a run with one hero and the first ability you picked for it. */
+export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting, seed = Date.now() % 1_000_000): RunState {
+  return {
+    version: 5,
+    seed,
+    act: 1,
+    map: generateActMap(seed, 1),
+    at: null,
+    visited: [],
+    team: [cls],
+    builds: [freshBuild(first)],
+    xp: [0],
+    gold: 0,
+    campsites: 0,
+    status: 'map',
+    stats: { fights: 0, elites: 0, bosses: 0, gold: 0 },
+  };
+}
+
+export function currentNode(run: RunState): MapNode | undefined {
+  return run.at ? run.map.nodes[run.at] : undefined;
+}
+
+/** Where you can go next (nothing while a choice is waiting). */
+export function availableNodes(run: RunState): MapNode[] {
+  if (run.status !== 'map' || run.pending) return [];
+  return nextNodes(run.map, run.at);
 }
 
 function slotsUsed(b: HeroBuild): number {
   return b.abilities.length + b.traits.length;
 }
 
-/** Does clearing the current round give a reward choice (vs. an automatic level-up)? */
-export function isChoiceWave(run: RunState): boolean {
-  return run.wave % CHOICE_EVERY === 0;
-}
-
 /** Abilities and passives from the class pool this hero hasn't taken yet (if a slot is free). */
-function freshPicks(cls: HeroClass, b: HeroBuild): Reward[] {
+export function freshPicks(cls: HeroClass, b: HeroBuild): Reward[] {
   if (slotsUsed(b) >= MAX_ABILITY_SLOTS) return [];
   return CLASS_POOL[cls]
     .filter((id) => (isTrait(id) ? !b.traits.includes(id) : !b.abilities.some((a) => a.id === id)))
@@ -99,39 +156,314 @@ function upgrades(cls: HeroClass, b: HeroBuild): { masteries: Reward[]; general:
 }
 
 /**
- * Three options for a reward choice: while slots are free, two new abilities
- * or passives from the class pool plus one upgrade (so taking an upgrade early
- * is a real trade-off); once full, three upgrades. Seeded, so reloading shows
- * the same options.
+ * Three upgrades for the party (chests, elites, bosses): named upgrades first,
+ * spread across different heroes where possible.
  */
-export function rewardOptions(run: RunState, slot: number): Reward[] {
-  const cls = run.team[slot];
-  const b = run.builds[slot];
-  const rng = createRng(run.seed * 31 + run.wave * 977 + slot * 131 + ALL_CLASSES.indexOf(cls));
-  const shuffle = <T>(list: T[]): T[] => {
-    const out = [...list];
-    for (let i = out.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [out[i], out[j]] = [out[j], out[i]];
+export function partyUpgradeOptions(run: RunState, salt: number, count = 3): PartyReward[] {
+  const rng = nodeRng(run, salt);
+  const masteries: PartyReward[] = [];
+  const general: PartyReward[] = [];
+  run.team.forEach((cls, slot) => {
+    const u = upgrades(cls, run.builds[slot]);
+    masteries.push(...u.masteries.map((reward) => ({ slot, reward })));
+    general.push(...u.general.map((reward) => ({ slot, reward })));
+  });
+  const out: PartyReward[] = [];
+  const usedHeroes = new Set<number>();
+  const take = (list: PartyReward[], max: number) => {
+    for (const r of shuffle(rng, list)) {
+      if (out.length >= count || out.filter((o) => list.includes(o)).length >= max) break;
+      if (usedHeroes.has(r.slot) && run.team.length > out.length) continue;
+      out.push(r);
+      usedHeroes.add(r.slot);
     }
-    return out;
   };
-  const picks = shuffle(freshPicks(cls, b)).slice(0, 2);
-  const { masteries, general } = upgrades(cls, b);
-  // Named upgrades first (they change how an ability plays), then the rest.
-  const ups = [...shuffle(masteries), ...shuffle(general)];
-  for (const u of ups) {
-    if (picks.length >= 3) break;
-    picks.push(u);
+  take(masteries, 2);
+  take(general, count);
+  // Small parties: allow repeats of a hero to fill the three.
+  for (const r of shuffle(rng, [...masteries, ...general])) {
+    if (out.length >= count) break;
+    if (!out.some((o) => o.slot === r.slot && JSON.stringify(o.reward) === JSON.stringify(r.reward))) out.push(r);
   }
-  return picks;
+  return out;
+}
+
+/** Three new abilities or passives for one hero at a training campsite. */
+export function trainOptions(run: RunState, slot: number): Reward[] {
+  return shuffle(nodeRng(run, 11 + slot), freshPicks(run.team[slot], run.builds[slot])).slice(0, 3);
+}
+
+/** Heroes with a free slot (who can learn something new). */
+export function trainableSlots(run: RunState): number[] {
+  return run.team.map((_, i) => i).filter((i) => freshPicks(run.team[i], run.builds[i]).length > 0);
+}
+
+function shopStock(run: RunState, rerolls: number): ShopItem[] {
+  const rng = nodeRng(run, 50 + rerolls);
+  const price = (p: number) => Math.round(p * ECONOMY.actPrice[run.act - 1]);
+  const abilities: ShopItem[] = shuffle(
+    rng,
+    trainableSlots(run).flatMap((slot) => freshPicks(run.team[slot], run.builds[slot]).map((reward) => ({ slot, reward, price: price(ECONOMY.prices.ability) }))),
+  );
+  const items: ShopItem[] = [];
+  const heroes = new Set<number>();
+  for (const a of abilities) {
+    if (items.length >= 3) break;
+    if (heroes.has(a.slot) && abilities.some((b) => !heroes.has(b.slot))) continue;
+    items.push(a);
+    heroes.add(a.slot);
+  }
+  const ups = partyUpgradeOptions(run, 70 + rerolls, 2).map((u) => ({ ...u, price: price(ECONOMY.prices.upgrade) }));
+  return [...items, ...ups];
+}
+
+export function rerollPrice(run: RunState): number {
+  return Math.round(ECONOMY.prices.reroll * ECONOMY.actPrice[run.act - 1]);
 }
 
 /**
- * What the AI (or "Choose for me") picks: a new ability or passive in the
- * class's preference order; once slots are full, the starting ability's named
- * upgrade, then any named upgrade, then Empowered on the starting ability, then Might.
+ * Step onto a node. Fights set the run to 'fight' (the scene then plays it);
+ * other nodes open their choice: recruit or train at a campsite, gold and an
+ * upgrade at a chest, the stock at a shop.
  */
+export function enterNode(run: RunState, id: string): MapNode {
+  const node = availableNodes(run).find((n) => n.id === id);
+  if (!node) throw new Error(`can't move to ${id}`);
+  run.at = id;
+  run.visited.push(id);
+  switch (node.type) {
+    case 'fight':
+    case 'elite':
+    case 'boss':
+      run.status = 'fight';
+      break;
+    case 'campsite':
+      run.campsites += 1;
+      if (run.campsites <= RECRUIT_CAMPSITES && run.team.length < MAX_PARTY) run.pending = { kind: 'recruit' };
+      else if (trainableSlots(run).length) run.pending = { kind: 'train' };
+      else run.pending = { kind: 'upgrade', source: 'campsite', options: partyUpgradeOptions(run, 3) };
+      break;
+    case 'chest': {
+      const rng = nodeRng(run, 1);
+      const [lo, hi] = ECONOMY.chestGold;
+      const gold = Math.round((lo + rng() * (hi - lo)) * ECONOMY.actGold[run.act - 1] * (node.rich ? ECONOMY.richBonus : 1));
+      run.gold += gold;
+      run.stats.gold += gold;
+      run.pending = { kind: 'upgrade', source: 'chest', options: partyUpgradeOptions(run, 2), gold };
+      break;
+    }
+    case 'shop':
+      run.pending = { kind: 'shop', stock: shopStock(run, 0), rerolls: 0 };
+      break;
+  }
+  return node;
+}
+
+/** The fight's random seed (the same for the game and the simulator). */
+export function fightSeed(run: RunState): number {
+  const node = currentNode(run);
+  return run.seed * 100 + run.act * 10007 + (node ? node.floor * 131 + node.col : 0);
+}
+
+/** The enemies at the current fight node. */
+export function encounterFor(run: RunState): WaveDef {
+  const node = currentNode(run)!;
+  return makeEncounter(run.seed, run.act, node.floor, node.type, run.team.length, node.id);
+}
+
+export function averageLevel(run: RunState): number {
+  return run.builds.reduce((a, b) => a + b.level, 0) / Math.max(1, run.builds.length);
+}
+
+/**
+ * A fight is over. Lost: the run ends. Won: gold for every enemy killed, XP for
+ * every hero still standing (double for heroes below the party's average
+ * level), and an upgrade pick after an elite or a boss. Beating an act's boss
+ * moves on to the next act; beating the last one wins the run.
+ */
+export function finishFight(run: RunState, won: boolean, fallen: number[], killed: EnemyKind[]): Spoils {
+  const node = currentNode(run)!;
+  const spoils: Spoils = { gold: 0, heroes: [], pick: false, actCleared: false, won: false };
+  if (!won) {
+    run.status = 'lost';
+    return spoils;
+  }
+  run.status = 'map';
+  run.stats.fights += 1;
+  if (node.type === 'elite') run.stats.elites += 1;
+  if (node.type === 'boss') run.stats.bosses += 1;
+  const gold = Math.round(killed.reduce((a, k) => a + goldFor(k), 0) * ECONOMY.actGold[run.act - 1] * (node.rich ? ECONOMY.richBonus : 1));
+  run.gold += gold;
+  run.stats.gold += gold;
+  spoils.gold = gold;
+  const avg = averageLevel(run);
+  const base = ECONOMY.xp[node.type] ?? 0;
+  run.team.forEach((_, slot) => {
+    const b = run.builds[slot];
+    const fell = fallen.includes(slot);
+    const gained = fell ? 0 : Math.round(base * (b.level < avg - 0.5 ? ECONOMY.catchUp : 1));
+    const from = b.level;
+    run.xp[slot] += gained;
+    b.level = 1 + Math.floor(run.xp[slot] / ECONOMY.xpPerLevel);
+    spoils.heroes.push({ slot, xp: gained, from, to: b.level, fell });
+  });
+  if (node.type === 'boss' && run.act >= FINAL_ACT) {
+    run.status = 'won';
+    spoils.won = true;
+    return spoils;
+  }
+  if (node.type === 'elite' || node.type === 'boss') {
+    run.pending = { kind: 'upgrade', source: node.type, options: partyUpgradeOptions(run, 5) };
+    spoils.pick = true;
+  }
+  spoils.actCleared = node.type === 'boss';
+  return spoils;
+}
+
+/** After the current choice: if it was the act's boss, move on to the next act. */
+function finishPending(run: RunState): void {
+  const wasBoss = run.pending?.kind === 'upgrade' && run.pending.source === 'boss';
+  run.pending = undefined;
+  if (wasBoss) nextAct(run);
+}
+
+export function nextAct(run: RunState): void {
+  run.act += 1;
+  run.map = generateActMap(run.seed, run.act);
+  run.at = null;
+  run.visited = [];
+  run.status = 'map';
+}
+
+/** Recruit site: a new hero joins at level 1 with the first ability you chose (they earn double XP until they catch up). */
+export function recruit(run: RunState, cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting): void {
+  if (run.pending?.kind !== 'recruit' || run.team.length >= MAX_PARTY) throw new Error('no recruit here');
+  run.team.push(cls);
+  run.builds.push(freshBuild(first));
+  run.xp.push(0);
+  finishPending(run);
+}
+
+/** Training campsite: one hero learns a new ability or passive. */
+export function train(run: RunState, slot: number, reward: Reward): void {
+  if (run.pending?.kind !== 'train') throw new Error('no training here');
+  applyReward(run.builds[slot], reward);
+  finishPending(run);
+}
+
+/** Take one of the offered upgrades (chest, elite, boss). */
+export function chooseUpgrade(run: RunState, pick: PartyReward | null): void {
+  if (run.pending?.kind !== 'upgrade') throw new Error('no upgrade here');
+  if (pick) applyReward(run.builds[pick.slot], pick.reward);
+  finishPending(run);
+}
+
+export function buy(run: RunState, index: number): boolean {
+  const p = run.pending;
+  if (p?.kind !== 'shop') return false;
+  const item = p.stock[index];
+  if (!item || item.sold || run.gold < item.price) return false;
+  run.gold -= item.price;
+  applyReward(run.builds[item.slot], item.reward);
+  item.sold = true;
+  // Anything no longer possible (a full hero, an upgrade already taken) leaves the shelf.
+  for (const other of p.stock) {
+    if (other.sold) continue;
+    if (other.reward.kind === 'ability' || other.reward.kind === 'trait') {
+      if (!freshPicks(run.team[other.slot], run.builds[other.slot]).some((r) => JSON.stringify(r) === JSON.stringify(other.reward))) other.sold = true;
+    }
+    if (other.reward.kind === 'mastery') {
+      const a = run.builds[other.slot].abilities.find((x) => x.id === (other.reward as { id: AbilityId }).id);
+      if (a?.mastery) other.sold = true;
+    }
+  }
+  return true;
+}
+
+export function reroll(run: RunState): boolean {
+  const p = run.pending;
+  if (p?.kind !== 'shop' || run.gold < rerollPrice(run)) return false;
+  run.gold -= rerollPrice(run);
+  p.rerolls += 1;
+  p.stock = shopStock(run, p.rerolls);
+  return true;
+}
+
+export function leaveShop(run: RunState): void {
+  if (run.pending?.kind === 'shop') finishPending(run);
+}
+
+// --- the AI (Auto, and the balance simulator) ----------------------------
+
+const ROLE_ORDER: HeroClass[][] = [['warrior', 'paladin'], ['priest'], ['mage', 'warlock', 'rogue']];
+
+/** Auto's route: steady fights, campsites, chests and shops; elites only with a full party. */
+export function autoPath(run: RunState): string {
+  const options = availableNodes(run);
+  const score = (n: MapNode) => {
+    const base: Record<string, number> = { fight: 3, campsite: 5, chest: 4, shop: run.gold >= 45 ? 4 : 1, elite: run.team.length >= MAX_PARTY ? 2 : -2, boss: 9 };
+    return (base[n.type] ?? 0) + (n.rich ? 1 : 0);
+  };
+  return options.reduce((best, n) => (score(n) > score(best) ? n : best)).id;
+}
+
+/** Auto's recruit: fill a missing tank, then a healer, then a damage class not in the party yet. */
+export function autoRecruit(run: RunState): { cls: HeroClass; first: AbilityId } {
+  const [tanks, healers, dps] = ROLE_ORDER;
+  const cls =
+    tanks.find(() => !run.team.some((c) => tanks.includes(c))) ??
+    healers.find(() => !run.team.some((c) => healers.includes(c))) ??
+    dps.find((c) => !run.team.includes(c)) ??
+    dps[run.team.length % dps.length];
+  return { cls, first: HERO_KIT[cls].starting };
+}
+
+/** Auto's training: the hero with the fewest abilities, their class's preferred pick. */
+export function autoTrain(run: RunState): { slot: number; reward: Reward } {
+  const slots = trainableSlots(run).sort((a, b) => slotsUsed(run.builds[a]) - slotsUsed(run.builds[b]));
+  const slot = slots[0];
+  return { slot, reward: autoChoose(run.team[slot], trainOptions(run, slot)) };
+}
+
+/** Auto's upgrade pick: a named upgrade on a hero's first ability, then any named upgrade, then the first offered. */
+export function autoUpgrade(run: RunState, options: PartyReward[]): PartyReward | null {
+  if (!options.length) return null;
+  return (
+    options.find((o) => o.reward.kind === 'mastery' && run.builds[o.slot].abilities[0]?.id === o.reward.id) ??
+    options.find((o) => o.reward.kind === 'mastery') ??
+    options[0]
+  );
+}
+
+/** Auto at a shop: buy abilities for heroes with the fewest, then upgrades, while gold lasts. */
+export function autoShop(run: RunState): void {
+  const p = run.pending;
+  if (p?.kind !== 'shop') return;
+  for (;;) {
+    const options = p.stock
+      .map((item, i) => ({ item, i }))
+      .filter(({ item }) => !item.sold && item.price <= run.gold)
+      .sort((a, b) => Number(b.item.reward.kind === 'ability' || b.item.reward.kind === 'trait') - Number(a.item.reward.kind === 'ability' || a.item.reward.kind === 'trait'));
+    if (!options.length) break;
+    buy(run, options[0].i);
+  }
+  leaveShop(run);
+}
+
+/** Make whatever choice is waiting, the way Auto would. */
+export function autoResolve(run: RunState): void {
+  const p = run.pending;
+  if (!p) return;
+  if (p.kind === 'recruit') {
+    const r = autoRecruit(run);
+    recruit(run, r.cls, r.first);
+  } else if (p.kind === 'train') {
+    const t = autoTrain(run);
+    train(run, t.slot, t.reward);
+  } else if (p.kind === 'upgrade') chooseUpgrade(run, autoUpgrade(run, p.options));
+  else autoShop(run);
+}
+
 export function autoChoose(cls: HeroClass, options: Reward[]): Reward {
   const pool = CLASS_POOL[cls];
   const rank = (r: Reward) => pool.indexOf((r as { id: AbilityId | TraitId }).id);
@@ -146,7 +478,6 @@ export function autoChoose(cls: HeroClass, options: Reward[]): Reward {
     options[0]
   );
 }
-
 export function applyReward(b: HeroBuild, r: Reward): void {
   switch (r.kind) {
     case 'ability':
@@ -177,28 +508,6 @@ export function applyReward(b: HeroBuild, r: Reward): void {
       break;
   }
 }
-
-/**
- * Finish a round: every hero levels up. On choice rounds each hero takes its
- * pick from `picks` (by team slot); missing picks are chosen automatically.
- */
-export function completeWave(run: RunState, picks: (Reward | null | undefined)[] = []): Reward[] {
-  const taken: Reward[] = [];
-  const choice = isChoiceWave(run);
-  run.team.forEach((cls, slot) => {
-    const b = run.builds[slot];
-    if (choice) {
-      const pick = picks[slot] ?? autoChoose(cls, rewardOptions(run, slot));
-      applyReward(b, pick);
-      taken[slot] = pick;
-    }
-    b.level += 1;
-  });
-  run.wave += 1;
-  return taken;
-}
-
-/** Human-readable text for a reward option. */
 export function describeReward(r: Reward): { tag: string; title: string; text: string } {
   switch (r.kind) {
     case 'ability':
@@ -219,14 +528,9 @@ export function describeReward(r: Reward): { tag: string; title: string; text: s
       return { tag: 'UPGRADE', title: 'Focus', text: `+${UPGRADE.focusPerRank * 100}% mana / energy regeneration.` };
   }
 }
-
-/**
- * The numbers a reward changes, as "now" and "after" lines, for the reward
- * cards. Uses the level the hero will fight at next round.
- */
 export function rewardPreview(run: RunState, slot: number, r: Reward): { now?: string; after: string } | null {
   const b = run.builds[slot];
-  const stats = { level: b.level + 1, might: 1 + UPGRADE.mightPerRank * (b.might ?? 0), traits: b.traits };
+  const stats = { level: b.level, might: 1 + UPGRADE.mightPerRank * (b.might ?? 0), traits: b.traits };
   const current = (id: AbilityId) => b.abilities.find((a) => a.id === id);
   switch (r.kind) {
     case 'ability':
@@ -261,10 +565,11 @@ export function rewardPreview(run: RunState, slot: number, r: Reward): { now?: s
 
 // --- saving -------------------------------------------------------------
 
-const SAVE_KEY = 'fightwithfriends.run.v4';
-/** Runs saved before the grid was removed and the ability pools grew. */
-const OLD_SAVE_KEY = 'fightwithfriends.run.v3';
-const BEST_KEY = 'fightwithfriends.bestRound';
+const SAVE_KEY = 'fightwithfriends.run.v5';
+/** Saves from before the map (rounds); dropped, the format changed too much. */
+const OLD_KEYS = ['fightwithfriends.run.v4', 'fightwithfriends.run.v3'];
+const BEST_KEY = 'fightwithfriends.best';
+const WINS_KEY = 'fightwithfriends.wins';
 
 export function saveRun(run: RunState): void {
   try {
@@ -276,43 +581,27 @@ export function saveRun(run: RunState): void {
 
 export function loadRun(): RunState | null {
   try {
-    const raw = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(OLD_SAVE_KEY);
+    for (const k of OLD_KEYS) localStorage.removeItem(k);
+    const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    const run = migrateRun(JSON.parse(raw));
-    const ok = !!run && Array.isArray(run.team) && Array.isArray(run.builds) && run.team.length === run.builds.length && run.lives > 0;
+    const run = JSON.parse(raw) as RunState;
+    const ok = run?.version === 5 && Array.isArray(run.team) && run.team.length === run.builds.length && (run.status === 'map' || run.status === 'fight');
     return ok ? run : null;
   } catch {
     return null;
   }
 }
 
-/** Bring an older saved run up to date (v3 had a board layout and a few abilities that were replaced). */
-export function migrateRun(data: unknown): RunState | null {
-  const run = data as { version?: number } & Partial<RunState> & { placement?: unknown };
-  if (run?.version === 4) return run as RunState;
-  if (run?.version !== 3 || !Array.isArray(run.builds) || !Array.isArray(run.team)) return null;
-  const replaced: Record<string, AbilityId> = { prayerOfHealing: 'holyNova' };
-  const replacedTraits: Record<string, TraitId> = { innerFocus: 'blessedHands' };
-  const builds = run.builds.map((b) => ({
-    ...b,
-    abilities: b.abilities.map((a) => ({ ...a, id: replaced[a.id] ?? a.id, mastery: false })),
-    traits: b.traits.map((t) => replacedTraits[t] ?? t),
-    focus: 0,
-  }));
-  return { version: 4, seed: run.seed ?? 1, team: run.team, wave: run.wave ?? 1, builds, lives: run.lives ?? 1 };
-}
-
 export function clearRun(): void {
   try {
     localStorage.removeItem(SAVE_KEY);
-    localStorage.removeItem(OLD_SAVE_KEY);
   } catch {
     /* ignore */
   }
 }
 
-/** Highest round ever reached (0 if none). */
-export function bestRound(): number {
+/** Furthest progress ever: act * 100 + floor (0 if none). */
+export function bestProgress(): number {
   try {
     return Number(localStorage.getItem(BEST_KEY)) || 0;
   } catch {
@@ -320,13 +609,40 @@ export function bestRound(): number {
   }
 }
 
-/** Record a round reached; returns true if it's a new best. */
-export function recordRound(round: number): boolean {
-  if (round <= bestRound()) return false;
+/** Record how far a run got; returns true if it's a new best. */
+export function recordProgress(run: RunState): boolean {
+  const node = currentNode(run);
+  const value = run.status === 'won' ? 999 : run.act * 100 + (node ? node.floor + 1 : 0);
+  if (value <= bestProgress()) return false;
   try {
-    localStorage.setItem(BEST_KEY, String(round));
+    localStorage.setItem(BEST_KEY, String(value));
   } catch {
     /* ignore */
   }
   return true;
+}
+
+export function recordWin(): number {
+  try {
+    const n = (Number(localStorage.getItem(WINS_KEY)) || 0) + 1;
+    localStorage.setItem(WINS_KEY, String(n));
+    return n;
+  } catch {
+    return 1;
+  }
+}
+
+export function winsSoFar(): number {
+  try {
+    return Number(localStorage.getItem(WINS_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** "Act 2, floor 7" for a best-progress value. */
+export function describeProgress(value: number): string {
+  if (value >= 999) return 'a win';
+  if (!value) return 'none yet';
+  return `Act ${Math.floor(value / 100)}, floor ${value % 100}`;
 }

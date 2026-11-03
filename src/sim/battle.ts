@@ -96,6 +96,8 @@ export class Battle {
   zones: Zone[] = [];
   /** Shots in flight. */
   private projectiles: Projectile[] = [];
+  /** Enemies killed this fight, in order (for gold). */
+  killed: EnemyKind[] = [];
 
   private nextId = 1;
   private pending: SpawnDef[];
@@ -1902,6 +1904,7 @@ export class Battle {
       if (this.focusId === to.id) this.focusId = null;
       this.events.push({ type: 'death', id: to.id });
       if (to.side === 'enemy') {
+        this.killed.push(to.kind as EnemyKind);
         this.soulHarvest();
         const caster = contagion ? this.unit(contagion.sourceId) : undefined;
         const next = contagion ? this.nextEnemy(to, 400) : undefined;

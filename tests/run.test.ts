@@ -1,172 +1,320 @@
 import { describe, expect, it } from 'vitest';
+import { enemyCount, makeEncounter, PARTY_SCALE, strengthAt } from '../src/sim/acts';
 import { Battle, STEP } from '../src/sim/battle';
-import { CLASS_POOL, DEFAULT_TEAM, ENEMY_LAYOUT, enemyPos, HERO_LINES, makeRound, MAX_ABILITY_SLOTS, partySize, SPOTS, START_LIVES } from '../src/sim/content';
-import { applyReward, autoChoose, completeWave, isChoiceWave, loseRound, migrateRun, needsRecruit, newRun, recruit, rewardOptions, rewardPreview, type RunState } from '../src/sim/run';
+import { ENEMY_LAYOUT, enemyPos, HERO_LINES, makeRound, SPOTS, TRAITS } from '../src/sim/content';
+import { CAMPSITE_FLOORS, generateActMap, MAP_FLOORS, nextNodes } from '../src/sim/map';
+import {
+  applyReward,
+  autoPath,
+  autoResolve,
+  availableNodes,
+  buy,
+  chooseUpgrade,
+  encounterFor,
+  enterNode,
+  finishFight,
+  firstAbilityOptions,
+  loadRun,
+  newRun,
+  recruit,
+  reroll,
+  rewardPreview,
+  saveRun,
+  train,
+  trainOptions,
+  type RunState,
+} from '../src/sim/run';
 
-function playWave(run: RunState): Battle {
-  const b = new Battle({ seed: run.seed + run.wave + run.lives * 7, wave: makeRound(run.wave), team: run.team, builds: run.builds });
-  while (b.outcome === 'running' && b.time < 900) b.step(STEP);
-  return b;
+/** Walk to the next node of a given type (or any node), on the run's own map. */
+function step(run: RunState, type?: string): void {
+  const options = availableNodes(run);
+  const node = (type && options.find((n) => n.type === type)) || options[0];
+  enterNode(run, node.id);
 }
 
-describe('Run and rewards', () => {
-  it('a new run starts everyone at level 1 with their starting ability', () => {
-    const run = newRun(DEFAULT_TEAM, 1);
-    expect(run.wave).toBe(1);
-    expect(run.team).toEqual(DEFAULT_TEAM);
-    expect(run.builds[2]).toEqual({ level: 1, abilities: [{ id: 'fireball', power: 0, haste: 0, mastery: false }], traits: [], vitality: 0, might: 0, focus: 0 });
-  });
+/** Win the current fight without simulating it. */
+function win(run: RunState, fallen: number[] = []): ReturnType<typeof finishFight> {
+  return finishFight(run, true, fallen, encounterFor(run).spawns.map((s) => s.kind));
+}
 
-  it('a reward choice every 5 waves, offering new abilities', () => {
-    const run = newRun(DEFAULT_TEAM, 7);
-    for (let w = 1; w <= 10; w++) {
-      expect(isChoiceWave(run)).toBe(w === 5 || w === 10);
-      if (isChoiceWave(run)) {
-        const opts = rewardOptions(run, 0);
-        expect(opts).toHaveLength(3);
-        expect(opts.filter((o) => o.kind === 'ability').length).toBeGreaterThan(0);
-        completeWave(run, [opts.find((o) => o.kind === 'ability')!]);
-      } else {
-        completeWave(run);
-      }
+/** Resolve whatever is waiting the way Auto would, then keep going. */
+function advance(run: RunState): void {
+  if (run.pending) autoResolve(run);
+  else if (run.status === 'fight') win(run);
+  else step(run);
+}
+
+describe('Act maps', () => {
+  for (const seed of [1, 2, 3, 42, 777]) {
+    for (const act of [1, 2, 3]) {
+      it(`seed ${seed}, act ${act}: a climbable map with a good mix`, () => {
+        const m = generateActMap(seed, act);
+        expect(m.floors).toHaveLength(MAP_FLOORS + 1);
+        expect(m.floors[MAP_FLOORS]).toHaveLength(1);
+        expect(m.nodes[m.floors[MAP_FLOORS][0]].type).toBe('boss');
+        for (const f of m.floors.slice(0, MAP_FLOORS)) expect(f.length).toBeGreaterThanOrEqual(2);
+        // Every node can be reached from the start, and leads to the boss.
+        const reach = new Set(m.floors[0]);
+        for (let f = 0; f < MAP_FLOORS; f++) for (const id of m.floors[f]) if (reach.has(id)) m.nodes[id].next.forEach((n) => reach.add(n));
+        expect(reach.size).toBe(Object.keys(m.nodes).length);
+        for (const n of Object.values(m.nodes)) if (n.type !== 'boss') expect(n.next.length).toBeGreaterThan(0);
+        // Links never cross.
+        for (let f = 0; f < MAP_FLOORS - 1; f++) {
+          const edges = m.floors[f].flatMap((id) => m.nodes[id].next.map((to) => [m.nodes[id].col, m.nodes[to].col]));
+          for (const [a, b] of edges) for (const [c, d] of edges) expect((a - c) * (b - d) >= 0).toBe(true);
+        }
+        // Fights first; fixed campsite floors; no early elites or shops; a shop and two chests somewhere.
+        for (const id of [...m.floors[0], ...m.floors[1]]) expect(m.nodes[id].type).toBe('fight');
+        for (const f of CAMPSITE_FLOORS[act]) for (const id of m.floors[f]) expect(m.nodes[id].type).toBe('campsite');
+        for (const f of [0, 1, 2]) for (const id of m.floors[f]) expect(['elite', 'shop']).not.toContain(m.nodes[id].type);
+        const types = Object.values(m.nodes).map((n) => n.type);
+        expect(types.filter((t) => t === 'shop').length).toBeGreaterThanOrEqual(1);
+        expect(types.filter((t) => t === 'chest').length).toBeGreaterThanOrEqual(2);
+      });
     }
-    expect(run.builds[0].abilities).toHaveLength(3);
-    expect(run.builds[0].level).toBe(11);
+  }
+
+  it('maps differ from run to run', () => {
+    const a = generateActMap(1, 1);
+    const b = generateActMap(2, 1);
+    expect(JSON.stringify(a)).not.toEqual(JSON.stringify(b));
+    expect(JSON.stringify(generateActMap(1, 1))).toEqual(JSON.stringify(a));
+  });
+});
+
+describe('A map run', () => {
+  it('starts with one hero and the first ability you chose', () => {
+    expect(firstAbilityOptions('mage')).toContain('fireball');
+    expect(firstAbilityOptions('mage')).toContain('frostNova');
+    for (const id of firstAbilityOptions('rogue')) expect(id in TRAITS).toBe(false);
+    const run = newRun('mage', 'frostNova', 5);
+    expect(run.team).toEqual(['mage']);
+    expect(run.builds[0].abilities.map((a) => a.id)).toEqual(['frostNova']);
+    expect(run.act).toBe(1);
+    expect(availableNodes(run).map((n) => n.id)).toEqual(run.map.floors[0]);
   });
 
+  it('you can only move along the links; fights start right away', () => {
+    const run = newRun('warrior', undefined, 6);
+    const far = run.map.floors[3][0];
+    expect(() => enterNode(run, far)).toThrow();
+    step(run);
+    expect(run.status).toBe('fight');
+    expect(availableNodes(run)).toEqual([]);
+    expect(encounterFor(run).spawns).toHaveLength(1); // a lone hero meets one enemy
+  });
+
+  it('a won fight pays gold for each enemy and XP to everyone standing; fallen heroes get no XP', () => {
+    const run = newRun('warrior', undefined, 7);
+    step(run);
+    const spoils = win(run);
+    expect(spoils.gold).toBeGreaterThan(0);
+    expect(run.gold).toBe(spoils.gold);
+    expect(spoils.heroes[0].xp).toBeGreaterThan(0);
+    expect(run.builds[0].level).toBe(2);
+    expect(run.status).toBe('map');
+    step(run);
+    const again = win(run, [0]);
+    expect(again.heroes[0]).toMatchObject({ xp: 0, fell: true });
+  });
+
+  it('the first four campsites you reach recruit (class and first ability); the next ones train', () => {
+    const run = newRun('warrior', undefined, 8);
+    let guard = 0;
+    while ((run.campsites < 4 || run.pending?.kind === 'recruit') && guard++ < 200) {
+      if (run.pending?.kind === 'recruit') {
+        const before = run.team.length;
+        recruit(run, 'priest', 'renew');
+        expect(run.team).toHaveLength(before + 1);
+        expect(run.builds[before]).toMatchObject({ level: 1, abilities: [{ id: 'renew' }] });
+      } else advance(run);
+    }
+    expect(run.team).toHaveLength(5);
+    // On to the next campsite: training.
+    while (run.pending?.kind !== 'train' && guard++ < 400) advance(run);
+    expect(run.pending?.kind).toBe('train');
+    const opts = trainOptions(run, 0);
+    expect(opts.length).toBeGreaterThan(0);
+    train(run, 0, opts[0]);
+    expect(run.builds[0].abilities.length + run.builds[0].traits.length).toBe(2);
+  });
+
+  it('recruits start at level 1 and earn double XP until they catch up', () => {
+    const run = newRun('warrior', undefined, 9);
+    while (run.pending?.kind !== 'recruit') advance(run);
+    recruit(run, 'mage');
+    while (run.status !== 'fight') advance(run);
+    const spoils = win(run);
+    const [veteran, rookie] = spoils.heroes;
+    expect(rookie.xp).toBe(veteran.xp * 2);
+  });
+
+  it('chests give gold and an upgrade; shops sell for gold', () => {
+    for (const seed of [10, 11, 12, 13]) {
+      const run = newRun('mage', undefined, seed);
+      let guard = 0;
+      while (!(run.pending?.kind === 'upgrade' && run.pending.source === 'chest') && guard++ < 300) {
+        if (availableNodes(run).some((n) => n.type === 'chest')) step(run, 'chest');
+        else advance(run);
+      }
+      if (run.pending?.kind !== 'upgrade') continue;
+      expect(run.pending.gold).toBeGreaterThan(0);
+      const pick = run.pending.options[0];
+      chooseUpgrade(run, pick);
+      expect(run.pending).toBeUndefined();
+      return;
+    }
+    throw new Error('no chest reached');
+  });
+
+  it('shop: buy what you can afford, reroll for gold', () => {
+    const run = newRun('rogue', undefined, 14);
+    let guard = 0;
+    while (run.pending?.kind !== 'shop' && guard++ < 400) {
+      if (availableNodes(run).some((n) => n.type === 'shop')) step(run, 'shop');
+      else advance(run);
+    }
+    expect(run.pending?.kind).toBe('shop');
+    if (run.pending?.kind !== 'shop') return;
+    run.gold = 1000;
+    const item = run.pending.stock[0];
+    expect(buy(run, 0)).toBe(true);
+    expect(run.gold).toBe(1000 - item.price);
+    expect(buy(run, 0)).toBe(false); // sold
+    const before = JSON.stringify(run.pending.stock);
+    expect(reroll(run)).toBe(true);
+    expect(JSON.stringify(run.pending.stock)).not.toEqual(before);
+    run.gold = 0;
+    expect(buy(run, 1)).toBe(false);
+  });
+
+  it('elites and bosses give an upgrade; the boss moves you to the next act; the last boss wins the run', () => {
+    const run = newRun('paladin', undefined, 15);
+    let guard = 0;
+    while (run.act === 1 && guard++ < 400) advance(run);
+    expect(run.act).toBe(2);
+    expect(run.at).toBeNull();
+    expect(run.visited).toEqual([]);
+    while (run.status !== 'won' && guard++ < 1200) advance(run);
+    expect(run.status).toBe('won');
+    expect(run.stats.bosses).toBe(3);
+  });
+
+  it('a party wipe ends the run', () => {
+    const run = newRun('priest', undefined, 16);
+    step(run);
+    finishFight(run, false, [0], []);
+    expect(run.status).toBe('lost');
+    expect(availableNodes(run)).toEqual([]);
+  });
+
+  it('Auto can play a whole run of choices on its own', () => {
+    const run = newRun('warlock', undefined, 17);
+    let guard = 0;
+    while (run.status !== 'won' && guard++ < 1500) {
+      if (run.pending) autoResolve(run);
+      else if (run.status === 'fight') win(run);
+      else enterNode(run, autoPath(run));
+    }
+    expect(run.status).toBe('won');
+    expect(run.team).toHaveLength(5);
+  });
+
+  it('saves and loads (and drops old round-based saves)', () => {
+    const store = new Map<string, string>();
+    (globalThis as unknown as { localStorage: Storage }).localStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    } as Storage;
+    store.set('fightwithfriends.run.v4', '{"version":4}');
+    expect(loadRun()).toBeNull();
+    expect(store.has('fightwithfriends.run.v4')).toBe(false);
+    const run = newRun('rogue', undefined, 18);
+    step(run);
+    saveRun(run);
+    expect(loadRun()).toEqual(run);
+  });
+});
+
+describe('Encounters', () => {
+  it('scale with the party: one enemy for a lone hero, up to five; weaker for small parties', () => {
+    expect(enemyCount(1, 0, 'fight')).toBe(1);
+    expect(enemyCount(1, 8, 'fight')).toBe(1);
+    expect(enemyCount(3, 2, 'fight')).toBe(3);
+    expect(enemyCount(3, 7, 'fight')).toBe(4);
+    expect(enemyCount(5, 10, 'boss')).toBe(5);
+    const solo = makeEncounter(1, 1, 0, 'fight', 1, 'a');
+    const full = makeEncounter(1, 1, 0, 'fight', 5, 'a');
+    expect(solo.strength! / full.strength!).toBeCloseTo(PARTY_SCALE[0]);
+    expect(strengthAt(2, 0)).toBeGreaterThan(strengthAt(1, 12));
+  });
+
+  it('elites and bosses lead their fights; the line-up is the same on a reload', () => {
+    const elite = makeEncounter(3, 2, 6, 'elite', 4, 'x');
+    expect(elite.spawns.map((s) => s.kind)).toContain('abomination');
+    const boss = makeEncounter(3, 3, 12, 'boss', 5, 'y');
+    expect(boss.spawns.map((s) => s.kind)).toContain('demonLord');
+    expect(boss.boss).toBe(true);
+    expect(makeEncounter(3, 2, 6, 'elite', 4, 'x')).toEqual(elite);
+  });
+
+  it('reward previews show the numbers before and after', () => {
+    const run = newRun('mage', 'fireball', 1);
+    const p = rewardPreview(run, 0, { kind: 'mastery', id: 'fireball' })!;
+    expect(p.now).toMatch(/Deals \d+ damage/);
+    expect(p.after).toMatch(/spreads/);
+  });
+});
+
+describe('General rules', () => {
   it('Vitality and Might raise health and damage in battle', () => {
-    const run = newRun(DEFAULT_TEAM, 1);
-    applyReward(run.builds[2], { kind: 'vitality' });
-    applyReward(run.builds[2], { kind: 'might' });
-    const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage', builds: run.builds });
-    const fresh = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage' });
+    const run = newRun('mage', undefined, 1);
+    applyReward(run.builds[0], { kind: 'vitality' });
+    applyReward(run.builds[0], { kind: 'might' });
+    const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage', heroes: ['mage'], builds: run.builds });
+    const fresh = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage', heroes: ['mage'] });
     expect(b.player!.maxHp).toBe(Math.round(fresh.player!.maxHp * 1.1));
     expect(b.player!.damage).toBeCloseTo(fresh.player!.damage * 1.1);
   });
 
-  it('options are the same for the same run and wave (no reroll by reloading)', () => {
-    const run = newRun(DEFAULT_TEAM, 42);
-    expect(rewardOptions(run, 2)).toEqual(rewardOptions(run, 2));
-  });
-
-  it('AI teammates pick for themselves and everyone levels up', () => {
-    const run = newRun(DEFAULT_TEAM, 3);
-    run.wave = 5; // a choice wave
-    const picks = completeWave(run, [undefined, rewardOptions(run, 1)[0]]);
-    expect(picks.filter(Boolean)).toHaveLength(3); // the rest were chosen automatically
-    for (const b of run.builds) expect(b.level).toBe(2);
-    expect(run.wave).toBe(6);
-  });
-
   it('upgrades raise power and shorten cooldowns', () => {
-    const run = newRun(DEFAULT_TEAM, 1);
-    applyReward(run.builds[2], { kind: 'power', id: 'fireball' });
-    applyReward(run.builds[2], { kind: 'haste', id: 'fireball' });
-    const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage', builds: run.builds });
+    const run = newRun('mage', undefined, 1);
+    applyReward(run.builds[0], { kind: 'power', id: 'fireball' });
+    applyReward(run.builds[0], { kind: 'haste', id: 'fireball' });
+    const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage', heroes: ['mage'], builds: run.builds });
     const slot = b.player!.abilities![0];
     expect(b.abilityScale(b.player!, slot)).toBeCloseTo(1.25);
     expect(b.abilityCooldown(slot)).toBeCloseTo(4 * 0.8);
   });
 
-  it('levels carry into battle as more health', () => {
-    const run = newRun(DEFAULT_TEAM, 1);
-    run.builds[0].level = 5;
-    const b = new Battle({ seed: 1, wave: makeRound(1), builds: run.builds });
-    const w = b.heroes.find((h) => h.kind === 'warrior')!;
-    const fresh = new Battle({ seed: 1, wave: makeRound(1) }).heroes.find((h) => h.kind === 'warrior')!;
-    expect(w.maxHp).toBeGreaterThan(fresh.maxHp);
-  });
-
-  it('the enemy side grows 3 -> 4 -> 5 with the party, with a boss every 10th round', () => {
-    expect(makeRound(1).spawns.map((s) => s.kind)).toEqual(['grunt', 'grunt', 'grunt']);
-    for (let n = 1; n <= 40; n++) {
-      const r = makeRound(n);
-      expect(r.spawns).toHaveLength(partySize(n));
-      expect(r.name).toBeTruthy();
-      expect(r.boss).toBe(n % 10 === 0);
-      expect(r.spawns.filter((s) => ['warchief', 'boneKing', 'demonLord'].includes(s.kind))).toHaveLength(n % 10 === 0 ? 1 : 0);
-    }
-    expect(makeRound(11).spawns.every((s) => ['skeleton', 'boneArcher', 'cultist', 'ghoul', 'abomination'].includes(s.kind))).toBe(true);
-    // Rounds after 20 change line-up every round and keep getting stronger.
-    for (let n = 21; n < 40; n++) {
-      expect(makeRound(n + 1).spawns).not.toEqual(makeRound(n).spawns);
-      expect(makeRound(n + 1).strength!).toBeGreaterThan(makeRound(n).strength!);
-    }
-  });
-
-  it('enemies start in their line-up positions, visible before the fight', () => {
+  it('enemies start in their line-up positions', () => {
     const r = makeRound(4);
-    const b = new Battle({ seed: 1, wave: r, team: DEFAULT_TEAM });
-    expect(b.time).toBe(0);
+    const b = new Battle({ seed: 1, wave: r, team: ['warrior', 'priest', 'mage'] });
     expect(b.enemies).toHaveLength(r.spawns.length);
     for (const e of b.enemies) expect(ENEMY_LAYOUT.rowY).toContain(e.y);
     expect(b.enemies[1]).toMatchObject(enemyPos(0, 2));
   });
 
-  it('heroes line up by role (no grid): tanks and melee in front, ranged behind, healers at the back', () => {
+  it('heroes line up by role: tanks and melee in front, ranged behind, healers at the back', () => {
     const b = new Battle({ seed: 1, wave: makeRound(1), team: ['priest', 'mage', 'warrior', 'rogue', 'warlock'] });
     const y = (cls: string) => b.heroes.find((h) => h.kind === cls)!.y;
     expect(y('warrior')).toBe(HERO_LINES.front);
     expect(y('rogue')).toBe(HERO_LINES.front);
     expect(y('mage')).toBe(HERO_LINES.ranged);
-    expect(y('warlock')).toBe(HERO_LINES.ranged);
     expect(y('priest')).toBe(HERO_LINES.healer);
-    // Each line is centred.
-    const front = b.heroes.filter((h) => h.y === HERO_LINES.front).map((h) => h.x);
-    expect((front[0] + front[1]) / 2).toBeCloseTo(270);
-  });
-
-  it('after the round 10 and 20 bosses a new hero joins, at the party level', () => {
-    const run = newRun(DEFAULT_TEAM, 5);
-    while (run.wave <= 10) {
-      expect(needsRecruit(run)).toBe(false);
-      completeWave(run);
-    }
-    expect(needsRecruit(run)).toBe(true);
-    recruit(run, 'rogue');
-    expect(run.team).toHaveLength(4);
-    expect(run.builds[3].level).toBe(run.builds[0].level);
-    const picks = (i: number) => run.builds[i].abilities.length + run.builds[i].traits.length;
-    expect(picks(3)).toBe(picks(0)); // caught up on rewards
-    while (run.wave <= 20) completeWave(run);
-    expect(needsRecruit(run)).toBe(true);
-    recruit(run, 'mage');
-    expect(run.team).toHaveLength(5);
-    expect(needsRecruit(run)).toBe(false);
-  });
-
-  it('losing a round costs a life; the run ends at zero', () => {
-    const run = newRun(DEFAULT_TEAM, 1);
-    expect(run.lives).toBe(START_LIVES);
-    expect(loseRound(run)).toBe(true);
-    expect(loseRound(run)).toBe(true);
-    expect(loseRound(run)).toBe(false);
-    expect(run.lives).toBe(0);
-  });
-
-  it('an AI-played run gets through the first 20 rounds (with lives to spare)', () => {
-    let made = 0;
-    for (const seed of [11, 12, 13, 14]) {
-      const run = newRun(DEFAULT_TEAM, seed);
-      while (run.wave <= 20 && run.lives > 0) {
-        if (needsRecruit(run)) recruit(run, 'rogue');
-        if (playWave(run).outcome === 'victory') completeWave(run);
-        else loseRound(run);
-      }
-      if (run.wave > 20) made++;
-    }
-    expect(made).toBeGreaterThanOrEqual(3);
   });
 
   it('teams can repeat classes', () => {
-    const run = newRun(['mage', 'mage', 'priest', 'warrior'], 1);
-    const b = new Battle({ seed: 1, wave: makeRound(1), team: run.team, builds: run.builds });
-    expect(b.heroes.map((h) => h.label).sort()).toEqual(['Mage', 'Mage 2', 'Priest', 'Warrior']);
-    run.wave = 5;
-    const picks = completeWave(run);
-    expect(picks).toHaveLength(4);
-    expect(run.builds[0].abilities.length).toBe(2);
-    expect(run.builds[1].abilities.length).toBe(2);
+    const b = new Battle({ seed: 1, wave: makeRound(1), team: ['mage', 'mage', 'priest'] });
+    expect(b.heroes.map((h) => h.label).sort()).toEqual(['Mage', 'Mage 2', 'Priest']);
+  });
+
+  it("the player's hero starts in the center (tests)", () => {
+    const b = new Battle({ seed: 1, wave: makeRound(1), playerClass: 'mage' });
+    expect([b.player!.x, b.player!.y]).toEqual([SPOTS.center.x, SPOTS.center.y]);
+    void STEP;
+    void nextNodes;
   });
 });
 
@@ -280,84 +428,6 @@ describe('Goblin Brute', () => {
     b.learnAbility(b.player!, 'kick');
     expect(b.useAbility(1)).toBe('ok');
     expect(brute.casting).toBeUndefined();
-  });
-});
-
-describe('Ability picks and upgrades', () => {
-  it('while slots are free: two new abilities or passives from the pool plus one upgrade', () => {
-    const run = newRun(DEFAULT_TEAM, 9);
-    run.wave = 5;
-    for (let slot = 0; slot < 3; slot++) {
-      const opts = rewardOptions(run, slot);
-      expect(opts).toHaveLength(3);
-      expect(opts.slice(0, 2).every((o) => o.kind === 'ability' || o.kind === 'trait')).toBe(true);
-      expect(['ability', 'trait']).not.toContain(opts[2].kind);
-    }
-  });
-
-  it('each class has more abilities than it can ever pick', () => {
-    for (const pool of Object.values(CLASS_POOL)) expect(pool.length).toBeGreaterThan(MAX_ABILITY_SLOTS - 1);
-  });
-
-  it('once every slot is full, only upgrades are offered; each named upgrade only once', () => {
-    const run = newRun(['mage'], 3);
-    const b = run.builds[0];
-    applyReward(b, { kind: 'ability', id: 'iceLance' });
-    applyReward(b, { kind: 'ability', id: 'blizzard' });
-    applyReward(b, { kind: 'ability', id: 'frostNova' });
-    applyReward(b, { kind: 'trait', id: 'arcaneSurge' });
-    applyReward(b, { kind: 'ability', id: 'counterspell' }); // no room left
-    expect(b.abilities).toHaveLength(4);
-    run.wave = 25;
-    const opts = rewardOptions(run, 0);
-    expect(opts.every((o) => o.kind !== 'ability' && o.kind !== 'trait')).toBe(true);
-    applyReward(b, { kind: 'mastery', id: 'fireball' });
-    for (let w = 30; w < 100; w += 5) {
-      run.wave = w;
-      expect(rewardOptions(run, 0)).not.toContainEqual({ kind: 'mastery', id: 'fireball' });
-    }
-  });
-
-  it('upgrades that would do nothing are never offered (no "Empowered" Frost Nova, no Focus for rage)', () => {
-    const run = newRun(['mage', 'warrior'], 4);
-    applyReward(run.builds[0], { kind: 'ability', id: 'frostNova' });
-    for (let w = 5; w < 200; w += 5) {
-      run.wave = w;
-      expect(rewardOptions(run, 0)).not.toContainEqual({ kind: 'power', id: 'frostNova' });
-      expect(rewardOptions(run, 1)).not.toContainEqual({ kind: 'focus' });
-    }
-  });
-
-  it('the AI takes new abilities in its class order, then named upgrades', () => {
-    expect(autoChoose('mage', [{ kind: 'ability', id: 'frostNova' }, { kind: 'ability', id: 'iceLance' }, { kind: 'might' }])).toEqual({ kind: 'ability', id: 'iceLance' });
-    expect(autoChoose('mage', [{ kind: 'might' }, { kind: 'mastery', id: 'iceLance' }, { kind: 'mastery', id: 'fireball' }])).toEqual({ kind: 'mastery', id: 'fireball' });
-  });
-
-  it('reward cards show the numbers before and after', () => {
-    const run = newRun(['mage'], 1);
-    const p = rewardPreview(run, 0, { kind: 'power', id: 'fireball' })!;
-    expect(p.now).toMatch(/Deals \d+ damage/);
-    expect(p.after).not.toEqual(p.now);
-    const m = rewardPreview(run, 0, { kind: 'mastery', id: 'fireball' })!;
-    expect(m.after).toMatch(/spreads/);
-    expect(rewardPreview(run, 0, { kind: 'ability', id: 'frostNova' })!.after).toMatch(/Freezes/);
-  });
-
-  it('an old saved run (with a board layout and a replaced ability) is brought up to date', () => {
-    const old = {
-      version: 3,
-      seed: 5,
-      team: ['priest'],
-      wave: 12,
-      lives: 2,
-      placement: [{ col: 1, row: 2 }],
-      builds: [{ level: 12, abilities: [{ id: 'heal', power: 1, haste: 0 }, { id: 'prayerOfHealing', power: 0, haste: 0 }], traits: ['innerFocus'], vitality: 0, might: 0 }],
-    };
-    const run = migrateRun(old)!;
-    expect(run.version).toBe(4);
-    expect(run.builds[0].abilities.map((a) => a.id)).toEqual(['heal', 'holyNova']);
-    expect(run.builds[0].traits).toEqual(['blessedHands']);
-    expect('placement' in run).toBe(false);
   });
 });
 

@@ -3,9 +3,8 @@ import warriorSprite from '../../art/heroes/hero_warrior.png';
 import priestSprite from '../../art/heroes/hero_priest.png';
 import mageSprite from '../../art/heroes/hero_mage.png';
 import rogueSprite from '../../art/heroes/hero_rogue.png';
-import { MAX_ABILITY_SLOTS, partySize, WORLD } from '../sim/content';
+import { MAX_ABILITY_SLOTS, WORLD } from '../sim/content';
 import { PIXEL_ICONS, PIXEL_PALETTE, PIXEL_SPRITES } from './pixelArt';
-import { recruit, type RunState } from '../sim/run';
 import { type AbilityId, type Effect, type PassiveId, type ResourceKind, type TraitId } from '../sim/types';
 
 /** 32x32 pixel-art hero sprites (source: art/heroes/make-sprites.ps1). */
@@ -255,10 +254,6 @@ export function initials(name: string): string {
   return words.length > 1 ? (words[0][0] + words[1][0]).toUpperCase() : name.slice(0, 2);
 }
 
-/** Will clearing the current round open a party slot (after the round 10 and 20 bosses)? */
-export function needsRecruitAfter(run: RunState): boolean {
-  return partySize(run.wave + 1) > run.team.length;
-}
 
 export interface UnitView {
   container: Phaser.GameObjects.Container;
@@ -283,7 +278,8 @@ export interface UnitView {
 }
 
 /** choosing: team builder. recruit: picking a new hero. placing: arranging heroes before the fight. */
-export type SceneState = 'choosing' | 'recruit' | 'ready' | 'playing' | 'paused' | 'reward' | 'over';
+/** title: choosing a hero. map: the act map. choice: a campsite, chest, shop or upgrade pick. spoils: the loot after a fight. */
+export type SceneState = 'title' | 'map' | 'choice' | 'playing' | 'paused' | 'spoils' | 'over';
 
 export const DPR = Math.min(window.devicePixelRatio || 1, 3);
 export const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';

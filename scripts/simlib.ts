@@ -1,13 +1,37 @@
 /**
- * Headless run simulator for balance work and bug sweeps. Plays whole runs
- * with the same rules as the game (AI-only choices, auto picks, 3 lives) and
+ * Headless run simulator for balance work and bug sweeps. Plays whole map
+ * runs with the same rules as the game (Auto's choices, or random ones) and
  * records what happened. Pure: no Phaser, no DOM.
  */
 import { Battle, STEP } from '../src/sim/battle';
-import { ARENA, HERO_KIT, makeRound, WORLD } from '../src/sim/content';
-import { completeWave, isChoiceWave, loseRound, needsRecruit, newRun, recruit, rewardOptions, type Reward, type RunState } from '../src/sim/run';
+import { ARENA, HERO_KIT, WORLD } from '../src/sim/content';
+import {
+  ALL_CLASSES,
+  autoPath,
+  autoRecruit,
+  autoShop,
+  autoTrain,
+  autoUpgrade,
+  availableNodes,
+  buy,
+  chooseUpgrade,
+  currentNode,
+  encounterFor,
+  enterNode,
+  fightSeed,
+  finishFight,
+  firstAbilityOptions,
+  leaveShop,
+  newRun,
+  recruit,
+  train,
+  trainableSlots,
+  trainOptions,
+  type Reward,
+  type RunState,
+} from '../src/sim/run';
 import { createRng } from '../src/sim/rng';
-import type { HeroClass, Unit } from '../src/sim/types';
+import type { EnemyKind, HeroClass, Unit } from '../src/sim/types';
 
 /** A fight that hasn't ended after this long is reported as a stall. */
 export const STALL_SECONDS = 240;
@@ -21,7 +45,11 @@ export interface HeroStats {
 }
 
 export interface RoundRecord {
+  /** Overall position: (act - 1) * 13 + floor + 1. */
   round: number;
+  act: number;
+  floor: number;
+  type: string;
   won: boolean;
   seconds: number;
   suddenDeath: boolean;
@@ -37,47 +65,49 @@ export interface RoundRecord {
   abilityDamage: Record<string, number>;
   /** Enemy kind -> how many were fielded this round. */
   enemyCount: Record<string, number>;
+  /** For the run: enemies killed and heroes (by slot) who fell. */
+  killed: EnemyKind[];
+  fallen: number[];
 }
 
 export interface RunRecord {
+  /** The starting class, then recruits in order. */
   team: HeroClass[];
   seed: number;
-  /** Highest round reached (the round that ended the run, or maxRound + 1). */
+  /** Overall position reached (see RoundRecord.round); 40 = won. */
   reached: number;
+  act: number;
+  won: boolean;
+  gold: number;
   losses: number[];
   rounds: RoundRecord[];
   violations: string[];
-  /** Every reward taken: class, round and what it was (e.g. "ability:frostNova", "mastery:fireball"). */
+  /** Every reward or purchase: class, overall position and what it was. */
   picks: { cls: HeroClass; round: number; pick: string }[];
+  /** Node types visited, in order. */
+  path: string[];
 }
 
-/** How rewards are chosen: the game's AI ("Choose for me"), or uniformly at random (to test every option). */
+/** How choices are made: the game's AI (Auto), or uniformly at random (to test every option). */
 export type PickPolicy = 'ai' | 'random';
 
 export function rewardKey(r: Reward): string {
   return 'id' in r ? `${r.kind}:${r.id}` : r.kind;
 }
 
-export type RecruitPolicy = (run: RunState) => HeroClass;
+export const WIN_POSITION = 40;
 
-const isTank = (c: HeroClass) => HERO_KIT[c].role.toLowerCase().startsWith('tank');
-const isHealer = (c: HeroClass) => HERO_KIT[c].role.toLowerCase().includes('heal');
-
-/** Default recruit choice: a missing tank, then a missing healer, then the least-picked damage class. */
-export function sensibleRecruit(tank: HeroClass, healer: HeroClass, dps: HeroClass[]): RecruitPolicy {
-  return (run) => {
-    if (!run.team.some(isTank)) return tank;
-    if (!run.team.some(isHealer)) return healer;
-    const counts = dps.map((c) => run.team.filter((t) => t === c).length);
-    return dps[counts.indexOf(Math.min(...counts))];
-  };
+function position(run: RunState): number {
+  const node = currentNode(run);
+  return (run.act - 1) * 13 + (node ? node.floor + 1 : 0);
 }
 
 /** Play one fight to the end, collecting stats and checking invariants every step. */
 export function playRound(run: RunState, violations: string[]): RoundRecord {
+  const node = currentNode(run)!;
   const battle = new Battle({
-    seed: run.seed * 100 + run.wave + run.lives * 7,
-    wave: makeRound(run.wave),
+    seed: fightSeed(run),
+    wave: encounterFor(run),
     carefulAI: process.env.CAREFUL !== '0',
     team: run.team,
     builds: run.builds,
@@ -100,7 +130,7 @@ export function playRound(run: RunState, violations: string[]): RoundRecord {
     const key = msg.replace(/[-\d.]+/g, '#');
     if (seen.has(key) || violations.length >= 200) return;
     seen.add(key);
-    violations.push(`round ${run.wave} t=${battle.time.toFixed(2)} [${run.team.join(',')}]: ${msg}`);
+    violations.push(`act ${run.act} floor ${node.floor + 1} (${node.type}) t=${battle.time.toFixed(2)} [${run.team.join(',')}]: ${msg}`);
   };
 
   let steps = 0;
@@ -162,8 +192,15 @@ export function playRound(run: RunState, violations: string[]): RoundRecord {
   }
   const stalled = battle.outcome === 'running';
   if (stalled) note(`fight did not end within ${STALL_SECONDS}s`);
+  const killed = [...battle.killed];
+  const fallen = heroes.filter((h) => !h.alive).map((h) => h.slot ?? 0);
   return {
-    round: run.wave,
+    round: position(run),
+    act: run.act,
+    floor: node.floor,
+    type: node.type,
+    killed,
+    fallen,
     won: battle.outcome === 'victory',
     seconds: battle.time,
     suddenDeath: battle.time > 60,
@@ -193,32 +230,76 @@ function checkInvariants(units: Unit[], note: (m: string) => void): void {
   }
 }
 
-/** Play a whole run: endless rounds until lives run out (or `maxRound` is cleared). */
-export function playRun(start: HeroClass[], seed: number, recruitPolicy: RecruitPolicy, maxRound = 60, policy: PickPolicy = 'ai'): RunRecord {
-  const run = newRun(start, seed);
-  const rec: RunRecord = { team: [...start], seed, reached: 0, losses: [], rounds: [], violations: [], picks: [] };
-  const pickRng = createRng(seed * 7 + 3);
-  while (run.lives > 0 && run.wave <= maxRound) {
-    while (needsRecruit(run)) {
-      const cls = recruitPolicy(run);
-      recruit(run, cls);
-      rec.team.push(cls);
+/** Play a whole run on the map: path, fights, campsites, chests and shops, until the party falls or the last boss does. */
+export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai'): RunRecord {
+  const rng = createRng(seed * 7 + 3);
+  const pick = <T>(list: T[]): T => list[Math.floor(rng() * list.length)];
+  const options = firstAbilityOptions(start);
+  const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed);
+  const rec: RunRecord = { team: [start], seed, reached: 0, act: 1, won: false, gold: 0, losses: [], rounds: [], violations: [], picks: [], path: [] };
+  const log = (slot: number, r: Reward | string) => rec.picks.push({ cls: run.team[slot], round: position(run), pick: typeof r === 'string' ? r : rewardKey(r) });
+  for (let guard = 0; guard < 200 && (run.status === 'map' || run.status === 'fight'); guard++) {
+    const p = run.pending;
+    if (p) {
+      if (policy === 'ai') {
+        // Log what the AI takes, then let it choose.
+        if (p.kind === 'recruit') {
+          const r = autoRecruit(run);
+          recruit(run, r.cls, r.first);
+          rec.team.push(r.cls);
+        } else if (p.kind === 'train') {
+          const t = autoTrain(run);
+          log(t.slot, t.reward);
+          train(run, t.slot, t.reward);
+        } else if (p.kind === 'upgrade') {
+          const u = autoUpgrade(run, p.options);
+          if (u) log(u.slot, u.reward);
+          chooseUpgrade(run, u);
+        } else {
+          const before = run.builds.map((b) => JSON.stringify(b));
+          autoShop(run);
+          run.builds.forEach((b, i) => JSON.stringify(b) !== before[i] && log(i, 'shop'));
+        }
+      } else if (p.kind === 'recruit') {
+        const cls = pick(ALL_CLASSES);
+        recruit(run, cls, pick(firstAbilityOptions(cls)));
+        rec.team.push(cls);
+      } else if (p.kind === 'train') {
+        const slot = pick(trainableSlots(run));
+        const r = pick(trainOptions(run, slot));
+        log(slot, r);
+        train(run, slot, r);
+      } else if (p.kind === 'upgrade') {
+        const u = p.options.length ? pick(p.options) : null;
+        if (u) log(u.slot, u.reward);
+        chooseUpgrade(run, u);
+      } else {
+        // Random shopper: buys one random affordable thing, then leaves.
+        const affordable = p.stock.map((item, i) => ({ item, i })).filter(({ item }) => !item.sold && item.price <= run.gold);
+        if (affordable.length) {
+          const { item, i } = pick(affordable);
+          log(item.slot, item.reward);
+          buy(run, i);
+        }
+        leaveShop(run);
+      }
+      continue;
     }
+    if (run.status === 'map') {
+      const id = policy === 'ai' ? autoPath(run) : pick(availableNodes(run)).id;
+      const node = enterNode(run, id);
+      rec.path.push(node.type);
+      continue;
+    }
+    // A fight.
     const r = playRound(run, rec.violations);
     rec.rounds.push(r);
-    if (r.won) {
-      const picks = isChoiceWave(run) && policy === 'random' ? run.team.map((_, slot) => {
-        const options = rewardOptions(run, slot);
-        return options[Math.floor(pickRng() * options.length)];
-      }) : [];
-      const round = run.wave;
-      const taken = completeWave(run, picks);
-      taken.forEach((t, slot) => t && rec.picks.push({ cls: run.team[slot], round, pick: rewardKey(t) }));
-    } else {
-      rec.losses.push(run.wave);
-      loseRound(run);
-    }
+    finishFight(run, r.won, r.fallen, r.killed);
+    if (!r.won) rec.losses.push(r.round);
   }
-  rec.reached = run.wave;
+  rec.won = run.status === 'won';
+  rec.reached = rec.won ? WIN_POSITION : position(run);
+  rec.act = run.act;
+  rec.gold = run.stats.gold;
   return rec;
 }

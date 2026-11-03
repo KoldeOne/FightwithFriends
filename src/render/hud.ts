@@ -2,7 +2,7 @@ import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
 import { ABILITIES, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, TRAITS, WORLD } from '../sim/content';
 import { sound } from './sound';
-import { recruit } from '../sim/run';
+import { actDef } from '../sim/acts';
 import { type Effect, type Unit } from '../sim/types';
 import { COLORS, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD, effectInfo, effectIcon, abilityIcon, traitIcon, ICON_PX } from './theme';
 
@@ -144,14 +144,18 @@ export class Hud {
     const t = Math.floor(this.s.battle.time);
     const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
     const w = this.s.battle.wave;
-    this.waveText.setText(`ROUND ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
-    const lives = this.s.run ? ` · ${'♥'.repeat(this.s.run.lives)}` : '';
-    if (this.s.state === 'ready' || this.s.state === 'recruit' || this.s.state === 'choosing') {
-      this.hudText.setText(`${w.name ?? ''}${lives}`);
+    const run = this.s.run;
+    if (!run) {
+      this.waveText.setText('');
+      this.hudText.setText('');
+    } else if (this.s.state === 'map' || this.s.state === 'choice') {
+      this.waveText.setText(`ACT ${run.act}`).setColor('#ffd166');
+      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold`);
     } else {
+      this.waveText.setText(`ACT ${run.act} · FLOOR ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
       const ramp = this.s.battle.damageRamp;
       const sudden = ramp > 1 ? ` · SUDDEN DEATH x${ramp.toFixed(1)}` : '';
-      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock}${lives}${sudden}`);
+      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${sudden}`);
     }
 
     this.speedButton.setText(`Speed ${this.s.speed}x`);
