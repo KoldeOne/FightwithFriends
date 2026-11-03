@@ -1,7 +1,7 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
 import { abilityText } from '../../sim/abilityText';
-import { ABILITIES, HERO_KIT, PASSIVES, WORLD } from '../../sim/content';
+import { ABILITIES, HERO_KIT, PASSIVES, TRAITS, UPGRADE, WORLD } from '../../sim/content';
 import { sound } from '../sound';
 import {
   ALL_CLASSES,
@@ -9,6 +9,7 @@ import {
   bestProgress,
   describeProgress,
   firstAbilityOptions,
+  heroLabel,
   loadRun,
   MAX_PARTY,
   newRun,
@@ -16,10 +17,11 @@ import {
   recruit,
   saveRun,
   winsSoFar,
+  type RunState,
 } from '../../sim/run';
 import type { AbilityId, HeroClass } from '../../sim/types';
 import { loadCamp, saveCamp, startLevel } from '../../sim/camp';
-import { abilityIcon, COLORS, DARK_LETTER, ICON_PX, LETTERS, spriteKey, spriteOriginY } from '../theme';
+import { abilityIcon, COLORS, cssColor, DARK_LETTER, ICON_PX, LETTERS, passiveIcon, spriteKey, spriteOriginY, traitIcon } from '../theme';
 
 /** Choosing a hero: the starting hero of a run, and recruits at the first campsites. Both pick a class, then its first ability. */
 export class HeroPicker {
@@ -75,6 +77,7 @@ export class HeroPicker {
   }
 
   private chooseClass(title: string, sub: string, onPick: (cls: HeroClass) => void): void {
+    this.hideHeroDetails();
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [
@@ -97,9 +100,6 @@ export class HeroPicker {
       );
       const wins = winsSoFar();
       items.push(this.s.text(cx, 206, `Best: ${describeProgress(bestProgress())}${wins ? ` · Wins: ${wins}` : ''}`, 12, '#ffd166').setOrigin(0.5));
-    } else {
-      const party = this.s.run!.team.map((c) => c[0].toUpperCase() + c.slice(1)).join(', ');
-      items.push(this.s.text(cx, 206, `Your party: ${party}`, 12, '#ffd166').setOrigin(0.5));
     }
     items.push(
       ...this.classCards(270, (cls) => {
@@ -107,11 +107,13 @@ export class HeroPicker {
         onPick(cls);
       }),
     );
+    items.push(...this.partyStrip(this.s.state === 'title' ? undefined : this.s.run!));
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }
 
   /** Step two: the hero's first ability (any active from its pool). */
   private chooseAbility(cls: HeroClass, mode: 'start' | 'recruit', onPick: (id: AbilityId) => void): void {
+    this.hideHeroDetails();
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
     const name = cls[0].toUpperCase() + cls.slice(1);
@@ -150,6 +152,100 @@ export class HeroPicker {
     });
     items.push(this.s.button(cx, 262 + options.length * (cardH + 6) + 14, '← Back', 15, '#2b3445', () => (mode === 'start' ? this.showStart() : this.showRecruit())));
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
+  }
+
+  /**
+   * The party at the bottom of the hero select: the heroes you have, then the
+   * empty slots up to the party size (the next one marked). Hover or tap a hero
+   * for their details and abilities.
+   */
+  private partyStrip(run?: RunState): Phaser.GameObjects.GameObject[] {
+    const team = run?.team ?? [];
+    const top = 700;
+    const w = 120;
+    const h = 74;
+    const gap = (WORLD.width - 24 - MAX_PARTY * w) / (MAX_PARTY - 1);
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.s.text(12, top - 24, `Your party (${team.length} of ${MAX_PARTY})`, 13, '#ffd166').setFontStyle('bold'),
+    ];
+    for (let slot = 0; slot < MAX_PARTY; slot++) {
+      const x = 12 + slot * (w + gap);
+      const cls = team[slot];
+      const next = slot === team.length;
+      const bg = this.s.add.rectangle(x, top, w, h, cls ? 0x1c2433 : 0x10141d).setOrigin(0, 0).setStrokeStyle(2, next ? 0xffd166 : cls ? 0x3a4660 : 0x232b3a);
+      items.push(bg);
+      if (!cls || !run) {
+        items.push(this.s.text(x + w / 2, top + h / 2, next ? (team.length ? 'Joins here' : 'Your hero') : 'Empty', 12, next ? '#ffd166' : '#4a5570').setOrigin(0.5));
+        continue;
+      }
+      const b = run.builds[slot];
+      items.push(...this.portrait(cls, x + 22, top + h - 8, 1.25));
+      items.push(this.s.text(x + 44, top + 6, heroLabel(run, slot), 12, cssColor(COLORS[cls])).setFontStyle('bold'));
+      items.push(this.s.text(x + 44, top + 22, `Lv ${b.level}`, 11, '#c9d1e0'));
+      [...b.abilities.map((a) => abilityIcon(a.id)), ...b.traits.map((t) => traitIcon(t))].forEach((key, j) =>
+        items.push(this.s.add.image(x + 44 + (j % 4) * 18, top + 40 + Math.floor(j / 4) * 18, key).setOrigin(0, 0).setScale(16 / ICON_PX)),
+      );
+      // Details on hover (mouse) or tap (touch: tap again to close).
+      bg.setInteractive({ useHandCursor: true });
+      bg.on('pointerover', (p: Phaser.Input.Pointer) => !p.wasTouch && this.showHeroDetails(run, slot));
+      bg.on('pointerout', (p: Phaser.Input.Pointer) => !p.wasTouch && this.hideHeroDetails());
+      bg.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        if (p.wasTouch && this.detailsFor === slot) this.hideHeroDetails();
+        else if (this.detailsFor !== slot) this.showHeroDetails(run, slot);
+      });
+    }
+    return items;
+  }
+
+  private details?: Phaser.GameObjects.Container;
+  private detailsFor?: number;
+
+  /** A party member's details: level, health, passive, abilities (with their numbers) and passive picks. */
+  private showHeroDetails(run: RunState, slot: number): void {
+    this.hideHeroDetails();
+    this.detailsFor = slot;
+    const cls = run.team[slot];
+    const b = run.builds[slot];
+    const kit = HERO_KIT[cls];
+    const stats = { level: b.level, might: 1 + UPGRADE.mightPerRank * (b.might ?? 0) };
+    const rows: { icon: string; title: string; text: string }[] = [
+      { icon: passiveIcon(kit.passive), title: `${PASSIVES[kit.passive].name} (always on)`, text: PASSIVES[kit.passive].description },
+      ...b.abilities.map((a) => {
+        const def = ABILITIES[a.id];
+        const ups = [a.mastery ? def.mastery.name : '', a.power ? `Empowered +${a.power}` : '', a.haste ? `Quick +${a.haste}` : ''].filter(Boolean).join(', ');
+        return {
+          icon: abilityIcon(a.id),
+          title: `${def.name}${ups ? ` (${ups})` : ''} · ${def.cost ? `${def.cost} ${kit.resource}` : 'free'} · ${def.cooldown}s`,
+          text: abilityText(stats, a),
+        };
+      }),
+      ...b.traits.map((t) => ({ icon: traitIcon(t), title: `${TRAITS[t].name} (passive)`, text: TRAITS[t].description })),
+    ];
+    const left = 22;
+    const width = WORLD.width - 44;
+    const items: Phaser.GameObjects.GameObject[] = [];
+    let y = 44;
+    const head = this.s.text(left + 12, 0, `${heroLabel(run, slot)} · level ${b.level} · ${kit.role}`, 15, cssColor(COLORS[cls])).setFontStyle('bold');
+    const texts: Phaser.GameObjects.GameObject[] = [head];
+    for (const r of rows) {
+      const t1 = this.s.text(left + 40, y, r.title, 12, '#ffffff').setFontStyle('bold').setWordWrapWidth(width - 52);
+      const t2 = this.s.text(left + 40, y + t1.height + 2, r.text, 11, '#c9d1e0').setWordWrapWidth(width - 52);
+      texts.push(this.s.add.image(left + 12, y, r.icon).setOrigin(0, 0).setScale(20 / ICON_PX), t1, t2);
+      y += t1.height + t2.height + 12;
+    }
+    // Sit just above the party strip.
+    const height = y + 4;
+    const top = 690 - height;
+    for (const o of texts) (o as Phaser.GameObjects.Image).y += top + 12;
+    head.y = top + 12;
+    items.push(this.s.add.rectangle(left, top, width, height, 0x0b0e14, 0.97).setOrigin(0, 0).setStrokeStyle(2, COLORS[cls]), ...texts);
+    this.details = this.s.add.container(0, 0, items).setDepth(110);
+  }
+
+  private hideHeroDetails(): void {
+    this.details?.destroy();
+    this.details = undefined;
+    this.detailsFor = undefined;
   }
 
   /** A class's sprite (or its coloured letter disc if there's no sprite), feet at y. */

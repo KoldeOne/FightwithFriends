@@ -543,6 +543,11 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   It stays up on the spoils and end-of-run screens; on the map and pick
   screens a **📊 Last fight** button (bottom-right) opens the last fight's
   numbers.
+- **Hero select** (start and recruits): under the class list, **Your party
+  (n of 4)**: the heroes you have (portrait, level, ability icons) and the
+  empty slots, the next one marked. Hover or tap a hero for their details:
+  passive, each ability with its cost, cooldown, upgrades and numbers, and
+  passive picks.
 - **Title screen:** continue a saved run, best and wins, **The Camp**, then
   choose a class and its first ability.
 - **Map** (§2): node icons, golden rings for golden nodes, pulsing reachable
