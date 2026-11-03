@@ -4,6 +4,7 @@ import { STEP } from '../sim/battle';
 import { ABILITIES, ABILITY_TUNING, BOSS_SPECIALS } from '../sim/content';
 import { sound } from './sound';
 import { type AbilityId, type BattleEvent, type Unit } from '../sim/types';
+import { SCHOOL_COLORS, MAX_PARTICLES, schoolOf, type School } from './fx';
 import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectIcon, ICON_PX } from './theme';
 
 /** Unit sprites and combat effects: views, projectiles, hits, numbers, deaths. */
@@ -16,8 +17,18 @@ export class UnitLayer {
   prevPos = new Map<number, { x: number; y: number }>();
   /** Brief freeze on heavy hits (seconds of real time). */
   hitStop = 0;
-  /** Merged floating damage numbers, per target. */
-  numbers = new Map<number, { text: Phaser.GameObjects.Text; total: number; at: number }>();
+  /** Merged floating numbers, per target and kind (damage / heal). */
+  numbers = new Map<string, { text: Phaser.GameObjects.Text; total: number; at: number }>();
+  /** Live floating numbers per target, oldest first: new ones fan out beside and above them. */
+  numberStacks = new Map<number, Phaser.GameObjects.Text[]>();
+  /** Which side the next number on a target goes (alternates). */
+  numberSide = new Map<number, number>();
+  /** The one ability-name callout shown over each unit. */
+  callouts = new Map<number, Phaser.GameObjects.Text>();
+  /** Sheep icons shown on polymorphed enemies. */
+  sheepIcons = new Map<number, Phaser.GameObjects.Image>();
+  /** Short-lived particles alive now (capped at MAX_PARTICLES). */
+  particles = 0;
   lastReinforcementCall = -99;
   focusMarker!: Phaser.GameObjects.Graphics;
 
@@ -49,7 +60,8 @@ export class UnitLayer {
     container.setDepth(u.side === 'hero' ? 10 : 20);
     let name: Phaser.GameObjects.Text | undefined;
     if (u.side === 'hero') {
-      name = this.s.text(0, u.radius + 4, u.label, 12, '#c9d1e0').setOrigin(0.5, 0);
+      name = this.s.text(0, u.radius + 4, u.label, 11, '#ffffff').setOrigin(0.5, 0).setFontStyle('bold');
+      name.setStroke('#0b1020', 3);
       container.add(name);
     }
     if (u.side === 'enemy') {
@@ -121,12 +133,14 @@ export class UnitLayer {
       if (u.side === 'hero') v.container.setAlpha(this.s.battle.hasEffect(u, 'stealth') ? 0.45 : 1);
       if (u.side === 'enemy') {
         const sheep = this.s.battle.isSheep(u);
-        // With a sprite, the disc is just a faint base; a sheep hides the sprite and shows "baa".
+        // With a sprite, the disc is just a faint base; a sheep hides the sprite and shows a sheep icon.
+        const sheepIcon = sheep ? this.sheepIcon(u.id, u.radius) : this.sheepIcons.get(u.id);
+        sheepIcon?.setVisible(sheep);
         v.sprite?.setVisible(!sheep);
-        v.letter.setVisible(sheep || !v.sprite);
+        v.letter.setVisible(sheep ? !sheepIcon : !v.sprite);
         v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind], v.sprite && !sheep ? 0.35 : 1);
-        v.body.setStrokeStyle(3, sheep ? 0xbdb7a6 : this.s.battle.hasEffect(u, 'slow') ? SLOW_STROKE : ENEMY_STROKE);
-        v.letter.setText(sheep ? 'baa' : LETTERS[u.kind]).setFontSize(sheep ? 11 : u.radius);
+        v.body.setStrokeStyle(3, sheep ? SCHOOL_COLORS.arcane.main : this.s.battle.hasEffect(u, 'slow') ? SLOW_STROKE : ENEMY_STROKE);
+        v.letter.setText(sheep ? '~' : LETTERS[u.kind]).setFontSize(u.radius);
         if (sheep) v.letter.setColor('#555');
         else v.letter.setColor(DARK_LETTER.includes(u.kind) ? '#222' : '#fff');
       }
@@ -154,11 +168,21 @@ export class UnitLayer {
   drawZones(time: number): void {
     this.zoneLayer.clear();
     for (const z of this.s.battle.zones) {
-      const pulse = 0.18 + Math.sin(time / 200) * 0.04;
-      // Blizzard: icy blue. Hallowed Ground: gold.
-      const holy = z.ability === 'hallowedGround';
-      this.zoneLayer.fillStyle(holy ? 0xffe28a : 0x9ad1ff, pulse).fillCircle(z.x, z.y, z.radius);
-      this.zoneLayer.lineStyle(2, holy ? 0xfff3c4 : 0xd6ecff, 0.7).strokeCircle(z.x, z.y, z.radius);
+      // Tinted by school (Blizzard: frost blue, Hallowed Ground: holy gold), with a pulsing edge.
+      const c = SCHOOL_COLORS[schoolOf(z.ability)];
+      const wave = Math.sin(time / 180);
+      this.zoneLayer.fillStyle(c.main, 0.2 + wave * 0.04).fillCircle(z.x, z.y, z.radius);
+      this.zoneLayer.fillStyle(c.light, 0.1).fillCircle(z.x, z.y, z.radius * (0.55 + wave * 0.08));
+      this.zoneLayer.lineStyle(3, c.main, 0.65 + wave * 0.25).strokeCircle(z.x, z.y, z.radius);
+      this.zoneLayer.lineStyle(1.5, c.light, 0.5).strokeCircle(z.x, z.y, z.radius * (0.82 + wave * 0.06));
+      // A few drifting motes (snow, sparkles) so it reads as a spell, not a decal.
+      const spin = time / 900;
+      this.zoneLayer.fillStyle(c.light, 0.85);
+      for (let i = 0; i < 6; i++) {
+        const a = spin + (i * Math.PI * 2) / 6;
+        const d = z.radius * (0.35 + 0.45 * (((time / 1400 + i * 0.37) % 1)));
+        this.zoneLayer.fillCircle(z.x + Math.cos(a) * d, z.y + Math.sin(a) * d, 2);
+      }
     }
     // A boss's Rain of Fire: mark where it will land while it's being cast.
     for (const e of this.s.battle.enemies) {
@@ -234,10 +258,12 @@ export class UnitLayer {
           break;
         case 'tick': {
           if (e.kind === 'hot') {
-            const u = this.s.battle.unit(e.to);
-            if (u) this.floatText(u.x, u.y - 14, `+${e.amount}`, '#7dff9b', 11, 0.75);
+            this.addNumber(e.to, e.amount, '#7dff9b', 11, 0.75, '+');
           } else {
-            this.addNumber(e.to, e.amount, '#ff9f1a', 11, 0.8);
+            // Unnamed damage over time from a rogue is its poison.
+            const src = e.from !== undefined ? this.s.battle.unit(e.from) : undefined;
+            const school: School = !e.ability && src?.kind === 'rogue' ? 'nature' : schoolOf(e.ability, src?.kind);
+            this.addNumber(e.to, e.amount, school === 'physical' ? '#ff9f1a' : SCHOOL_COLORS[school].css, 11, 0.8);
           }
           break;
         }
@@ -256,7 +282,8 @@ export class UnitLayer {
           const color = e.tone === 'good' ? '#7dff9b' : e.tone === 'bad' ? '#ff6b6b' : '#9ad1ff';
           // A smasher's heavy hit landing (its spell name, shouted).
           const smash = u?.ai === 'smasher' && e.tone === 'bad';
-          if (u) this.floatText(u.x, u.y - u.radius - 30, e.text, color, smash ? 22 : 16);
+          if (u && smash) this.floatText(u.x, u.y - u.radius - 30, e.text, color, 22);
+          else if (u) this.callout(u, e.text, color);
           if (smash) {
             sound.play('smash');
             this.s.cameras.main.shake(220, 0.01);
@@ -277,9 +304,13 @@ export class UnitLayer {
     const shooter = this.s.battle.unit(fromId);
     if (!from || !to || !shooter) return;
     const big = ability === 'fireball';
-    const color = big ? 0xff5a1f : (ability && PROJECTILE_COLORS[ability]) || (PROJECTILE_COLORS[shooter.kind] ?? 0xffffff);
-    const bolt = this.s.add.circle(from.x, from.y, big ? 11 : shooter.kind === 'mage' ? 6 : 4, color).setDepth(30);
-    if (big) bolt.setStrokeStyle(3, 0xffd166);
+    const school = schoolOf(ability, shooter.kind);
+    const sc = SCHOOL_COLORS[school];
+    const color = big ? 0xff5a1f : (ability && PROJECTILE_COLORS[ability]) || (PROJECTILE_COLORS[shooter.kind] ?? sc.main);
+    // 10-12px bolts (fireball bigger), with a light rim and a short fading trail.
+    const bolt = this.s.add.circle(from.x, from.y, big ? 11 : ability ? 6 : 5, color).setDepth(30);
+    bolt.setStrokeStyle(big ? 3 : 2, big ? 0xffd166 : school === 'physical' ? 0x222222 : sc.light, big ? 1 : 0.9);
+    let lastTrail = 0;
     sound.play(big ? 'fire' : ability === 'iceLance' ? 'frost' : 'shoot');
     const sx = from.x;
     const sy = from.y;
@@ -293,6 +324,11 @@ export class UnitLayer {
         const tx = to.active ? to.x : bolt.x;
         const ty = to.active ? to.y : bolt.y;
         bolt.setPosition(sx + (tx - sx) * t, sy + (ty - sy) * t);
+        const now = this.s.time.now;
+        if (now - lastTrail > 28) {
+          lastTrail = now;
+          this.trail(bolt.x, bolt.y, bolt.radius * 0.8, color);
+        }
         if (big && Math.random() < 0.5) this.spark(bolt.x, bolt.y, 0xffb347, 1, 10);
       },
       onComplete: () => bolt.destroy(),
@@ -339,7 +375,8 @@ export class UnitLayer {
       this.s.tweens.add({ targets: toView.flash, alpha: 0, duration: 130 });
       const hitSprite = toView.sprite;
       if (hitSprite) {
-        hitSprite.setTintFill(0xffffff);
+        // Spells flash the target in their school's light colour.
+        hitSprite.setTintFill(ability ? SCHOOL_COLORS[schoolOf(ability, from?.kind)].light : 0xffffff);
         this.s.time.delayedCall(80, () => {
           if (!toView.dead) hitSprite.clearTint();
         });
@@ -349,7 +386,9 @@ export class UnitLayer {
       const len = Math.hypot(dx, dy) || 1;
       const kb = heavy ? 7 : 3;
       this.nudge(toView, (dx / len) * kb, (dy / len) * kb, 60);
-      this.spark(tx, ty, hitHero ? 0xff6b6b : 0xfff2c4, heavy ? 8 : 3, heavy ? 26 : 16);
+      const school = schoolOf(ability, from?.kind);
+      if (ability || heavy) this.impact(tx, ty, school, heavy, to?.radius ?? 14);
+      else this.spark(tx, ty, hitHero && school === 'physical' ? 0xff6b6b : SCHOOL_COLORS[school].light, 3, 16);
     }
     if (heavy) {
       this.s.cameras.main.shake(90, 0.004);
@@ -360,35 +399,141 @@ export class UnitLayer {
     }
   }
 
-  /** Merge rapid hits on the same target into one growing number. */
-  addNumber(targetId: number, amount: number, color: string, size: number, alpha = 1): void {
+  /**
+   * Merge rapid hits on the same target into one growing number. Separate numbers fan out
+   * to alternating sides and start higher while older ones are still up, so they don't overlap.
+   */
+  addNumber(targetId: number, amount: number, color: string, size: number, alpha = 1, prefix = ''): void {
     const view = this.views.get(targetId);
     if (!view) return;
     const now = this.s.time.now;
-    const existing = this.numbers.get(targetId);
+    const key = `${targetId}${prefix}`;
+    const existing = this.numbers.get(key);
     if (existing && existing.text.active && now - existing.at < 300) {
       existing.total += amount;
       existing.at = now;
-      existing.text.setText(`${existing.total}`).setFontSize(Math.min(size + 6, Math.max(parseInt(`${existing.text.style.fontSize}`, 10), size)));
+      existing.text.setText(`${prefix}${existing.total}`).setFontSize(Math.min(size + 6, Math.max(parseInt(`${existing.text.style.fontSize}`, 10), size)));
       return;
     }
-    const x = view.container.x + Phaser.Math.Between(-6, 6);
-    const y = view.container.y - 22;
-    const t = this.s.text(x, y, `${amount}`, size, color).setOrigin(0.5).setDepth(40).setFontStyle('bold').setAlpha(alpha);
+    const stack = (this.numberStacks.get(targetId) ?? []).filter((t) => t.active);
+    if (stack.length >= 6) stack.shift()?.destroy();
+    const side = this.numberSide.get(targetId) ?? 1;
+    this.numberSide.set(targetId, -side);
+    const x = view.container.x + side * (10 + Math.random() * 6);
+    const y = view.container.y - 22 - Math.min(stack.length, 3) * 9;
+    const t = this.s.text(x, y, `${prefix}${amount}`, size, color).setOrigin(0.5).setDepth(40).setFontStyle('bold').setAlpha(alpha);
     t.setStroke('#000000', 3);
-    this.s.tweens.add({ targets: t, y: y - 30, duration: 750, ease: 'Cubic.easeOut' });
+    this.s.tweens.add({ targets: t, x: x + side * 6, y: y - 30, duration: 750, ease: 'Cubic.easeOut' });
     this.s.tweens.add({ targets: t, alpha: 0, delay: 450, duration: 300, onComplete: () => t.destroy() });
-    this.numbers.set(targetId, { text: t, total: amount, at: now });
+    stack.push(t);
+    this.numberStacks.set(targetId, stack);
+    this.numbers.set(key, { text: t, total: amount, at: now });
+  }
+
+  /** Reserve a particle slot; false when the budget is spent. */
+  private takeParticle(): boolean {
+    if (this.particles >= MAX_PARTICLES) return false;
+    this.particles++;
+    return true;
+  }
+
+  private freeParticle(o: Phaser.GameObjects.GameObject): void {
+    this.particles--;
+    o.destroy();
   }
 
   /** A few small particles flying out from a point. */
   spark(x: number, y: number, color: number, count: number, distance: number): void {
     for (let i = 0; i < count; i++) {
+      if (!this.takeParticle()) return;
       const a = Math.random() * Math.PI * 2;
       const d = distance * (0.5 + Math.random() * 0.7);
       const p = this.s.add.circle(x, y, 2 + Math.random() * 2, color).setDepth(35);
-      this.s.tweens.add({ targets: p, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, alpha: 0, duration: 260 + Math.random() * 160, onComplete: () => p.destroy() });
+      this.s.tweens.add({ targets: p, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, alpha: 0, duration: 260 + Math.random() * 160, onComplete: () => this.freeParticle(p) });
     }
+  }
+
+  /** One fading dot behind a projectile. */
+  trail(x: number, y: number, r: number, color: number): void {
+    if (!this.takeParticle()) return;
+    const p = this.s.add.circle(x, y, r, color, 0.6).setDepth(29);
+    this.s.tweens.add({ targets: p, scale: 0.3, alpha: 0, duration: 160, onComplete: () => this.freeParticle(p) });
+  }
+
+  /** A spell landing: a quick expanding ring in the school's colour and a burst of its sparks. */
+  impact(x: number, y: number, school: School, heavy = false, radius = 14): void {
+    const c = SCHOOL_COLORS[school];
+    const ring = this.s.add.circle(x, y, radius * 0.6).setStrokeStyle(heavy ? 5 : 4, c.main, 0.95).setDepth(34);
+    this.s.tweens.add({ targets: ring, scale: heavy ? 2.6 : 2, alpha: 0, duration: heavy ? 220 : 170, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
+    const n = heavy ? 10 : 6;
+    this.spark(x, y, c.main, Math.ceil(n / 2), heavy ? 28 : 20);
+    this.spark(x, y, c.light, Math.floor(n / 2), heavy ? 22 : 16);
+  }
+
+  /** A soft coloured puff (Polymorph's poof). */
+  puff(x: number, y: number, color: number, light: number): void {
+    for (let i = 0; i < 8; i++) {
+      if (!this.takeParticle()) return;
+      const a = (i / 8) * Math.PI * 2 + Math.random() * 0.4;
+      const p = this.s.add.circle(x, y, 6 + Math.random() * 4, i % 2 ? color : light, 0.8).setDepth(35);
+      this.s.tweens.add({ targets: p, x: x + Math.cos(a) * 18, y: y + Math.sin(a) * 18 - 6, scale: 1.6, alpha: 0, duration: 380, ease: 'Quad.easeOut', onComplete: () => this.freeParticle(p) });
+    }
+  }
+
+  /** The polymorphed enemy's sheep icon (made on first use). */
+  sheepIcon(id: number, radius: number): Phaser.GameObjects.Image | undefined {
+    const have = this.sheepIcons.get(id);
+    if (have?.active) return have;
+    const view = this.views.get(id);
+    if (!view || !this.s.textures.exists('icon-ef-sheep')) return undefined;
+    this.s.textures.get('icon-ef-sheep').setFilter(Phaser.Textures.FilterMode.NEAREST);
+    const img = this.s.add.image(0, 0, 'icon-ef-sheep').setScale((radius * 1.6) / ICON_PX);
+    view.container.addAt(img, 3);
+    this.sheepIcons.set(id, img);
+    return img;
+  }
+
+  /** A unit's ability name, above its health bar; a new one replaces the last. */
+  callout(unit: { id: number; x: number; y: number; radius: number }, str: string, color: string): void {
+    this.callouts.get(unit.id)?.destroy();
+    const view = this.views.get(unit.id);
+    const top = view ? Math.min(-unit.radius - 40, view.top - 22) : -unit.radius - 40;
+    const x0 = view?.container.x ?? unit.x;
+    const y0 = view?.container.y ?? unit.y;
+    const t = this.s.text(x0, y0 + top, str.replace(/!+$/, ''), 12, color).setOrigin(0.5).setDepth(41).setFontStyle('bold');
+    t.setStroke('#000000', 3);
+    this.callouts.set(unit.id, t);
+    // Follows its unit while it drifts up and fades.
+    this.s.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 950,
+      onUpdate: (tw) => {
+        if (!t.active) return;
+        const k = tw.getValue() ?? 0;
+        const live = view && !view.dead && view.container.active;
+        if (live) t.setPosition(view.container.x, view.container.y + top - 12 * k);
+        t.setAlpha(1 - k * k);
+      },
+      onComplete: () => {
+        if (this.callouts.get(unit.id) === t) this.callouts.delete(unit.id);
+        t.destroy();
+      },
+    });
+  }
+
+  /** An expanding ring (novas, shields, buffs). */
+  ring(x: number, y: number, radius: number, width: number, color: number, scale: number, duration: number): void {
+    const ring = this.s.add.circle(x, y, radius).setStrokeStyle(width, color).setDepth(30);
+    this.s.tweens.add({ targets: ring, scale, alpha: 0, duration, onComplete: () => ring.destroy() });
+  }
+
+  /** A quick fading line from caster to target. */
+  beam(from: { x: number; y: number }, to: { x: number; y: number }, width: number, color: number, duration = 350): void {
+    const line = this.s.add.graphics().setDepth(30);
+    line.lineStyle(width + 4, color, 0.25).lineBetween(from.x, from.y, to.x, to.y);
+    line.lineStyle(width, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
+    this.s.tweens.add({ targets: line, alpha: 0, duration, onComplete: () => line.destroy() });
   }
 
   showAbility(fromId: number, ability: AbilityId, toId?: number): void {
@@ -396,53 +541,54 @@ export class UnitLayer {
     if (!from) return;
     const to = toId !== undefined ? this.s.battle.unit(toId) : undefined;
     const name = ABILITIES[ability].name;
+    const c = SCHOOL_COLORS[schoolOf(ability)];
     switch (ability) {
       case 'taunt':
         return; // the taunt event draws it
       case 'thunderclap': {
-        const ring = this.s.add.circle(from.x, from.y, from.radius).setStrokeStyle(6, 0xd4a24c).setDepth(30);
-        const scale = ABILITY_TUNING.thunderclap.radius / from.radius;
-        this.s.tweens.add({ targets: ring, scale, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#f5c26b', 15);
+        this.ring(from.x, from.y, from.radius, 6, 0xd4a24c, ABILITY_TUNING.thunderclap.radius / from.radius, 380);
+        this.callout(from, name, '#f5c26b');
         return;
       }
       case 'whirlwind': {
-        const ring = this.s.add.circle(from.x, from.y, from.radius).setStrokeStyle(6, 0xffffff).setDepth(30);
-        this.s.tweens.add({ targets: ring, scale: ABILITY_TUNING.whirlwind.radius / from.radius, alpha: 0, duration: 300, onComplete: () => ring.destroy() });
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffffff', 15);
+        this.ring(from.x, from.y, from.radius, 6, 0xffffff, ABILITY_TUNING.whirlwind.radius / from.radius, 300);
+        this.callout(from, name, '#ffffff');
         return;
       }
       case 'shieldBlock':
       case 'evasion':
       case 'powerShield': {
         const target = to ?? from;
-        const color = ability === 'evasion' ? 0xf1c40f : ability === 'powerShield' ? 0xfff7d6 : 0xd4a24c;
-        const ring = this.s.add.circle(target.x, target.y, target.radius + 6).setStrokeStyle(4, color).setDepth(30);
-        this.s.tweens.add({ targets: ring, scale: 1.4, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
-        this.floatText(target.x, target.y - target.radius - 22, name, '#ffffff', 14);
+        const color = ability === 'evasion' ? 0xf1c40f : ability === 'powerShield' ? c.light : 0xd4a24c;
+        this.ring(target.x, target.y, target.radius + 6, 4, color, 1.4, 500);
+        this.callout(target, name, '#ffffff');
         return;
       }
       case 'holyNova':
       case 'frostNova':
       case 'fanOfKnives':
       case 'rallyingShout': {
-        const color = ability === 'holyNova' ? 0xfff3b0 : ability === 'frostNova' ? 0x9ad1ff : ability === 'rallyingShout' ? 0xff9f43 : 0xc8d6e5;
+        const color = ability === 'rallyingShout' ? 0xff9f43 : ability === 'fanOfKnives' ? 0xc8d6e5 : c.main;
         const radius = ability === 'holyNova' ? 140 : ability === 'frostNova' ? 110 : ability === 'rallyingShout' ? 60 : 100;
-        const ring = this.s.add.circle(from.x, from.y, from.radius).setStrokeStyle(6, color).setDepth(30);
-        this.s.tweens.add({ targets: ring, scale: radius / from.radius, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+        this.ring(from.x, from.y, from.radius, 6, color, radius / from.radius, 380);
+        if (ability === 'holyNova' || ability === 'frostNova') {
+          // A soft inner wash behind the ring.
+          const wash = this.s.add.circle(from.x, from.y, from.radius, c.light, 0.35).setDepth(29);
+          this.s.tweens.add({ targets: wash, scale: (radius * 0.8) / from.radius, alpha: 0, duration: 420, onComplete: () => wash.destroy() });
+        }
         if (ability === 'rallyingShout') {
           for (const ally of this.s.battle.heroes) {
-            if (!ally.alive) continue;
-            const r2 = this.s.add.circle(ally.x, ally.y, ally.radius + 4).setStrokeStyle(4, color).setDepth(30);
-            this.s.tweens.add({ targets: r2, scale: 1.6, alpha: 0, duration: 600, onComplete: () => r2.destroy() });
+            if (ally.alive) this.ring(ally.x, ally.y, ally.radius + 4, 4, color, 1.6, 600);
           }
         }
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffffff', 14);
+        this.callout(from, name, ability === 'frostNova' ? c.css : ability === 'holyNova' ? c.css : '#ffffff');
         return;
       }
       case 'chainOfLight':
+        this.callout(from, name, c.css);
+        return;
       case 'lastStand':
-        this.floatText(from.x, from.y - from.radius - 22, name, '#7dff9b', 14);
+        this.callout(from, name, '#7dff9b');
         return;
       case 'guardianSpirit':
       case 'shieldBash':
@@ -452,78 +598,68 @@ export class UnitLayer {
       case 'curseOfRuin':
       case 'exorcism':
         if (to) {
-          const color =
-            ability === 'guardianSpirit' ? 0xfffbe0 : ability === 'doom' || ability === 'curseOfRuin' ? 0x9b59ff : ability === 'exorcism' ? 0xffe28a : 0xfff27a;
-          const line = this.s.add.graphics().setDepth(30);
-          line.lineStyle(3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
-          this.s.tweens.add({ targets: line, alpha: 0, duration: 350, onComplete: () => line.destroy() });
-          const ring = this.s.add.circle(to.x, to.y, to.radius + 5).setStrokeStyle(4, color).setDepth(30);
-          this.s.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 450, onComplete: () => ring.destroy() });
+          const color = ability === 'shieldBash' || ability === 'gouge' ? 0xfff27a : c.main;
+          this.beam(from, to, 3, color);
+          this.ring(to.x, to.y, to.radius + 5, 4, color, 1.5, 450);
+          if (ability !== 'guardianSpirit') this.impact(to.x, to.y, schoolOf(ability), false, to.radius);
         }
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffd166', 14);
+        this.callout(from, name, ability === 'shieldBash' || ability === 'gouge' ? '#ffd166' : c.css);
         return;
       case 'arcaneBarrage':
         return; // the missiles say it
       case 'blizzard':
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#9ad1ff', 14);
+        this.callout(from, name, c.css);
         return;
       case 'fortitude':
         for (const ally of this.s.battle.heroes) {
-          if (!ally.alive) continue;
-          const ring = this.s.add.circle(ally.x, ally.y, ally.radius + 4).setStrokeStyle(4, 0xfff3b0).setDepth(30);
-          this.s.tweens.add({ targets: ring, scale: 1.7, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
+          if (ally.alive) this.ring(ally.x, ally.y, ally.radius + 4, 4, c.light, 1.7, 700);
         }
-        this.floatText(from.x, from.y - from.radius - 22, name, '#fff3b0', 14);
+        this.callout(from, name, c.css);
         return;
       case 'renew':
       case 'heal':
         if (to) {
-          const ring = this.s.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, 0x7dff9b).setDepth(30);
-          this.s.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
-          this.floatText(to.x, to.y - to.radius - 22, name, '#7dff9b', 15);
+          this.ring(to.x, to.y, to.radius + 6, 4, c.main, 1.5, 600);
+          this.spark(to.x, to.y, c.light, 6, 20);
+          this.callout(from, name, c.css);
         }
         return;
       case 'judgement':
       case 'soulDrain':
       case 'enfeeble':
         if (to) {
-          const color = ability === 'judgement' ? 0xffe28a : 0x9b59ff;
-          const line = this.s.add.graphics().setDepth(30);
-          line.lineStyle(ability === 'judgement' ? 5 : 3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
-          this.s.tweens.add({ targets: line, alpha: 0, duration: 350, onComplete: () => line.destroy() });
-          const ring = this.s.add.circle(to.x, to.y, to.radius + 4).setStrokeStyle(4, color).setDepth(30);
-          this.s.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 450, onComplete: () => ring.destroy() });
+          this.beam(from, to, ability === 'judgement' ? 5 : 3, c.main);
+          this.ring(to.x, to.y, to.radius + 4, 4, c.main, 1.5, 450);
+          if (ability === 'soulDrain') this.spark(from.x, from.y, c.light, 4, 14);
         }
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, ability === 'judgement' ? '#ffe28a' : '#c39bff', 14);
+        this.callout(from, name, c.css);
         return;
       case 'wither':
         return; // cast every few seconds: the purple debuff icon is enough
       case 'hallowedGround':
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffe28a', 14);
+        this.callout(from, name, c.css);
         return;
       case 'radiantLight':
       case 'mercy':
         if (to) {
-          const ring = this.s.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(ability === 'mercy' ? 6 : 4, 0xffe28a).setDepth(30);
-          this.s.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 650, onComplete: () => ring.destroy() });
-          this.floatText(to.x, to.y - to.radius - 22, name, '#ffe28a', 15);
+          this.ring(to.x, to.y, to.radius + 6, ability === 'mercy' ? 6 : 4, c.main, 1.6, 650);
+          this.spark(to.x, to.y, c.light, 6, 20);
         }
+        this.callout(from, name, c.css);
         return;
       case 'polymorph':
       case 'kick':
       case 'counterspell':
         if (to) {
-          const color = ability === 'polymorph' ? 0xf4f1e8 : ability === 'counterspell' ? 0x9ad1ff : 0xffe066;
-          const line = this.s.add.graphics().setDepth(30);
-          line.lineStyle(3, color, 0.9).lineBetween(from.x, from.y, to.x, to.y);
-          this.s.tweens.add({ targets: line, alpha: 0, duration: 400, onComplete: () => line.destroy() });
-          const ring = this.s.add.circle(to.x, to.y, to.radius + 6).setStrokeStyle(4, color).setDepth(30);
-          this.s.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
+          const color = ability === 'kick' ? 0xffe066 : c.main;
+          this.beam(from, to, 3, color, 400);
+          if (ability === 'polymorph') this.puff(to.x, to.y, c.main, c.light);
+          else this.ring(to.x, to.y, to.radius + 6, 4, color, 1.6, 500);
         }
-        this.floatText(from.x, from.y - from.radius - 22, `${name}!`, '#ffd166', 14);
+        this.callout(from, name, ability === 'kick' ? '#ffd166' : c.css);
         return;
       default:
-        this.floatText(from.x, from.y - from.radius - 22, name, '#ffd166', 14);
+        this.callout(from, name, ability === 'fireball' || ability === 'iceLance' || ability === 'hexBolt' ? c.css : '#ffd166');
     }
   }
 
@@ -531,24 +667,21 @@ export class UnitLayer {
     const from = this.s.battle.unit(fromId);
     const to = this.s.battle.unit(toId);
     if (!from || !to) return;
-    const beam = this.s.add.graphics().setDepth(30);
-    beam.lineStyle(3, 0x7dff9b, 0.8).lineBetween(from.x, from.y, to.x, to.y);
-    this.s.tweens.add({ targets: beam, alpha: 0, duration: 300, onComplete: () => beam.destroy() });
-    const ring = this.s.add.circle(to.x, to.y, to.radius + 4).setStrokeStyle(3, 0x7dff9b).setDepth(30);
-    this.s.tweens.add({ targets: ring, scale: 1.4, alpha: 0, duration: 400, onComplete: () => ring.destroy() });
-    this.floatText(to.x, to.y - 18, `+${amount}`, '#7dff9b');
+    // Holy gold from priests and paladins; a warlock's drain stays shadow.
+    const school = from.kind === 'warlock' ? 'shadow' : 'holy';
+    const c = SCHOOL_COLORS[school];
+    if (from !== to) this.beam(from, to, 3, c.main, 300);
+    this.ring(to.x, to.y, to.radius + 4, 3, c.main, 1.4, 400);
+    this.addNumber(to.id, amount, '#7dff9b', 15, 1, '+');
   }
 
   showTaunt(fromId: number, toId: number): void {
     const from = this.s.battle.unit(fromId);
     const to = this.s.battle.unit(toId);
     if (!from || !to) return;
-    const line = this.s.add.graphics().setDepth(30);
-    line.lineStyle(4, 0xff9f1a, 0.9).lineBetween(from.x, from.y, to.x, to.y);
-    this.s.tweens.add({ targets: line, alpha: 0, duration: 450, onComplete: () => line.destroy() });
-    const ring = this.s.add.circle(to.x, to.y, to.radius + 5).setStrokeStyle(3, 0xff9f1a).setDepth(30);
-    this.s.tweens.add({ targets: ring, scale: 1.6, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
-    this.floatText(from.x, from.y - from.radius - 22, 'Taunt!', '#ff9f1a');
+    this.beam(from, to, 4, 0xff9f1a, 450);
+    this.ring(to.x, to.y, to.radius + 5, 3, 0xff9f1a, 1.6, 500);
+    this.callout(from, 'Taunt', '#ff9f1a');
   }
 
   showDeath(id: number): void {
@@ -557,6 +690,7 @@ export class UnitLayer {
     if (!v) return;
     v.dead = true;
     v.hpBar.clear();
+    this.sheepIcons.delete(id);
     v.aggroIcon?.container.setVisible(false);
     this.spark(v.container.x, v.container.y, u?.side === 'hero' ? 0xff6b6b : 0x9fdc5a, 12, 34);
     if (u?.side === 'hero') {
