@@ -8,6 +8,7 @@ import {
   ONE_OF_EACH,
   formationFor,
   FACTION,
+  GEAR_BONUS,
   BOSS_INFO,
   BOSS_SPECIALS,
   HERO_KIT,
@@ -96,8 +97,8 @@ export class Battle {
   zones: Zone[] = [];
   /** Shots in flight. */
   private projectiles: Projectile[] = [];
-  /** Enemies killed this fight, in order (for gold). */
-  killed: EnemyKind[] = [];
+  /** Every enemy killed this fight (gold and camp loot). */
+  readonly kills: { kind: EnemyKind; summoned: boolean }[] = [];
 
   private nextId = 1;
   private pending: SpawnDef[];
@@ -279,7 +280,7 @@ export class Battle {
       if (!u.alive) continue;
       u.cooldown = Math.max(0, u.cooldown - dt);
       if (u.tauntTime) u.tauntTime = Math.max(0, u.tauntTime - dt);
-      for (const a of u.abilities ?? []) if (a.cooldown) a.cooldown = Math.max(0, a.cooldown - dt);
+      for (const a of u.abilities ?? []) if (a.cooldown) a.cooldown = Math.max(0, a.cooldown - dt * (u.cooldownRate ?? 1));
       if (u.castCooldown) u.castCooldown = Math.max(0, u.castCooldown - dt);
       if (u.specialCooldown) u.specialCooldown = Math.max(0, u.specialCooldown - dt);
       if (u.resourceKind) u.resource = Math.min(u.maxResource!, u.resource! + RESOURCES[u.resourceKind].regen * (u.focus ?? 1) * dt);
@@ -327,9 +328,11 @@ export class Battle {
     const kit = HERO_KIT[cls];
     const res = RESOURCES[kit.resource];
     const level = build?.level ?? 1;
-    const might = 1 + UPGRADE.mightPerRank * (build?.might ?? 0);
-    const vitality = 1 + UPGRADE.vitalityPerRank * (build?.vitality ?? 0);
-    const focus = 1 + UPGRADE.focusPerRank * (build?.focus ?? 0);
+    // Camp Mode gear: weapon -> damage and healing, armor -> health, trinket -> regen and cooldowns.
+    const gear = build?.gear;
+    const might = (1 + UPGRADE.mightPerRank * (build?.might ?? 0)) * (1 + GEAR_BONUS.weapon * (gear?.weapon ?? 0));
+    const vitality = (1 + UPGRADE.vitalityPerRank * (build?.vitality ?? 0)) * (1 + GEAR_BONUS.armor * (gear?.armor ?? 0));
+    const focus = (1 + UPGRADE.focusPerRank * (build?.focus ?? 0)) * (1 + GEAR_BONUS.trinketRegen * (gear?.trinket ?? 0));
     const scale = 1 + LEVEL_SCALING * (level - 1);
     const abilities: AbilitySlot[] = build
       ? build.abilities.map((a) => ({ id: a.id, cooldown: 0, power: a.power, haste: a.haste, mastery: !!a.mastery }))
@@ -345,6 +348,7 @@ export class Battle {
       level,
       might,
       focus,
+      cooldownRate: 1 + GEAR_BONUS.trinketCooldown * (gear?.trinket ?? 0),
       id: 0,
       side: 'hero',
       kind: cls,
@@ -1904,7 +1908,7 @@ export class Battle {
       if (this.focusId === to.id) this.focusId = null;
       this.events.push({ type: 'death', id: to.id });
       if (to.side === 'enemy') {
-        this.killed.push(to.kind as EnemyKind);
+        this.kills.push({ kind: to.kind as EnemyKind, summoned: !!to.summoned });
         this.soulHarvest();
         const caster = contagion ? this.unit(contagion.sourceId) : undefined;
         const next = contagion ? this.nextEnemy(to, 400) : undefined;

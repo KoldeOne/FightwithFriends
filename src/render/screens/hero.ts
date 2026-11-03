@@ -18,6 +18,7 @@ import {
   winsSoFar,
 } from '../../sim/run';
 import type { AbilityId, HeroClass } from '../../sim/types';
+import { loadCamp, saveCamp, startLevel } from '../../sim/camp';
 import { abilityIcon, COLORS, DARK_LETTER, ICON_PX, LETTERS, spriteKey, spriteOriginY } from '../theme';
 
 /** Choosing a hero: the starting hero of a run, and recruits at the first campsites. Both pick a class, then its first ability. */
@@ -30,7 +31,10 @@ export class HeroPicker {
     this.chooseClass('Choose your hero', 'You start alone. The first four campsites you reach each bring a new hero to your party.', (cls) =>
       this.chooseAbility(cls, 'start', (first) => {
         sound.unlock();
-        const run = newRun(cls, first);
+        const camp = loadCamp();
+        const run = newRun(cls, first, undefined, startLevel(camp));
+        camp.runs += 1;
+        saveCamp(camp);
         saveRun(run);
         this.s.scene.restart({ run });
       }),
@@ -44,7 +48,7 @@ export class HeroPicker {
     const n = run.team.length;
     this.chooseClass(
       'Campsite: a new hero joins',
-      `Recruit ${n} of ${RECRUIT_CAMPSITES} (party ${n} → ${n + 1} of ${MAX_PARTY}). They start at level 1 and earn double XP until they catch up.`,
+      `Recruit ${n} of ${RECRUIT_CAMPSITES} (party ${n} → ${n + 1} of ${MAX_PARTY}). They start at level ${run.baseLevel} and earn double XP until they catch up.`,
       (cls) =>
         this.chooseAbility(cls, 'recruit', (first) => {
           recruit(run, cls, first);
@@ -76,8 +80,15 @@ export class HeroPicker {
       const saved = loadRun();
       if (saved) {
         const names = saved.team.map((c) => LETTERS[c]).join(' ');
-        items.push(this.s.button(cx, 68, `▶ Continue: ${names} — Act ${saved.act}`, 16, '#1e6f50', () => this.s.scene.restart({ run: saved })));
+        items.push(this.s.button(cx + 50, 68, `▶ Continue: ${names} — Act ${saved.act}`, 16, '#1e6f50', () => this.s.scene.restart({ run: saved })));
       }
+      items.push(
+        this.s.button(saved ? 62 : cx, saved ? 68 : 70, '⛺ The Camp', 15, '#6b4f2a', () => {
+          sound.unlock();
+          sound.play('click');
+          this.s.campScreen.show();
+        }),
+      );
       const wins = winsSoFar();
       items.push(this.s.text(cx, 206, `Best: ${describeProgress(bestProgress())}${wins ? ` · Wins: ${wins}` : ''}`, 12, '#ffd166').setOrigin(0.5));
     } else {

@@ -661,3 +661,25 @@ export function makeRound(n: number): WaveDef {
 }
 
 export const ROUND_1: WaveDef = makeRound(1);
+
+// --- The camp ---------------------------------------------------------------
+
+/** The camp (meta-progression between map runs): station caps. Placeholders to tune. */
+export const CAMP = {
+  maxGearLevel: 10,
+  maxDrills: 5,
+};
+
+/**
+ * Camp loot per kill (Spoils are × the act: Act 2 pays double, Act 3 triple).
+ * A map run has many fights, so these are lower than the first round-based
+ * Camp Mode numbers (2 / 6 / 25 Spoils, 12% material chance).
+ */
+export const LOOT = {
+  basic: { spoils: 1, materialChance: 0.05 },
+  elite: { spoils: 4, materials: 1 },
+  boss: { spoils: 15, materials: 1, trophies: 1 },
+};
+
+/** Per gear level: Blacksmith (weapon), Armorer (armor), Jeweler (trinket). */
+export const GEAR_BONUS = { weapon: 0.04, armor: 0.04, trinketRegen: 0.04, trinketCooldown: 0.02 };

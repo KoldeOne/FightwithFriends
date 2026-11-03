@@ -3,6 +3,7 @@
  * runs with the same rules as the game (Auto's choices, or random ones) and
  * records what happened. Pure: no Phaser, no DOM.
  */
+import { addLoot, bankLoot, lootFor, startLevel, withGear, type CampState } from '../src/sim/camp';
 import { Battle, STEP } from '../src/sim/battle';
 import { ARENA, HERO_KIT, WORLD } from '../src/sim/content';
 import {
@@ -66,7 +67,7 @@ export interface RoundRecord {
   /** Enemy kind -> how many were fielded this round. */
   enemyCount: Record<string, number>;
   /** For the run: enemies killed and heroes (by slot) who fell. */
-  killed: EnemyKind[];
+  kills: { kind: EnemyKind; summoned: boolean }[];
   fallen: number[];
 }
 
@@ -103,14 +104,14 @@ function position(run: RunState): number {
 }
 
 /** Play one fight to the end, collecting stats and checking invariants every step. */
-export function playRound(run: RunState, violations: string[]): RoundRecord {
+export function playRound(run: RunState, violations: string[], camp?: CampState): RoundRecord {
   const node = currentNode(run)!;
   const battle = new Battle({
     seed: fightSeed(run),
     wave: encounterFor(run),
     carefulAI: process.env.CAREFUL !== '0',
     team: run.team,
-    builds: run.builds,
+    builds: camp ? withGear(run.team, run.builds, camp) : run.builds,
   });
   const heroes = battle.heroes;
   const bySlot = new Map<number, HeroStats>();
@@ -192,14 +193,14 @@ export function playRound(run: RunState, violations: string[]): RoundRecord {
   }
   const stalled = battle.outcome === 'running';
   if (stalled) note(`fight did not end within ${STALL_SECONDS}s`);
-  const killed = [...battle.killed];
+  const kills = [...battle.kills];
   const fallen = heroes.filter((h) => !h.alive).map((h) => h.slot ?? 0);
   return {
     round: position(run),
     act: run.act,
     floor: node.floor,
     type: node.type,
-    killed,
+    kills,
     fallen,
     won: battle.outcome === 'victory',
     seconds: battle.time,
@@ -231,11 +232,12 @@ function checkInvariants(units: Unit[], note: (m: string) => void): void {
 }
 
 /** Play a whole run on the map: path, fights, campsites, chests and shops, until the party falls or the last boss does. */
-export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai'): RunRecord {
+/** Play a run; with a camp, its gear and Drills apply and every fight's loot is banked there. */
+export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai', camp?: CampState): RunRecord {
   const rng = createRng(seed * 7 + 3);
   const pick = <T>(list: T[]): T => list[Math.floor(rng() * list.length)];
   const options = firstAbilityOptions(start);
-  const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed);
+  const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed, camp ? startLevel(camp) : 1);
   const rec: RunRecord = { team: [start], seed, reached: 0, act: 1, won: false, gold: 0, losses: [], rounds: [], violations: [], picks: [], path: [] };
   const log = (slot: number, r: Reward | string) => rec.picks.push({ cls: run.team[slot], round: position(run), pick: typeof r === 'string' ? r : rewardKey(r) });
   for (let guard = 0; guard < 200 && (run.status === 'map' || run.status === 'fight'); guard++) {
@@ -292,9 +294,14 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
       continue;
     }
     // A fight.
-    const r = playRound(run, rec.violations);
+    const r = playRound(run, rec.violations, camp);
     rec.rounds.push(r);
-    finishFight(run, r.won, r.fallen, r.killed);
+    finishFight(run, r.won, r.fallen, r.kills);
+    if (camp) {
+      const loot = lootFor(r.kills, run.act, fightSeed(run));
+      bankLoot(camp, loot);
+      addLoot(run.loot, loot);
+    }
     if (!r.won) rec.losses.push(r.round);
   }
   rec.won = run.status === 'won';

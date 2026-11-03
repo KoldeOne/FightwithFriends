@@ -279,7 +279,7 @@ export interface UnitView {
 
 /** choosing: team builder. recruit: picking a new hero. placing: arranging heroes before the fight. */
 /** title: choosing a hero. map: the act map. choice: a campsite, chest, shop or upgrade pick. spoils: the loot after a fight. */
-export type SceneState = 'title' | 'map' | 'choice' | 'playing' | 'paused' | 'spoils' | 'over';
+export type SceneState = 'title' | 'camp' | 'map' | 'choice' | 'playing' | 'paused' | 'spoils' | 'over';
 
 export const DPR = Math.min(window.devicePixelRatio || 1, 3);
 export const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';

@@ -2,7 +2,9 @@
 
 > **Status:** Playable prototype, drafted from the code on 2026-11-02 (updated
 > the same day for the Paladin, Warlock, sprites, balance pass, the ability and
-> upgrade overhaul, boss moves and removing the grid).
+> upgrade overhaul, boss moves and removing the grid; then Camp Mode, §2b).
+> **2026-11-03:** rounds were replaced by a Slay the Spire-style **map run**
+> (§2), and Camp Mode became the camp between runs (§2b).
 > **Platform:** Mobile browser (tested on Android), portrait, 540x960 canvas.
 > **Play it:** https://koldeone.github.io/FightwithFriends/
 
@@ -19,11 +21,12 @@ the code wins; please update the doc.
 
 ## 1. Concept
 
-**FightwithFriends** is an **arena auto-battler** for phones. You pick a party
-of fantasy heroes, place them on a small board and watch them fight a matching
-enemy team. Between rounds the heroes level up, and every 5 rounds you choose
-one new ability or upgrade for each hero. The run is endless, and you have 3
-lives.
+**FightwithFriends** is an **arena auto-battler** for phones. You start a run
+with one hero and climb a branching map through three acts: fights, elites,
+chests, shops and campsites, where new heroes join until the party is five.
+Heroes fight on their own; your decisions are the route, the party, and the
+abilities and upgrades each hero takes. A party wipe ends the run, but every
+fight's loot goes home to **the camp**, whose gear makes later runs stronger.
 
 It takes inspiration from guild-management arena games, but the names, art
 and systems are our own.
@@ -52,49 +55,125 @@ and systems are our own.
 
 ---
 
-## 2. Run structure
+## 2. Run structure (the map run)
+
+Code: `src/sim/map.ts` (map generation), `src/sim/acts.ts` (acts, encounters,
+economy), `src/sim/run.ts` (run state, rewards, Auto).
 
 | Rule | Value |
 |---|---|
-| Lives | **3** per run. Losing a round costs one, and you **retry the same round**. At 0 lives the run ends. |
-| Length | **Endless.** Your best round is saved and shown on the title screen. |
-| Party size | **3** heroes for rounds 1–10, **4** for rounds 11–20, **5** from round 21. |
-| Enemy count | Matches the party size (3, then 4, then 5). |
-| Between rounds | All heroes return to full health and **level up** (+6% stats per level). |
-| Rewards | Each hero gets one reward choice **every 5 rounds** (see §5). |
-| Saving | The run autosaves to localStorage (`RunState` v4) after every round. Older v3 saves are migrated. |
+| Start | **One hero.** Pick any class and its **first ability** (any active from its pool; its usual opener is highlighted). |
+| Acts | **3, always in this order:** The Goblin Woods (goblins), The Sunken Crypt (undead), The Burning Rift (demons). Each act has its own look, enemies, elite and boss. |
+| Map | Each act is a new random map: **12 floors** of nodes on branching, non-crossing paths, then the act's **boss**. You pick one node per floor. |
+| Losing | **A party wipe ends the run.** No lives, no retries. |
+| Health | Everyone is back to full health after every fight. |
+| Winning | Beat the Act 3 boss. Wins are counted on the title screen; a win will unlock something new later (not designed yet). |
+| Best | Your furthest point (act and floor) is saved and shown on the title screen. |
+| Saving | Autosaves to localStorage after every step (`RunState` v5, key `fightwithfriends.run.v5`). Pre-map saves are dropped. |
 
-### Flow of one round
+### Node types
 
-1. **Ready screen.** The enemy line-up stands on the field (tap any unit to
-   inspect it), with a short summary ("Facing: 2 Goblin Brutes, Goblin
-   Shaman"). On a boss round it lists the boss's moves; **the round before a
-   boss it warns you** and lists them too. Press **Fight!**.
-2. **Intro banner** with the round name (for example "Round 5 — Elite: Goblin
-   Brute").
-3. **Combat.** Everyone acts on their own. You can pause, inspect units and
-   read tooltips (§9).
-4. **Result.**
-   - **Win:** a short slow-motion beat on the last kill, then level-ups. On
-     every 5th round you also pick a reward.
-   - **Loss:** you lose a life and can retry the round. A retry uses a
-     different seed, so it isn't an exact replay.
-   - **Out of lives:** the run ends and your best round is recorded.
+| Node | What happens |
+|---|---|
+| **Fight** | The act's regulars. Gold and XP. |
+| **Elite** | A tougher fight around the act's elite (×1.15 strength). More gold and XP, then an **upgrade pick**. |
+| **Chest** | Gold (20, or 34 if golden) and an **upgrade pick**. |
+| **Shop** | 3 abilities and 2 upgrades for specific heroes, bought with gold; reroll for 10 (rising). Prices rise each act. |
+| **Campsite** | The **first 4 campsites you reach** are **recruits**: pick any class (repeats allowed) and its first ability, until the party is 5. Later campsites are **training**: one hero learns 1 of 3 new abilities or passives from their pool. |
+| **Boss** | The act's boss; then an upgrade pick and the next act. |
 
-### Recruits
+Some fights, elites and chests are **golden**: their gold is ×1.6.
 
-After you beat the bosses on rounds **10** and **20**, a party slot opens. You
-can pick **any class** for it, including one you already have.
+**Map rules** (so every route has a good mix): floors 1–2 are fights; no elite
+or shop before floor 4; no two of the same special node in a row on a path;
+every map has at least one shop and two chests. Act 1's campsite floors are
+3, 6, 9 and 12 (all four recruits before the first boss); Acts 2 and 3 have
+training campsites on floors 6 and 12. Each map also has a **flavor** that
+tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
+(more elites) or merchant (more shops).
 
-- The recruit joins at the party's level.
-- It also gets the rewards it would have auto-picked so far, so it isn't behind
-  the rest of the party.
+### Flow
 
-### Team builder
+1. **Map.** Nodes you can reach pulse; tap one to go there (tap others to see
+   what they are). The way you came is a **dotted line**. The act's boss and
+   its signature move are shown at the top.
+2. **Fight nodes** start straight away with an intro banner ("Act 1, floor 4 —
+   The Goblin Woods"). No ready or "round cleared" screens.
+3. **Spoils.** After a win, a short flashy panel: gold counting up, XP and
+   level-ups per hero, and the camp loot sent home. It closes on its own (or
+   tap), then the map or the next choice.
+4. **Choices** (recruit, training, upgrade, shop) open as overlays on the map.
+5. **Auto** (top bar) also picks the route (balanced, not elite-chasing),
+   recruits, training, upgrades and shopping.
 
-At the start of a run you fill **3 slots** from the 6 classes. Classes can
-repeat, and duplicates are labeled "Mage", "Mage 2" and so on. The default
-team is Warrior, Priest and Mage.
+### Encounters and leveling
+
+- **Enemy count:** one per hero, plus one from floor 7 on (a lone hero always
+  meets one enemy at a time), up to 5.
+- **Strength** (enemy HP and damage): Act 1 1.25 + 0.09 a floor; Act 2 2.9 +
+  0.14; Act 3 4.9 + 0.2. Smaller parties meet weaker enemies (×0.6 for 1 hero,
+  then 0.75, 0.88, 0.95, and 1 for 5). Bosses ×1.2 / 1 / 0.95 by act.
+- **Gold:** 3 per regular enemy, 14 per elite, 40 per boss, × 1 / 1.4 / 1.8 by
+  act (raised minions pay nothing).
+- **XP, per hero:** a fight gives 10, an elite 15, a boss 22; **10 XP = 1
+  level** (+6% stats a level). Heroes who fell in that fight get none.
+  **Recruits** join at the run's starting level and earn **double XP** while
+  more than half a level below the party average, so they catch up without
+  starting at the party's level.
+
+---
+
+## 2b. The camp (between runs)
+
+Bailey's Camp Mode (2026-11-02), folded into the map run on 2026-11-03: there
+is one game loop, and the camp is its meta-progression. Code:
+`src/sim/camp.ts` and `src/render/screens/camp.ts`; open it from the title
+screen or the end-of-run screen. Every number is a placeholder to tune.
+
+| Rule | Value |
+|---|---|
+| Loot | Every fight's loot (**win or lose**) goes straight to the camp. Dying costs nothing you've banked. |
+| What resets | Everything in the run (levels, abilities, upgrades, gold). Gear, Drills and loot are kept. |
+| Gear | Per **class**: every hero of that class, in every later run, recruits too. |
+| Saves | `fightwithfriends.camp.v1` (the camp; the round-based version's loot, gear and Drills carry over). |
+
+Gold (spent in the run's shops) and camp loot are separate.
+
+**Loot** (`lootFor`; numbers in `LOOT` in `content.ts`): Spoils (currency),
+three placeholder materials (Ore, Hide, Gems) and boss Trophies. Spoils are
+× the act (Act 2 pays double, Act 3 triple).
+
+| Enemy | Drop |
+|---|---|
+| Basic | 1 Spoils × act; 5% × act chance of a random material |
+| Elite | 4 Spoils × act, 1 random material |
+| Boss | 15 Spoils × act, 1 of each material, 1 Trophy |
+| Raised minion | Nothing |
+
+**Stations** (gear per class, levels 0–10; next level costs 10n + 3n² Spoils
+and n of the station's material, and every 5th level also a Trophy):
+
+| Station | Gear | Per level |
+|---|---|---|
+| Blacksmith | Weapon (Ore) | +4% damage and healing |
+| Armorer | Armor (Hide) | +4% maximum health |
+| Jeweler | Trinket (Gems) | +4% mana/energy regen, 2% faster cooldowns |
+| Training station (whole guild, placeholder) | Drills, 0–5 | Heroes start each run (and recruits join) +1 level; 60(n+1) Spoils and a Trophy |
+
+**Changed from the round-based Camp Mode:** the 1.6× enemy toughness, start
+rounds (1/11/21), the round-30 cap, party picking at camp and the separate
+mode are gone; the map run's own difficulty and win apply. Gear gives half
+its old bonus per level and drops are lower, because a map run has more
+fights and is already tuned for an ungeared party (with the old numbers,
+guilds won almost every run from their third on).
+
+**Balance check** (`npm run camp-sim -- [guilds] [runs]`: the AI plays a
+guild's map runs back to back, rotating the starting class, and spends all loot
+on the cheapest upgrade). Win rate by run number, 12 guilds × 15 runs
+(2026-11-03): run 1 42%, runs 2–3 58%, runs 4–6 78%, runs 7–10 94%, runs
+11–15 97%. So the camp makes the game reliably winnable after about 7 runs;
+something harder for geared guilds (a difficulty ladder unlocked by wins) is
+an open question (§13).
 
 ---
 
@@ -243,14 +322,12 @@ Polymorph exist as ability definitions but are only used by the passives.
 
 ## 5. Hero progression (within a run)
 
-- **Level-ups.** Every hero gains a level after each round won (+6% health,
-  damage and healing).
-- **A reward choice every 5 rounds.** Each hero picks **1 of 3**:
-  - **While a slot is free:** two new abilities or passives from the class
-    pool, plus one upgrade. Taking the upgrade leaves the slot open for later,
-    so it's a real trade-off.
-  - **Once all 5 slots are full:** three upgrades.
-  - Picked abilities stay for the run (no swapping).
+- **Levels** come from XP (§2): +6% health, damage and healing per level.
+- **New abilities and passives** come from **training campsites** (1 of 3 from
+  the hero's class pool) and **shops**. A hero has up to 5 slots (abilities +
+  passives); picked abilities stay for the run (no swapping).
+- **Upgrade picks** (chests, elites, bosses): **1 of 3** upgrades, each for a
+  named hero in the party. You can skip.
 - **Upgrades:**
   - **Named upgrade** (one per ability, e.g. Fireball: *Searing Fire*). Offered
     first.
@@ -259,13 +336,14 @@ Polymorph exist as ability definitions but are only used by the passives.
   - **Quick X:** 20% shorter cooldown per rank (up to 2), for cooldowns of 4s+.
   - **Vitality:** +10% max health. **Might:** +10% damage and healing.
     **Focus:** +40% mana or energy regeneration (not offered for rage).
-- **Reward cards show the numbers:** a new ability shows its real numbers; an
-  upgrade shows "After: ..." (or "now → after" for stat upgrades).
-- **Choose for me / Auto picks:** the AI takes a new ability or passive in the
-  class's preference order; once full, the starting ability's named upgrade,
-  then any named upgrade, then Empowered on the starting ability, then Might.
-- The offers are seeded by the run's seed, round and slot, so they are the same
-  if you reload.
+- **Cards show the numbers:** a new ability shows its real numbers; an upgrade
+  shows **Now:** and **After:** lines.
+- **Auto:** recruits fill a missing tank, then a healer, then damage; training
+  takes abilities in the class's preference order; upgrades take named
+  upgrades first, then Empowered, then Might.
+- Offers are seeded by the run's seed and the node, so they're the same if you
+  reload.
+- **Camp gear and Drills** (§2b) apply on top, and carry between runs.
 
 ---
 
@@ -274,7 +352,7 @@ Polymorph exist as ability definitions but are only used by the passives.
 ### Basics
 
 - The simulation runs at a fixed step of 0.05s, and the renderer interpolates
-  between steps. A round is **won** when every enemy is down and **lost** when
+  between steps. A fight is **won** when every enemy is down and **lost** when
   every hero is down.
 - **Effects:** slow, stun (can't act; breaks a cast), silence (can't cast),
   weaken (deals less), vulnerable (takes more), empower (deals more),
@@ -338,9 +416,9 @@ Polymorph exist as ability definitions but are only used by the passives.
 
 | Boss | Move | What it does |
 |---|---|---|
-| Goblin Warchief (round 10) | **War Cry** | 1.5s cast every 14s (first at 6s): every goblin attacks 40% faster for 6s. |
-| The Bone King (round 20) | **Raise Dead** | 2.5s cast every 20s (first at 12s): raises a Skeleton with 40% health and 45% damage, up to two at once. |
-| Demon Lord (every 10th round from 30) | **Rain of Fire** | 2.2s cast every 14s (first at 8s): marks the hero furthest away (usually the back line) with a circle; every hero within 75 of it takes 1.2x the boss's damage. |
+| Goblin Warchief (Act 1) | **War Cry** | 1.5s cast every 14s (first at 6s): every goblin attacks 40% faster for 6s. |
+| The Bone King (Act 2) | **Raise Dead** | 2.5s cast every 20s (first at 12s): raises a Skeleton with 40% health and 45% damage, up to two at once. |
+| Demon Lord (Act 3) | **Rain of Fire** | 2.2s cast every 14s (first at 8s): marks the hero furthest away (usually the back line) with a circle; every hero within 75 of it takes 1.2x the boss's damage. |
 
 ---
 
@@ -348,57 +426,37 @@ Polymorph exist as ability definitions but are only used by the passives.
 
 ### Factions
 
-| Rounds | Faction | Melee | Ranged | Healer | Fast | Elite | Boss |
+| Act | Faction | Melee | Ranged | Healer | Fast | Elite | Boss |
 |---|---|---|---|---|---|---|---|
-| 1–10 | **Goblins** | Grunt 220 HP / 22 | Archer 130 / 16 | Shaman 150 | — | Brute 570 / 24 | **Goblin Warchief** 1100, *Skull Crack* |
-| 11–20 | **Undead** | Skeleton 260 / 24 | Bone Archer 150 / 18 | Death Cultist 170 | Ghoul 180 / 18 (speed 60) | Abomination 680 / 25 | **The Bone King** 1700, *Grave Cleave* |
-| 21+ | **Demons** | Fiend 320 / 28 | Fire Imp 160 / 13 (every 1.6s) | Shadow Caller 200 | Hellhound 220 / 22 (speed 65) | Pit Brute 900 / 32 | **Demon Lord** 1800, *Hellfire Slam* (every 10th round) |
+| 1 | **Goblins** | Grunt 220 HP / 22 | Archer 130 / 16 | Shaman 150 | — | Brute 570 / 24 | **Goblin Warchief** 1100, *Skull Crack* |
+| 2 | **Undead** | Skeleton 260 / 24 | Bone Archer 150 / 18 | Death Cultist 170 | Ghoul 180 / 18 (speed 60) | Abomination 680 / 25 | **The Bone King** 1700, *Grave Cleave* |
+| 3 | **Demons** | Fiend 320 / 28 | Fire Imp 160 / 13 (every 1.6s) | Shadow Caller 200 | Hellhound 220 / 22 (speed 65) | Pit Brute 900 / 32 | **Demon Lord** 1800, *Hellfire Slam* |
 
-(These are base numbers. The round's strength multiplier scales enemy HP and
-damage.)
+(These are base numbers. The fight's strength multiplier scales enemy HP and
+damage; see §2.)
 
-### Line-ups
+### Line-ups and strength
 
-- **Rounds 1–20** have hand-made, named line-ups, for example:
-  - Round 1, "Grunt Squad": three Grunts
-  - Round 5, "Elite: Goblin Brute"
-  - Round 10, "BOSS: Goblin Warchief"
-  - Round 11, "The Risen"
-  - Round 14, "Elite: Abomination"
-  - Round 20, "BOSS: The Bone King"
-- **Rounds 21+** cycle through **5 demon line-ups**, mirrored on alternate
-  rounds. Every 10th round uses the Demon Lord line-up.
-
-### Strength curve
-
-| Rounds | Enemy strength (HP and damage multiplier) |
-|---|---|
-| 1–10 | 1.6 + 0.08 per round (about 1.7 → 2.4) |
-| 11–20 | 3.2 + 0.14 per round (about 4.7 → 6.0) |
-| 21–30 | 5.2 + 0.3 per round (about 5.2 → 7.9) |
-| 31+ | Round 30's strength, then **+8% a round, compounding**, so every run ends |
-
-The bosses are the big difficulty spikes.
+Map fights are generated per node (`makeEncounter` in `src/sim/acts.ts`,
+seeded by the node so a reload meets the same enemies): mostly the act's
+melee, then shooters, a healer from floor 4 (never two) and a fast hunter now
+and then; elites and bosses lead their fight. Melee stand in front, the rest
+behind. The strength curve is in §2. The old hand-made round line-ups
+(`makeRound`, listed in `docs/ROSTER.md`) are kept only as test fixtures.
 
 ### Balance targets and results
 
-Measured with the balance tool (`scripts/balance-parallel.sh [seeds] [dir]
-[ai|random]`: every starting team of 3, 12 seeds each, no manual changes;
-recruits fill a missing tank, then a missing healer, then the least-picked
-damage class). "AI" uses Choose for me; "random" picks every reward at random,
-which is how pick values are measured.
+Measured with `scripts/balance-parallel.sh [seeds] [dir] [ai|random]` (every
+starting class, AI picks everything, no camp gear).
 
-| Target | Result (2026-11-02, after the ability overhaul) |
+| Target | Result (2026-11-03, map run, 20 seeds × 6 classes) |
 |---|---|
-| Classic teams (1 tank + 1 healer + 1 damage) are a safe choice: average 30+, worst 15+ | AI 36.0 (worst 20); random 35.9 |
-| No class is a trap: each class's average within ~5 rounds of the others | AI 2.4 rounds; random 3.1 |
-| The first act is forgiving: at most ~8% of rounds 1–10 lost | 4.0% |
-| No pick is a trap or a must-pick | 76 of 80 picks within ±1.5 rounds of the average pick at the same round (noise is about ±1) |
-| Every run ends | Median run ends at round 35 (AI) / 32 (random); 90% by round 40 |
+| An ungeared run is winnable but not certain | 43% win; 88% reach Act 2, 63% reach Act 3 |
+| The solo start is forgiving | 1% of runs lost in Act 1 before the first boss |
+| Bosses are the spikes | Boss losses: Act 1 10%, Act 2 28%, Act 3 24% |
+| Runs are a sensible length | About 18 fights and 10 fight-minutes |
 
-Boss rounds (AI picks, share of attempts lost): round 10 6%, round 20 26%,
-round 30 54%, round 40 100% (the compounding curve). The best starting teams
-all include a tank.
+The start-class spread needs more seeds to read (20 runs each is noisy).
 
 ---
 
@@ -426,18 +484,22 @@ all include a tank.
 
 ## 9. UI
 
-- **Top bar:** a big round number, with the line-up name, lives (♥), enemies
-  left and the fight clock underneath; pause and sound buttons.
-- **Top bar:** Speed, Sound, **Auto** and Pause. **Auto** picks rewards for you
-  and presses Fight on the ready screen after a short pause (1.5s, or 3s when
-  there's boss info to read).
+- **Top bar:** "ACT n · FLOOR f" (just "ACT n" on the map), with the act or
+  fight name, gold, enemies left and the fight clock underneath. Buttons:
+  Speed, Sound, **Auto** and Pause. **Auto** picks the route and every choice
+  for you after a short pause.
+- **Title screen:** continue a saved run, best and wins, **The Camp**, then
+  choose a class and its first ability.
+- **Map** (§2): node icons, golden rings for golden nodes, pulsing reachable
+  nodes, the dotted path, a legend, and the boss's move at the top.
+- **Spoils panel** after each win; **game over / victory** screens show the
+  run's stats and the loot sent home, with buttons to the camp and a new run.
+- **Camp screen** (§2b): loot, the six classes and their gear, the stations.
 - **Hero panels** (bottom): one per hero: name and level, health and resource
   bars, a row of **buff/debuff icons** (tap one for what it does and how long
   is left; buffs first), then the **ability icons** with cooldown shading
   (passive picks have a purple frame, abilities with their named upgrade a
   gold one). Tap a panel to inspect that hero.
-- **Ready screen** (before each round): line-up summary, the boss's moves on
-  a boss round, a warning (with the moves) the round before a boss, and Fight.
 - **Reward cards** show the icon, and the numbers: a new ability shows its
   numbers; an upgrade shows **Now:** and **After:** lines (see §5).
 - **Ability tooltips:** hover over or tap an ability to see its damage or
@@ -477,14 +539,14 @@ all include a tank.
   - `hud.ts`: top bar, party panels and tooltips
   - `inspect.ts`: the inspect window
   - `units.ts`: unit sprites and combat effects
-  - `screens/`: team builder, recruit, ready screen, results and rewards
+  - `screens/`: hero picker (title, recruits), map, choices (training, upgrades, shop), results (spoils, game over, victory) and the camp
 
   New screens (for example story scenes) go in `screens/`.
 - **Balance tool:** `scripts/simlib.ts` plays whole runs headlessly with the
   game's rules and checks invariants every step (health range, arena bounds,
   NaN, fights that never end). `npm run balance` or
   `scripts/balance-parallel.sh [seeds] [outdir] [ai|random]` summarises reach
-  per team, class shares, round loss rates, ability use, enemy damage and (with
+  per starting class, losses by act and node type, ability use, enemy damage and (with
   random picks) each pick's value.
 - `src/sim/abilityText.ts`: the plain-language numbers for every ability (used
   by tooltips, the inspect window and reward cards).
@@ -500,9 +562,8 @@ Ideas that fit the arena game and haven't been built yet:
 
 - **More classes and synergies**, for example a Hunter, Druid or Shaman.
   Possibly party bonuses for class or role combinations.
-- **Gear** found during a run: weapon, armor and trinket, picked from 1 of 3.
-- **Meta progression between runs**, a lighter version of the old castle idea
-  (§12).
+- **Gear** found during a run (item drops), alongside the camp's gear.
+- **What a win unlocks** (classes, a harder difficulty, new acts...).
 - **Final enemy and boss art** (the current sprites are temporary).
 - **Unique boss abilities** beyond the heavy slam.
 - **Multiplayer:** the sim still supports a player-controlled hero (tests use
@@ -522,14 +583,16 @@ These come from the original castle-gate design (see
 | Swapping abilities after round 20 | **Decided against** (2026-11-02) | Abilities stay once picked |
 | Prayer of Healing, Inner Focus | **Replaced** (2026-11-02) | Holy Nova / Chain of Light; Blessed Hands |
 | Player-controlled hero, ability buttons, focus target, Full Auto toggle | **Dropped** | The game is fully AI. Only the sim's test path remains. |
-| 30-wave runs with a win at wave 30 | **Dropped** | Runs are now endless, with 3 lives |
-| Revives | **Dropped** | Lives and round retries cover this |
+| 30-wave runs with a win at wave 30 | **Dropped** | Replaced by the 3-act map run (2026-11-03) |
+| Endless rounds, 3 lives, team builder, ready screen | **Dropped** (2026-11-03) | The map run: one hero, recruits at campsites, one life |
+| Camp Mode as a separate mode | **Merged** (2026-11-03) | The camp is the map run's meta-progression (§2b) |
+| Revives | **Dropped** | |
 | Castle professions (Blacksmithing, Enchanting, Alchemy, Engineering, Tailoring, Inscription) | **Parked** | Possible base for meta progression |
-| Tokens (the only currency) | **Parked** | Goes with meta progression |
+| Tokens (the only currency) | **Replaced** | Gold in runs, camp loot between runs |
 | Banners (1 per run) | **Parked** | |
-| Difficulty tiers (5-tier ladder with rules) | **Parked** | Endless rounds plus a best-round score cover this for now |
+| Difficulty tiers (5-tier ladder with rules) | **Parked** | A good fit for what a win unlocks (§13) |
 | Starting-ability unlocks (3 options per class) | **Parked** | |
-| Gear and loot | **Parked** | See §11 |
+| Gear and loot | **Built (camp)** | Camp gear per class (§2b); in-run item drops still parked |
 | Paladin, Warlock | **Built** | 2026-11-02, new designs for the arena |
 | Druid, Shaman, Hunter | **Parked** | See §11 |
 | ~8 abilities per class pool | **Built (smaller)** | 6–7 per class, of which 4 can be picked |
@@ -539,9 +602,20 @@ These come from the original castle-gate design (see
 
 ## 13. Open questions
 
+**Map run and camp**
+
+- **Ability scarcity:** new abilities come only from training campsites (after
+  the 4 recruit sites) and shops, so heroes often have 1–2 abilities in Act 2.
+  More training sites, or abilities in chests, would change that.
+- **After a win / geared guilds:** with camp gear the AI wins ~95% of runs
+  after about 7 runs. A difficulty ladder unlocked by wins would keep it
+  challenging.
+- **Camp numbers:** loot rates, gear bonuses and costs are placeholders.
+
 **Arena**
 
-1. **Recruits:** keep free picks, or offer a choice of 1 from 3?
+1. **Recruits (decided 2026-11-03):** pick any class and its first ability at
+   the first 4 campsites.
 2. **Bench:** allow more than 5 heroes, with a bench?
 3. **Bosses (built 2026-11-02):** each boss has a signature move (War Cry,
    Raise Dead, Rain of Fire). Later bosses could get more.

@@ -34,7 +34,7 @@ function step(run: RunState, type?: string): void {
 
 /** Win the current fight without simulating it. */
 function win(run: RunState, fallen: number[] = []): ReturnType<typeof finishFight> {
-  return finishFight(run, true, fallen, encounterFor(run).spawns.map((s) => s.kind));
+  return finishFight(run, true, fallen, encounterFor(run).spawns.map((s) => ({ kind: s.kind })));
 }
 
 /** Resolve whatever is waiting the way Auto would, then keep going. */

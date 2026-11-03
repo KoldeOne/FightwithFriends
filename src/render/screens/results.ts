@@ -2,7 +2,9 @@ import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
 import { actDef } from '../../sim/acts';
 import { WORLD } from '../../sim/content';
-import { bestProgress, clearRun, currentNode, describeProgress, finishFight, recordProgress, recordWin, saveRun, type Spoils } from '../../sim/run';
+import { bestProgress, clearRun, currentNode, describeProgress, finishFight, fightSeed, recordProgress, recordWin, saveRun, type Spoils } from '../../sim/run';
+import { addLoot, bankLoot, loadCamp, lootFor, lootText, saveCamp } from '../../sim/camp';
+import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
 import { COLORS, ICON_PX } from '../theme';
 
@@ -19,7 +21,13 @@ export class Results {
     const won = this.s.battle.outcome === 'victory';
     const fallen = this.s.battle.heroes.filter((h) => !h.alive).map((h) => h.slot ?? 0);
     const node = currentNode(run)!;
-    const spoils = finishFight(run, won, fallen, this.s.battle.killed);
+    // Camp loot goes home straight away, win or lose.
+    const loot = lootFor(this.s.battle.kills, run.act, fightSeed(run));
+    const camp = loadCamp();
+    bankLoot(camp, loot);
+    saveCamp(camp);
+    addLoot(run.loot, loot);
+    const spoils = finishFight(run, won, fallen, this.s.battle.kills);
     if (!won) {
       recordProgress(run);
       clearRun();
@@ -30,15 +38,15 @@ export class Results {
       recordProgress(run);
       const wins = recordWin();
       clearRun();
-      this.showSpoils(spoils, () => this.showVictory(wins));
+      this.showSpoils(spoils, loot, () => this.showVictory(wins));
       return;
     }
     saveRun(run);
-    this.showSpoils(spoils, () => this.s.scene.restart({ run }));
+    this.showSpoils(spoils, loot, () => this.s.scene.restart({ run }));
   }
 
   /** A short, flashy look at the loot: gold counting up, XP per hero, level-ups. */
-  showSpoils(spoils: Spoils, onDone: () => void): void {
+  showSpoils(spoils: Spoils, loot: Loot, onDone: () => void): void {
     const run = this.s.run!;
     this.s.state = 'spoils';
     sound.play('levelUp');
@@ -47,7 +55,7 @@ export class Results {
     const items: Phaser.GameObjects.GameObject[] = [];
     const veil = this.s.add.rectangle(0, 0, WORLD.width, WORLD.hudTop, 0x000000, 0.45).setOrigin(0, 0).setInteractive();
     const rows = spoils.heroes.length;
-    const h = 150 + rows * 30;
+    const h = 172 + rows * 30;
     const panel = this.s.add.rectangle(cx, cy, 380, h, 0x111723, 0.94).setStrokeStyle(2, 0xffd166);
     const title = spoils.won ? 'THE RIFT IS CLOSED!' : spoils.actCleared ? `ACT ${run.act} CLEARED!` : 'VICTORY!';
     const t = this.s.text(cx, cy - h / 2 + 30, title, spoils.actCleared || spoils.won ? 28 : 32, '#ffd166').setOrigin(0.5).setFontStyle('bold');
@@ -93,7 +101,12 @@ export class Results {
         items.push(up);
       }
     });
-    if (spoils.pick) items.push(this.s.text(cx, cy + h / 2 - 22, 'An upgrade awaits…', 12, '#ffd166').setOrigin(0.5));
+    // Camp loot (already sent home).
+    const ly = gy + 40 + rows * 30 + 4;
+    const lt = this.s.text(cx, ly, `⛺ To the camp: ${lootText(loot)}`, 13, '#e0b878').setOrigin(0.5).setAlpha(0);
+    this.s.tweens.add({ targets: lt, alpha: 1, duration: 300, delay: 500 });
+    items.push(lt);
+    if (spoils.pick) items.push(this.s.text(cx, cy + h / 2 - 18, 'An upgrade awaits…', 12, '#ffd166').setOrigin(0.5));
     const box = this.s.add.container(0, 0, items).setDepth(120);
     panel.setScale(0.6);
     this.s.tweens.add({ targets: panel, scale: 1, duration: 260, ease: 'Back.easeOut' });
@@ -123,8 +136,10 @@ export class Results {
         this.s.text(cx, 352, `Act ${run.act}, ${act.name} — floor ${floor} (${type})`, 16, '#ffffff').setOrigin(0.5),
         this.s.text(cx, 384, `${run.stats.fights} fights won · ${run.stats.elites} elites · ${run.stats.bosses} bosses · ${run.stats.gold} gold`, 14, '#c9d1e0').setOrigin(0.5),
         this.s.text(cx, 412, `Best: ${describeProgress(bestProgress())}`, 14, '#ffd166').setOrigin(0.5),
+        this.s.text(cx, 440, `Sent home to the camp: ${lootText(run.loot)}`, 13, '#e0b878').setOrigin(0.5).setAlign('center').setWordWrapWidth(480),
         // Pass {} — restart() with no data would reuse the finished run's data.
-        this.s.button(cx, 490, 'New run', 22, '#2e86de', () => this.s.scene.restart({})),
+        this.s.button(cx - 90, 510, '⛺ The Camp', 20, '#6b4f2a', () => this.s.campScreen.show()),
+        this.s.button(cx + 90, 510, 'New run', 20, '#2e86de', () => this.s.scene.restart({})),
       ])
       .setDepth(100);
   }
@@ -142,7 +157,9 @@ export class Results {
         this.s.text(cx, 344, 'The rift is closed. Your guild is legend.', 16, '#ffffff').setOrigin(0.5),
         this.s.text(cx, 376, `${run.stats.fights} fights · ${run.stats.elites} elites · ${run.stats.bosses} bosses · ${run.stats.gold} gold`, 14, '#c9d1e0').setOrigin(0.5),
         this.s.text(cx, 404, `Wins: ${wins}. Something new will unlock here soon.`, 14, '#7dff9b').setOrigin(0.5),
-        this.s.button(cx, 480, 'New run', 22, '#2e86de', () => this.s.scene.restart({})),
+        this.s.text(cx, 432, `Sent home to the camp: ${lootText(run.loot)}`, 13, '#e0b878').setOrigin(0.5).setAlign('center').setWordWrapWidth(480),
+        this.s.button(cx - 90, 500, '⛺ The Camp', 20, '#6b4f2a', () => this.s.campScreen.show()),
+        this.s.button(cx + 90, 500, 'New run', 20, '#2e86de', () => this.s.scene.restart({})),
       ])
       .setDepth(100);
   }

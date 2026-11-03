@@ -1,40 +1,41 @@
 # FightwithFriends
 
-A portrait-mode browser game: manage a guild of heroes fighting round after
-round in an arena. Built to play on a phone.
+A portrait-mode browser game: build a party of heroes across a branching map
+of arena fights. Built to play on a phone.
 
 - **Design:** [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)
+- **Heroes and monsters:** [docs/ROSTER.md](docs/ROSTER.md)
 - **Old castle-gate design and plan:** [docs/archive/](docs/archive/)
 - **Play:** https://koldeone.github.io/FightwithFriends/ (once GitHub Pages is enabled)
 
 ## Status
 
-A playable arena auto-battler:
+A playable arena auto-battler with a Slay the Spire-style map:
 
-- **Start with 3 heroes** (classes can repeat): Warrior, Paladin, Priest, Mage,
-  Warlock, Rogue.
-  A 4th joins after the round 10 boss, a 5th after the round 20 boss.
-- **Before every round:** the enemy line-up is on the field, with the boss's
-  moves on a boss round (and a warning the round before). Heroes line up by
-  role on their own. Then press Fight.
+- **Start with one hero** — Warrior, Paladin, Priest, Mage, Warlock or Rogue —
+  and pick its first ability.
+- **Climb a branching map** through three acts (The Goblin Woods, The Sunken
+  Crypt, The Burning Rift), 12 floors and a boss each: fights, elites, chests,
+  shops and campsites. Golden nodes pay more. The way you came is dotted.
+- **Campsites:** the first four you reach each bring a new hero (any class,
+  you choose its first ability) for a party of 5; later ones train a hero in a
+  new ability.
+- **Gold** from enemies buys abilities and upgrades in shops; chests, elites
+  and bosses give an upgrade pick. Heroes earn XP per fight (recruits catch up
+  at double rate). Everyone heals fully between fights.
+- **One life:** a party wipe ends the run. Beat the Act 3 boss to win.
+- **The camp** (from Bailey's Camp Mode): every fight's loot goes home, win or
+  lose. Spend it at the Blacksmith, Armorer, Jeweler and Training station for
+  gear that every later run starts with. See §2b of the design doc.
 - **The heroes fight on their own** — they move, hold aggro, heal, interrupt
   and use their abilities. Tap a unit to inspect it; tap a hero panel for its
-  abilities.
-- **Rounds:** goblins (1-10, Goblin Warchief boss), undead (11-20, The Bone
-  King), then demons (21+, a Demon Lord every 10th round) that get stronger
-  every round. The enemy fields as many fighters as you do (3 → 4 → 5).
-- **3 lives:** losing a round costs one; retry the round. Runs are
-  endless; your best round is remembered. Sudden death after 60s.
-- **Rewards every 5 rounds:** each hero picks 1 of 3 — new abilities from a
-  6–7 ability class pool (only 4 fit) or upgrades, each ability with its own
-  named upgrade. Cards show the numbers. Or use "Choose for me" / Auto picks.
-  Autosave between rounds.
-- **Bosses** have signature moves: War Cry, Raise Dead, Rain of Fire.
-- **Feel:** smooth motion, projectiles, hit feedback, merged numbers, round
-  intros, slow-mo finish, synthesized sound, pixel-art sprites for heroes and
-  enemies (the enemy ones are temporary).
+  abilities. Bosses have signature moves (War Cry, Raise Dead, Rain of Fire).
+- **Feel:** smooth motion, projectiles, hit feedback, merged numbers, a flashy
+  spoils panel after each win, slow-mo finish, synthesized sound, pixel-art
+  sprites and icons (the enemy sprites are temporary).
 
-Top bar: **Speed** (testing aid), **Sound**, **Auto picks**, **Pause**.
+Top bar: **Speed** (testing aid), **Sound**, **Auto** (picks the route and
+every choice), **Pause**.
 
 ## Running locally
 
@@ -45,6 +46,7 @@ npm install
 npm run dev      # opens a local server; also reachable from a phone on the same Wi-Fi
 npm test         # simulation tests
 npm run balance  # batch-simulate runs and print a balance summary (scripts/balance-parallel.sh uses every core)
+npm run camp-sim # simulate the camp: guilds' map runs back to back with camp upgrades
 npm run build    # production build into dist/
 ```
 

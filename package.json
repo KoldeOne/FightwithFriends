@@ -9,7 +9,8 @@
     "preview": "vite preview --host",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "balance": "vite-node scripts/balance.ts --"
+    "balance": "vite-node scripts/balance.ts --",
+    "camp-sim": "vite-node scripts/camp-sim.ts --"
   },
   "dependencies": {
     "phaser": "^3.90.0"

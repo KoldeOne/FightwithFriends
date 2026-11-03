@@ -3,7 +3,7 @@ import { ECONOMY, goldFor, makeEncounter } from './acts';
 import { ABILITIES, CLASS_POOL, HERO_KIT, HERO_STATS, LEVEL_SCALING, MAX_ABILITY_SLOTS, RESOURCES, TRAITS, UPGRADE } from './content';
 import { generateActMap, nextNodes, type ActMap, type MapNode } from './map';
 import { createRng } from './rng';
-import type { AbilityId, EnemyKind, HeroBuild, HeroClass, TraitId, WaveDef } from './types';
+import type { AbilityId, EnemyKind, HeroBuild, HeroClass, Loot, TraitId, WaveDef } from './types';
 
 /** The last act; beating its boss wins the run. */
 export const FINAL_ACT = 3;
@@ -55,7 +55,11 @@ export interface RunState {
   builds: HeroBuild[];
   /** Experience per hero (ECONOMY.xpPerLevel per level). */
   xp: number[];
+  /** The level heroes start (and recruits join) at: 1 plus the camp's Drills. XP adds to it. */
+  baseLevel: number;
   gold: number;
+  /** Camp loot found this run (already banked at the camp as each fight ends). */
+  loot: Loot;
   /** Campsites reached so far (the first RECRUIT_CAMPSITES are recruit sites). */
   campsites: number;
   status: 'map' | 'fight' | 'won' | 'lost';
@@ -101,7 +105,9 @@ function shuffle<T>(rng: () => number, list: T[]): T[] {
 }
 
 /** Start a run with one hero and the first ability you picked for it. */
-export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting, seed = Date.now() % 1_000_000): RunState {
+export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting, seed = Date.now() % 1_000_000, baseLevel = 1): RunState {
+  const build = freshBuild(first);
+  build.level = baseLevel;
   return {
     version: 5,
     seed,
@@ -110,9 +116,11 @@ export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting
     at: null,
     visited: [],
     team: [cls],
-    builds: [freshBuild(first)],
+    builds: [build],
     xp: [0],
+    baseLevel,
     gold: 0,
+    loot: { spoils: 0, ore: 0, hide: 0, gems: 0, trophies: 0 },
     campsites: 0,
     status: 'map',
     stats: { fights: 0, elites: 0, bosses: 0, gold: 0 },
@@ -281,7 +289,7 @@ export function averageLevel(run: RunState): number {
  * level), and an upgrade pick after an elite or a boss. Beating an act's boss
  * moves on to the next act; beating the last one wins the run.
  */
-export function finishFight(run: RunState, won: boolean, fallen: number[], killed: EnemyKind[]): Spoils {
+export function finishFight(run: RunState, won: boolean, fallen: number[], kills: { kind: EnemyKind; summoned?: boolean }[]): Spoils {
   const node = currentNode(run)!;
   const spoils: Spoils = { gold: 0, heroes: [], pick: false, actCleared: false, won: false };
   if (!won) {
@@ -292,7 +300,7 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kille
   run.stats.fights += 1;
   if (node.type === 'elite') run.stats.elites += 1;
   if (node.type === 'boss') run.stats.bosses += 1;
-  const gold = Math.round(killed.reduce((a, k) => a + goldFor(k), 0) * ECONOMY.actGold[run.act - 1] * (node.rich ? ECONOMY.richBonus : 1));
+  const gold = Math.round(kills.reduce((a, k) => a + (k.summoned ? 0 : goldFor(k.kind)), 0) * ECONOMY.actGold[run.act - 1] * (node.rich ? ECONOMY.richBonus : 1));
   run.gold += gold;
   run.stats.gold += gold;
   spoils.gold = gold;
@@ -304,7 +312,7 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kille
     const gained = fell ? 0 : Math.round(base * (b.level < avg - 0.5 ? ECONOMY.catchUp : 1));
     const from = b.level;
     run.xp[slot] += gained;
-    b.level = 1 + Math.floor(run.xp[slot] / ECONOMY.xpPerLevel);
+    b.level = run.baseLevel + Math.floor(run.xp[slot] / ECONOMY.xpPerLevel);
     spoils.heroes.push({ slot, xp: gained, from, to: b.level, fell });
   });
   if (node.type === 'boss' && run.act >= FINAL_ACT) {
@@ -335,11 +343,13 @@ export function nextAct(run: RunState): void {
   run.status = 'map';
 }
 
-/** Recruit site: a new hero joins at level 1 with the first ability you chose (they earn double XP until they catch up). */
+/** Recruit site: a new hero joins at the run's starting level with the first ability you chose (they earn double XP until they catch up). */
 export function recruit(run: RunState, cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting): void {
   if (run.pending?.kind !== 'recruit' || run.team.length >= MAX_PARTY) throw new Error('no recruit here');
   run.team.push(cls);
-  run.builds.push(freshBuild(first));
+  const build = freshBuild(first);
+  build.level = run.baseLevel;
+  run.builds.push(build);
   run.xp.push(0);
   finishPending(run);
 }
@@ -566,8 +576,8 @@ export function rewardPreview(run: RunState, slot: number, r: Reward): { now?: s
 // --- saving -------------------------------------------------------------
 
 const SAVE_KEY = 'fightwithfriends.run.v5';
-/** Saves from before the map (rounds); dropped, the format changed too much. */
-const OLD_KEYS = ['fightwithfriends.run.v4', 'fightwithfriends.run.v3'];
+/** Saves from before the map run (and the round-based Camp Mode's run in progress). */
+const OLD_KEYS = ['fightwithfriends.run.v4', 'fightwithfriends.run.v3', 'fightwithfriends.campRun.v1'];
 const BEST_KEY = 'fightwithfriends.best';
 const WINS_KEY = 'fightwithfriends.wins';
 
@@ -586,7 +596,10 @@ export function loadRun(): RunState | null {
     if (!raw) return null;
     const run = JSON.parse(raw) as RunState;
     const ok = run?.version === 5 && Array.isArray(run.team) && run.team.length === run.builds.length && (run.status === 'map' || run.status === 'fight');
-    return ok ? run : null;
+    if (!ok) return null;
+    run.baseLevel ??= 1;
+    run.loot ??= { spoils: 0, ore: 0, hide: 0, gems: 0, trophies: 0 };
+    return run;
   } catch {
     return null;
   }

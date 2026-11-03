@@ -13,6 +13,8 @@ import { HeroPicker } from './screens/hero';
 import { MapScreen } from './screens/map';
 import { Choices } from './screens/choices';
 import { Results } from './screens/results';
+import { CampScreen } from './screens/camp';
+import { loadCamp, withGear } from '../sim/camp';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
 export class BattleScene extends Phaser.Scene {
@@ -24,6 +26,7 @@ export class BattleScene extends Phaser.Scene {
   map!: MapScreen;
   choices!: Choices;
   results!: Results;
+  campScreen!: CampScreen;
 
   battle!: Battle;
   acc = 0;
@@ -62,6 +65,7 @@ export class BattleScene extends Phaser.Scene {
     this.map = new MapScreen(this);
     this.choices = new Choices(this);
     this.results = new Results(this);
+    this.campScreen = new CampScreen(this);
     // (Fresh modules each restart, so their own state starts clean.)
     this.acc = 0;
     this.overlay = undefined;
@@ -76,7 +80,8 @@ export class BattleScene extends Phaser.Scene {
       wave: run && fighting ? encounterFor(run) : { number: 0, spawns: [] },
       carefulAI: this.careful,
       team: run?.team ?? [],
-      builds: run?.builds,
+      // Camp gear goes with every hero (read fresh: it may have been upgraded since the run began).
+      builds: run ? withGear(run.team, run.builds, loadCamp()) : undefined,
     });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
 
