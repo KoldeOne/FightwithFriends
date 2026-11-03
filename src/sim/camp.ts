@@ -160,6 +160,26 @@ export function gearShort(gear: Gear): string {
   return parts.length ? parts.join(' · ') : 'No upgrades yet';
 }
 
+/**
+ * Testing aid: undo every gear level and Drills rank and give back everything
+ * they cost, so the same loot can be spent again.
+ */
+export function resetUpgrades(camp: CampState): Loot {
+  const refund = emptyLoot();
+  const add = (cost: Partial<Loot> | null) => {
+    if (cost) for (const k of Object.keys(cost) as (keyof Loot)[]) refund[k] += cost[k] ?? 0;
+  };
+  for (const cls of Object.keys(camp.gear) as HeroClass[])
+    for (const slot of GEAR_SLOTS) {
+      for (let lv = 0; lv < camp.gear[cls][slot]; lv++) add(gearCost(slot, lv));
+      camp.gear[cls][slot] = 0;
+    }
+  for (let r = 0; r < camp.drills; r++) add(drillsCost(r));
+  camp.drills = 0;
+  addLoot(camp.loot, refund);
+  return refund;
+}
+
 // --- runs -------------------------------------------------------------------
 
 /** The run's builds with each hero's camp gear on (read fresh, so a recruit gets theirs too). */

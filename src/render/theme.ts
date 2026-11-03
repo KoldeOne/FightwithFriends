@@ -233,7 +233,7 @@ export function partyLayout(n: number): { x: number; frameW: number; gap: number
   const x = 6;
   const gap = 4;
   const frameW = Math.floor((WORLD.width - 2 * x - (n - 1) * gap) / n);
-  return { x, frameW, gap, frameH: 104, box: Math.min(22, Math.floor((frameW - 10) / MAX_ABILITY_SLOTS) - 2) };
+  return { x, frameW, gap, frameH: 104, box: Math.min(30, Math.floor((frameW - 10) / MAX_ABILITY_SLOTS) - 3) };
 }
 export const HUD_TARGET_Y = 122;
 

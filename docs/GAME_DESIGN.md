@@ -133,7 +133,7 @@ tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
   act (raised minions pay nothing).
 - **XP, per hero (slow on purpose):** a fight gives 4, an elite 7, a boss 12
   (×1.5 golden), the same for everyone standing; heroes who fell in that fight
-  get none. Each level costs a little more than the last (10 XP, then 11, 12,
+  get none. Each level costs a little more than the last (10 XP, then 13, 16,
   ...; +6% stats a level), so a hero who is ahead slows down and the party
   levels out over time, while the starting hero stays ahead. **Recruits** join
   at the run's starting level; there is no catch-up bonus.
@@ -254,7 +254,7 @@ what lets a tank survive holding several enemies.
 
 ### Kit
 
-Each hero has **5 slots**: the starting ability plus 4 earned during the run.
+Each hero has **4 slots**: the starting ability plus 3 earned during the run.
 Passives picked from the pool take a slot too. Each hero also has an always-on
 **starting passive** that doesn't take a slot.
 
@@ -361,7 +361,7 @@ Polymorph exist as ability definitions but are only used by the passives.
 - **Levels** come from XP (§2): +6% health, damage and healing per level.
 - **New abilities and passives** come from **chests** and **training
   campsites**, where **every hero** picks 1 of 3 from their class pool (or 1
-  of 3 upgrades once all 5 slots are full), and from **shops**. Picked
+  of 3 upgrades once all 4 slots are full), and from **shops**. Picked
   abilities stay for the run (no swapping).
 - **Boss picks:** every hero picks 1 of 4 (like a chest, with one more option).
 - **Elite picks:** 1 of 3 for one named hero. While anyone has a free
@@ -544,12 +544,14 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   nodes, the dotted path, a legend, and the boss's move at the top.
 - **Spoils panel** after each win; **game over / victory** screens show the
   run's stats and the loot sent home, with buttons to the camp and a new run.
-- **Camp screen** (§2b): a campground. The six heroes wander around a
-  campfire (tap one, or its chip below, to choose whose gear to work on). The
-  Blacksmith's forge, the Armorer's tent, the Jeweler's stall and the Training
-  Ground are tappable: each shows the chosen hero's level and the next
-  upgrade's cost underneath, and a tap buys it. The card at the bottom lists
-  the chosen hero's gear bonuses.
+- **Camp screen** (§2b): a profile card per hero at the top (gear levels and
+  bonuses; the chosen one highlighted), and a campground below, where the six
+  heroes wander around a campfire. Tap a card or a hero to choose whose gear to
+  work on. The Blacksmith's forge, the Armorer's tent, the Jeweler's stall and
+  the Training Ground are tappable: each shows the chosen hero's level and the
+  next upgrade's cost underneath, and a tap buys it. **Reset upgrades
+  (testing)** gives back everything spent. **New run** is bottom center, as is
+  **The Camp** on the Choose your hero screen.
 - **Inspect window:** for a hero, Passive, Abilities, Upgrades and Effects
   sections, each with its label.
 - **Hero panels** (bottom): one per hero: name and level, health and resource

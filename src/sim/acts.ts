@@ -148,7 +148,7 @@ export const ECONOMY = {
   xp: { fight: 4, elite: 7, boss: 12 } as Partial<Record<NodeType, number>>,
   /** XP for the first level-up; each level after costs xpGrowth more, so a hero who's ahead slows down and the party levels out over time. */
   xpPerLevel: 10,
-  xpGrowth: 1,
+  xpGrowth: 3,
   prices: { ability: 45, upgrade: 30, reroll: 10 },
   actPrice: [1, 1.3, 1.6],
 };

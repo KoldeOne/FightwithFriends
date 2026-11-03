@@ -168,7 +168,7 @@ describe('A map run', () => {
   });
 
   it('XP: everyone standing gets the same; each level costs a little more, so the party levels out', () => {
-    expect([9, 10, 20, 21, 33].map(levelsFor)).toEqual([0, 1, 1, 2, 3]);
+    expect([9, 10, 22, 23, 39].map(levelsFor)).toEqual([0, 1, 1, 2, 3]);
     const run = newRun('warrior', undefined, 9);
     while (run.pending?.kind !== 'recruit') advance(run);
     recruit(run, 'mage');

@@ -220,12 +220,12 @@ describe('Starting abilities and player controls', () => {
     for (const h of b.heroes) expect(h.traits).toEqual([]);
   });
 
-  it('learnAbility fills up to 5 slots, no duplicates', () => {
+  it('learnAbility fills up to 4 slots, no duplicates', () => {
     const b = new Battle({ seed: 1, wave: ROUND_1 });
     const w = hero(b, 'warrior');
     expect(b.learnAbility(w, 'heroicStrike')).toBe(false); // already has it
-    for (const id of ['thunderclap', 'heal', 'renew', 'fireball'] as const) expect(b.learnAbility(w, id)).toBe(true);
-    expect(w.abilities!.length).toBe(5);
+    for (const id of ['thunderclap', 'heal', 'renew'] as const) expect(b.learnAbility(w, id)).toBe(true);
+    expect(w.abilities!.length).toBe(4);
     expect(b.learnAbility(w, 'kick')).toBe(false);
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
 import { GEAR_BONUS, makeRound } from '../src/sim/content';
-import { bankLoot, canAfford, gearCost, loadCamp, lootFor, newCamp, saveCamp, startLevel, upgradeDrills, upgradeGear, withGear } from '../src/sim/camp';
+import { bankLoot, resetUpgrades, canAfford, gearCost, loadCamp, lootFor, newCamp, saveCamp, startLevel, upgradeDrills, upgradeGear, withGear } from '../src/sim/camp';
 import { autoResolve, availableNodes, encounterFor, enterNode, finishFight, newRun, recruit } from '../src/sim/run';
 import type { HeroClass } from '../src/sim/types';
 import { playRun } from '../scripts/simlib';
@@ -106,6 +106,21 @@ describe('The camp (between map runs)', () => {
     expect(upgradeGear(camp, 'warrior', 'weapon')).toBe(true);
     expect(camp.loot.trophies).toBe(0);
     expect(camp.loot.spoils).toBe(1000 - (13 + 32 + 57 + 88 + 125));
+  });
+
+  it('resetting the camp gives back everything the upgrades cost', () => {
+    const camp = newCamp();
+    camp.loot = { spoils: 1000, ore: 50, hide: 50, gems: 50, trophies: 3 };
+    const before = { ...camp.loot };
+    upgradeGear(camp, 'mage', 'weapon');
+    upgradeGear(camp, 'mage', 'weapon');
+    upgradeGear(camp, 'warrior', 'armor');
+    upgradeDrills(camp);
+    expect(camp.loot).not.toEqual(before);
+    resetUpgrades(camp);
+    expect(camp.loot).toEqual(before);
+    expect(camp.gear.mage.weapon).toBe(0);
+    expect(camp.drills).toBe(0);
   });
 
   it('loot is banked at the camp; old Camp Mode saves keep their loot, gear and Drills', () => {

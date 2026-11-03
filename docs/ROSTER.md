@@ -32,7 +32,7 @@ All heroes move at 60. Threat: Warrior 1.5x, Paladin 1.3x, Rogue 0.7x.
 Each hero starts with 1 ability (you choose it) and 1 passive. More come from
 training campsites (1 of 3 from the class pool) and shops; chests, elites and
 bosses give upgrades. A hero
-holds 5 slots (the starting ability + 4 earned), and each pool has more than 4,
+holds 4 slots (the starting ability + 3 earned), and each pool has more than 4,
 so builds differ run to run. Every ability has its own named upgrade, shown
 after the arrow.
 

@@ -367,8 +367,8 @@ export const CLASS_POOL: Record<HeroClass, (AbilityId | TraitId)[]> = {
   rogue: ['poisonedBlades', 'gouge', 'evasion', 'eviscerate', 'kick', 'comboPoints', 'fanOfKnives'],
 };
 
-/** Max ability slots per hero: the starting ability + 4 earned during a run (passives take slots too). */
-export const MAX_ABILITY_SLOTS = 5;
+/** Max ability slots per hero: the starting ability + 3 earned during a run (passives take slots too). */
+export const MAX_ABILITY_SLOTS = 4;
 
 /**
  * AI mana discipline: a cheap "filler" ability is only cast if it leaves enough

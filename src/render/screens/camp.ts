@@ -9,6 +9,8 @@ import {
   drillsCost,
   gearCost,
   gearLines,
+  gearShort,
+  resetUpgrades,
   loadCamp,
   LOOT_NAMES,
   saveCamp,
@@ -23,26 +25,28 @@ import { COLORS, spriteKey, spriteOriginY } from '../theme';
 
 const name = (cls: HeroClass) => cls[0].toUpperCase() + cls.slice(1);
 
-/** The campground (between the title and the hero card at the bottom). */
-const GROUND = { top: 104, bottom: 640 };
-const FIRE = { x: WORLD.width / 2, y: 372 };
+/** The hero profiles at the top (3 x 2 cards), then the campground below them. */
+const CARDS = { top: 100, w: 168, h: 78, gap: 6 };
+const GROUND = { top: 272, bottom: 810 };
+const FIRE = { x: WORLD.width / 2, y: 550 };
 /** Where heroes wander: the clearing between the buildings. */
-const WALK = { left: 60, right: WORLD.width - 60, top: 300, bottom: 440 };
+const WALK = { left: 60, right: WORLD.width - 60, top: 478, bottom: 628 };
 
 type Building = GearSlot | 'drills';
 
 /** The four structures: where they stand and what they're called. */
 const BUILDINGS: { id: Building; x: number; y: number; title: string }[] = [
-  { id: 'weapon', x: 122, y: 190, title: 'Blacksmith' },
-  { id: 'armor', x: WORLD.width - 122, y: 190, title: 'Armorer' },
-  { id: 'trinket', x: 122, y: 500, title: 'Jeweler' },
-  { id: 'drills', x: WORLD.width - 122, y: 500, title: 'Training Ground' },
+  { id: 'weapon', x: 122, y: 360, title: 'Blacksmith' },
+  { id: 'armor', x: WORLD.width - 122, y: 360, title: 'Armorer' },
+  { id: 'trinket', x: 122, y: 690, title: 'Jeweler' },
+  { id: 'drills', x: WORLD.width - 122, y: 690, title: 'Training Ground' },
 ];
 
 /**
- * The camp, between map runs: a campground where the heroes hang around the
- * fire. Tap a hero to choose whose gear to work on, then tap a building to
- * upgrade it; each building shows what its next level costs. Whatever is
+ * The camp, between map runs. At the top, a profile card per hero (their gear
+ * at a glance); below, the campground, where the heroes wander around the
+ * fire. Tap a card or a hero to choose whose gear to work on, then tap a
+ * building to upgrade it; each building shows what its next level costs. Whatever is
  * bought here goes with every hero of that class on every later run.
  */
 export class CampScreen {
@@ -56,7 +60,7 @@ export class CampScreen {
   private labels = new Map<Building, { level: Phaser.GameObjects.Text; cost: Phaser.GameObjects.Text }>();
   private walkers = new Map<HeroClass, Phaser.GameObjects.Container>();
   private ring?: Phaser.GameObjects.Ellipse;
-  private card: Phaser.GameObjects.GameObject[] = [];
+  private profiles = new Map<HeroClass, { bg: Phaser.GameObjects.Rectangle; gear: Phaser.GameObjects.Text }>();
   private root?: Phaser.GameObjects.Container;
 
   show(): void {
@@ -66,6 +70,7 @@ export class CampScreen {
     this.camp = loadCamp();
     this.labels.clear();
     this.walkers.clear();
+    this.profiles.clear();
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14).setOrigin(0, 0).setInteractive()];
     items.push(s.text(cx, 50, 'The Camp', 24, '#ffd166').setOrigin(0.5, 0).setFontStyle('bold'));
@@ -88,25 +93,36 @@ export class CampScreen {
     items.push(this.ring);
     for (const cls of ALL_CLASSES) items.push(this.makeWalker(cls));
 
-    // The hero card at the bottom.
-    items.push(s.add.rectangle(10, GROUND.bottom + 10, WORLD.width - 20, 300, 0x111723).setOrigin(0, 0).setStrokeStyle(1, 0x2b3445));
-    // Quick picks: every class, in case the one you want is wandering off.
+    // Hero profiles at the top: portrait, name and gear; tap to choose.
     ALL_CLASSES.forEach((cls, i) => {
-      const x = 28 + i * 86;
-      const y = GROUND.bottom + 36;
-      const chip = s.add
-        .circle(x, y, 13, COLORS[cls])
-        .setStrokeStyle(2, 0x000000)
+      const x = 12 + (i % 3) * (CARDS.w + CARDS.gap);
+      const y = CARDS.top + Math.floor(i / 3) * (CARDS.h + CARDS.gap);
+      const bg = s.add
+        .rectangle(x, y, CARDS.w, CARDS.h, 0x161c28)
+        .setOrigin(0, 0)
+        .setStrokeStyle(2, 0x3a4660)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => this.select(cls));
-      items.push(chip, s.text(x + 17, y, name(cls), 11, '#ffffff').setOrigin(0, 0.5));
+      const title = s.text(x + 50, y + 8, name(cls), 14, '#' + COLORS[cls].toString(16).padStart(6, '0')).setFontStyle('bold');
+      const gear = s.text(x + 50, y + 28, '', 10, '#c9d1e0').setLineSpacing(1);
+      this.profiles.set(cls, { bg, gear });
+      items.push(bg, ...s.heroPicker.portrait(cls, x + 24, y + 62, 1.35), title, gear);
     });
+
+    // Bottom: New run, and a reset for testing.
     items.push(
-      s.button(cx, WORLD.height - 52, 'New run ▶', 22, '#2e86de', () => {
+      s.button(cx, WORLD.height - 62, 'New run ▶', 22, '#2e86de', () => {
         sound.unlock();
         sound.play('click');
         s.scene.restart({});
       }),
+      s.text(WORLD.width - 14, WORLD.height - 62, '↺ Reset upgrades\n(testing)', 11, '#ffffff')
+        .setOrigin(1, 0.5)
+        .setAlign('center')
+        .setPadding(8, 4, 8, 4)
+        .setBackgroundColor('#5a2a2a')
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this.reset()),
     );
     this.root = s.add.container(0, 0, items).setDepth(100);
     // The ring follows the chosen hero around.
@@ -135,24 +151,33 @@ export class CampScreen {
       l.level.setText(b.id === 'drills' ? `Drills ${level} (whole guild)` : `${name(this.selected)}'s ${STATIONS[b.id].item.toLowerCase()}: Lv ${level}`);
       l.cost.setText(cost ? costText(cost) : 'Max level').setColor(cost && canAfford(camp.loot, cost) ? '#7dff9b' : '#8f9bb3');
     }
-    // The chosen hero's card.
-    for (const o of this.card) o.destroy();
-    const cls = this.selected;
-    const y = GROUND.bottom + 70;
-    const lines = gearLines(camp.gear[cls]);
-    const drills = camp.drills ? `Drills: every hero starts runs at level ${1 + camp.drills}` : '';
-    this.card = [
-      ...s.heroPicker.portrait(cls, 52, y + 74, 2),
-      s.text(96, y + 6, name(cls), 18, '#' + COLORS[cls].toString(16).padStart(6, '0')).setFontStyle('bold'),
-      s.text(96, y + 32, [...(lines.length ? lines : ['No upgrades yet.']), drills].filter(Boolean).join('\n'), 12, '#c9d1e0').setLineSpacing(3).setWordWrapWidth(420),
-      s.text(96, y + 106, 'Tap a hero, then a building to upgrade their gear.', 11, '#8f9bb3'),
-    ];
-    this.root?.add(this.card);
+    // The profiles: gear at a glance, the chosen hero highlighted.
+    for (const [cls, p] of this.profiles) {
+      const g = camp.gear[cls];
+      const lines = gearLines(g).map((l) => l.replace(/ \(.*\)$/, ''));
+      p.gear.setText(lines.length ? `${lines.join(' · ')}\n${gearShort(g)}` : 'No upgrades yet');
+      p.gear.setWordWrapWidth(CARDS.w - 56);
+      const on = cls === this.selected;
+      p.bg.setFillStyle(on ? 0x2a3550 : 0x161c28).setStrokeStyle(2, on ? 0xffd166 : 0x3a4660);
+    }
+  }
+
+  /** Testing aid: give back everything spent at the camp. */
+  private reset(): void {
+    sound.play('click');
+    const refund = resetUpgrades(this.camp);
+    saveCamp(this.camp);
+    this.float(WORLD.width / 2, GROUND.top + 30, refund.spoils ? `Refunded ${refund.spoils} Spoils and materials` : 'Nothing to refund', '#ffd166');
+    this.refresh();
   }
 
   private select(cls: HeroClass): void {
     sound.play('click');
     this.selected = cls;
+    // A little hop from the chosen hero.
+    const w = this.walkers.get(cls);
+    const sprite = w?.list[0] as Phaser.GameObjects.Image | undefined;
+    if (sprite) this.s.tweens.add({ targets: sprite, scale: sprite.scale * 1.25, duration: 120, yoyo: true });
     this.refresh();
   }
 

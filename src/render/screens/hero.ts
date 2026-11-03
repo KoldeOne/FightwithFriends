@@ -80,10 +80,10 @@ export class HeroPicker {
       const saved = loadRun();
       if (saved) {
         const names = saved.team.map((c) => LETTERS[c]).join(' ');
-        items.push(this.s.button(cx + 50, 68, `▶ Continue: ${names} — Act ${saved.act}`, 16, '#1e6f50', () => this.s.scene.restart({ run: saved })));
+        items.push(this.s.button(cx, 68, `▶ Continue: ${names} — Act ${saved.act}`, 16, '#1e6f50', () => this.s.scene.restart({ run: saved })));
       }
       items.push(
-        this.s.button(saved ? 62 : cx, saved ? 68 : 70, '⛺ The Camp', 15, '#6b4f2a', () => {
+        this.s.button(cx, WORLD.height - 62, '⛺ The Camp', 22, '#6b4f2a', () => {
           sound.unlock();
           sound.play('click');
           this.s.campScreen.show();
