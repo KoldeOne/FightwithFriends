@@ -29,7 +29,7 @@ design doc).
 | Idea | From | Notes |
 |---|---|---|
 | **Split gear from gear upgrades** | Bailey | Two separate things: **gear drops on its own** (actual weapons, armor and trinkets), and **upgrade items** improve the gear you have. Today the camp only has upgrade levels per slot, paid with Spoils and materials. |
-| **Show the gear you have** | Bailey | A screen or panel listing each hero's gear and the spare gear you've collected. |
+| **See your gear and upgrades** | Bailey | A clear way to see what you have: each hero's equipped gear, the spare gear you've collected, and the upgrades on each piece (plus the upgrade items you're holding). Needs a design for how you get there, e.g. a button at the camp, on the map, or by tapping a hero. Today the camp screen only shows each slot's upgrade level for one hero at a time. |
 | **Real loot items** | Bailey + Kolde | Today there are only Spoils, Ore, Hide, Gems and Trophies. Bailey wants to design actual items with Kolde first. |
 | **Gear found during a run** | Design | Item drops in the run (weapon, armor, trinket, picked 1 of 3), alongside the camp's gear. Could be how gear drops on its own. |
 
@@ -46,6 +46,8 @@ idea is now built, and the round 30 cap is gone.)
 | **Cloud saves** | Design | Saves are per device today. Kolde didn't answer this one yet. |
 | **What a win unlocks** | Kolde | Beating Act 3 should unlock something (to be designed). |
 | **Difficulty ladder** | Design | Harder tiers unlocked by wins, so a geared guild still has a challenge (the AI wins ~95% of runs after about 7 runs with gear). Could be what a win unlocks. |
+| **Chance encounters (? nodes)** | Bailey | Question-mark spots on the map that lead to a random event instead of a known fight, chest, shop or campsite. The events themselves still need designing (good, bad, or a choice). |
+| **Much lower XP per fight, harder monsters** | Bailey | So you have to grind to beat the first boss. Open question: where the grinding happens. A run is one life on a fixed map, so it could mean many runs building camp gear, or adding fights you can repeat. |
 | **More ways to learn abilities** | Design | Today only training campsites (after the 4 recruits) and shops teach abilities. More training sites, or abilities in chests? |
 
 ## Heroes
@@ -64,6 +66,7 @@ idea is now built, and the round 30 cap is gone.)
 
 | Idea | From | Notes |
 |---|---|---|
+| **Tappable ultimates** | Bailey | Each hero gets an ultimate ability with a button on screen you tap to fire it. Today the heroes fight entirely on their own and the old ability buttons were dropped, so this would be the one thing the player controls during a fight. |
 | **More boss moves** | Design | Each boss has one signature move (War Cry, Raise Dead, Rain of Fire); later bosses could get more. |
 | **Final enemy and boss art** | Design | The current enemy sprites are temporary. Bailey's setting work may change how enemies look. |
 | **Multiplayer** | Design | The sim still supports a player-controlled hero, so a friend could take a hero later. |
