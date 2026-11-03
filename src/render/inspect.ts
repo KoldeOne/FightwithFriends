@@ -66,7 +66,10 @@ export class Inspect {
     rows.push({ text: stats.join('\n') });
     if (u.side === 'hero') {
       const passive = u.passive ? PASSIVES[u.passive] : undefined;
-      if (passive) rows.push({ text: `${passive.name} (starting passive) — ${passive.description}`, icon: passiveIcon(passive.id), gap: true });
+      if (passive) {
+        rows.push({ text: 'Passive', header: true, gap: true });
+        rows.push({ text: `${passive.name} — ${passive.description}`, icon: passiveIcon(passive.id) });
+      }
       rows.push({ text: 'Abilities', header: true, gap: true });
       for (const a of u.abilities ?? []) {
         const def = ABILITIES[a.id];

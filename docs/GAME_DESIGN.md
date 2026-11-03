@@ -85,7 +85,7 @@ economy), `src/sim/run.ts` (run state, rewards, Auto).
 | **Chest** | Gold (20, or 34 if golden), then **every hero picks 1 of 3**: a new ability or passive from their pool, or an upgrade once their slots are full. |
 | **Shop** | 3 abilities and 2 upgrades for specific heroes, bought with gold; reroll for 10 (rising). Prices rise each act. |
 | **Campsite** | Two campsite floors are **recruits** (pick any class, repeats allowed, and its first ability): **mid-Act 1 (floor 6)** and **mid-Act 2 (floor 6)**. A third hero joins **right after the Act 1 boss**, so the party is 4 by the middle of the run. Every other campsite is **training**: **every hero picks 1 of 3** (new abilities or passives, or upgrades once full). |
-| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). So far only the **Wishing Well**: make a wish (hold at most one), or fish out 25 gold if you already hold one. A used wish brings the party back and gives every hero **+20% damage** for the restarted fight (a "Wished" buff). |
+| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). Two so far, picked at random: the **Wishing Well** (make a wish, holding at most one, or fish out 25 gold if you already hold one; a used wish brings the party back and gives every hero **+20% damage** for the restarted fight, a "Wished" buff), and the **Cursed Shrine** (no way out: every hero takes **25% more damage** in the next fight, a "Cursed" debuff, shown as "☠ cursed" in the top bar). |
 | **Boss** | The act's boss; then **every hero picks 1 of 4** (new abilities, or upgrades once full) and the next act. |
 
 Some fights, elites and chests are **golden** (a gold ring): **2× gold, 1.5× XP
@@ -104,15 +104,17 @@ tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
 ### Flow
 
 1. **Map.** Nodes you can reach pulse; tap one to go there (tap others to see
-   what they are). The way you came is a **dotted line**. The act's boss and
-   its signature move are shown at the top.
+   what they are). The way you came is a **dotted line**. The act's boss is
+   named at the top; its signature move is only revealed once you're on the
+   last floor before it.
 2. **Fight nodes** start straight away with an intro banner ("Act 1, floor 4 —
    The Goblin Woods"). No ready or "round cleared" screens.
 3. **Spoils.** After an ordinary win, a short flashy panel: gold counting up
    (and any golden bonus), the XP everyone standing earned (shown once), any
-   level-ups in one line, and the camp loot sent home. It closes on its own
-   (or tap). After an **elite or boss** there's no panel: the same rewards
-   line sits at the top of the pick screen instead.
+   level-ups in one line, and the camp loot sent home. It stays up until you
+   press the big **Next Wave** button (**Continue** after the last boss); with
+   **Auto** on it moves on by itself. After an **elite or boss** there's no
+   panel: the same rewards line sits at the top of the pick screen instead.
 4. **Choices** (recruit, training, upgrade, shop, events) open as overlays on
    the map. At chests and training campsites each hero picks in turn (Skip
    allowed).
@@ -525,12 +527,14 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 
 - **Top bar:** "ACT n · FLOOR f" (just "ACT n" on the map), with the act or
   fight name, gold, enemies left and the fight clock underneath. Buttons:
-  Speed, Sound, **Auto** and Pause. **Auto** picks the route and every choice
-  for you after a short pause.
+  Speed, Sound, **Auto** and Pause, always visible (on top of reward, pick and
+  camp screens too). **Auto** picks the route and every choice for you after a
+  short pause.
 - **Damage meter** (bottom-right of the field during a fight): each hero's
   damage this fight, highest first; the **DMG ⇄ / HEAL ⇄** button switches to
   healing (healing that landed, plus shield absorbs). Hover or tap a bar for
-  that hero's breakdown by source, auto-attacks and damage over time included.
+  that hero's breakdown: one line per source with its icon, amount and share,
+  auto-attacks and damage over time included.
   It stays up on the spoils and end-of-run screens; on the map and pick
   screens a **📊 Last fight** button (bottom-right) opens the last fight's
   numbers.
@@ -540,7 +544,14 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   nodes, the dotted path, a legend, and the boss's move at the top.
 - **Spoils panel** after each win; **game over / victory** screens show the
   run's stats and the loot sent home, with buttons to the camp and a new run.
-- **Camp screen** (§2b): loot, the six classes and their gear, the stations.
+- **Camp screen** (§2b): a campground. The six heroes wander around a
+  campfire (tap one, or its chip below, to choose whose gear to work on). The
+  Blacksmith's forge, the Armorer's tent, the Jeweler's stall and the Training
+  Ground are tappable: each shows the chosen hero's level and the next
+  upgrade's cost underneath, and a tap buys it. The card at the bottom lists
+  the chosen hero's gear bonuses.
+- **Inspect window:** for a hero, Passive, Abilities, Upgrades and Effects
+  sections, each with its label.
 - **Hero panels** (bottom): one per hero: name and level, health and resource
   bars, a row of **buff/debuff icons** (tap one for what it does and how long
   is left; buffs first), then the **ability icons** with cooldown shading

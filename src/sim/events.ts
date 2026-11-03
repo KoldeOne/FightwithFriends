@@ -10,6 +10,8 @@ export type EventEffect =
   /** Gain a wish: the next time the party falls, everyone rises again and the fight restarts. */
   | { kind: 'wish' }
   | { kind: 'gold'; amount: number }
+  /** A curse: every hero starts the next fight with a debuff (takes CURSE_DAMAGE more damage). */
+  | { kind: 'curse' }
   | { kind: 'nothing' };
 
 export interface EventChoice {
@@ -27,9 +29,20 @@ export interface EventDef {
   choices: EventChoice[];
 }
 
-export type EventId = 'wishingWell';
+export type EventId = 'wishingWell' | 'cursedShrine';
 
 export const EVENTS: Record<EventId, EventDef> = {
+  cursedShrine: {
+    title: 'A Cursed Shrine',
+    text: 'A cracked altar wrapped in black thorns. As you pass, the candles flare green and a cold whisper follows your party down the path.',
+    choices: [
+      {
+        label: 'Press on',
+        result: 'The curse clings to you. In your next fight, every hero takes 25% more damage.',
+        effect: { kind: 'curse' },
+      },
+    ],
+  },
   wishingWell: {
     title: 'A Wishing Well',
     text: 'An old stone well in a quiet clearing. Coins glint far below, and the air hums with something hopeful.',
@@ -50,6 +63,9 @@ export const EVENTS: Record<EventId, EventDef> = {
     ],
   },
 };
+
+/** A curse from the Cursed Shrine: every hero takes this much more damage in the next fight. */
+export const CURSE_DAMAGE = 0.25;
 
 /** A used wish: every hero deals this much more damage in the restarted fight. */
 export const WISH_DAMAGE = 0.2;

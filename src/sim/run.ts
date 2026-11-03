@@ -78,6 +78,8 @@ export interface RunState {
   attempt: number;
   /** The current fight was restarted by a wish: heroes deal more damage in it. */
   wishBoost?: boolean;
+  /** A Cursed Shrine: every hero starts the next fight with a debuff. */
+  cursed?: boolean;
   /** Camp loot found this run (already banked at the camp as each fight ends). */
   loot: Loot;
   /** Campsites reached so far. */
@@ -391,6 +393,8 @@ export function spoilsLine(run: RunState, spoils: Spoils, campLoot?: string): st
 export function finishFight(run: RunState, won: boolean, fallen: number[], kills: { kind: EnemyKind; summoned?: boolean }[]): Spoils {
   const node = currentNode(run)!;
   const spoils: Spoils = { gold: 0, heroes: [], xp: 0, goldBonus: 0, pick: false, actCleared: false, won: false };
+  // A curse lasts one fight.
+  run.cursed = undefined;
   if (!won) {
     if (run.wishes > 0) {
       // A wish: everyone rises again and the fight starts over (with a new seed).
@@ -537,6 +541,7 @@ export function chooseEvent(run: RunState, index: number): string {
   if (!choice) throw new Error('no such choice');
   const e = choice.effect;
   if (e.kind === 'wish') run.wishes = Math.min(MAX_WISHES, run.wishes + 1);
+  else if (e.kind === 'curse') run.cursed = true;
   else if (e.kind === 'gold') {
     run.gold += e.amount;
     run.stats.gold += e.amount;

@@ -73,9 +73,9 @@ describe('The camp (between map runs)', () => {
     ] });
     while (b.outcome === 'running' && b.time < 300) b.step(STEP);
     const by = (cls: string) => b.meter.get(b.units.find((u) => u.kind === cls)!.id)!;
-    expect(by('warrior').damage['Auto-attack']).toBeGreaterThan(0);
-    expect(by('warrior').damage['Heroic Strike']).toBeGreaterThan(0);
-    expect(Object.keys(by('mage').damage).some((k) => k.startsWith('Fireball'))).toBe(true);
+    expect(by('warrior').damage['auto']).toBeGreaterThan(0);
+    expect(by('warrior').damage['heroicStrike']).toBeGreaterThan(0);
+    expect(Object.keys(by('mage').damage).some((k) => k.startsWith('fireball'))).toBe(true);
     expect(Object.values(by('priest').healing).reduce((a, v) => a + v, 0)).toBeGreaterThan(0);
   });
 

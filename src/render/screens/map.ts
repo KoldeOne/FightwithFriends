@@ -61,7 +61,9 @@ export class MapScreen {
     items.push(
       this.s.text(WORLD.width / 2, 112, `${act.theme}  Boss: ${ENEMY_STATS[bossKind].label}`, 12, '#e6e9f0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500),
     );
-    if (special) items.push(this.s.text(WORLD.width / 2, 130, `${special.name}: ${special.text}`, 11, '#ffd9c2').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500));
+    // The boss's move is only revealed on the last floor before the boss.
+    const lastFloor = !!run.at && map.nodes[run.at].floor === MAP_FLOORS - 1;
+    if (special && lastFloor) items.push(this.s.text(WORLD.width / 2, 130, `${special.name}: ${special.text}`, 11, '#ffd9c2').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500));
 
     // Links between nodes; the way you came as a dotted line.
     const g = this.s.add.graphics();
@@ -106,7 +108,7 @@ export class MapScreen {
       items.push(this.s.add.image(x, 770, `icon-nd-${t}`).setScale(18 / ICON_PX), this.s.text(x + 13, 763, NODE_NAMES[t], 11, '#c9d1e0'));
     });
     items.push(this.s.add.circle(WORLD.width - 30, 770, 9, 0xffd166, 0.25).setStrokeStyle(2, 0xffd166, 0.9), this.s.text(WORLD.width - 44, 784, 'golden', 9, '#ffd166').setOrigin(0.5, 0));
-    this.tip = this.s.text(WORLD.width / 2, 152, open.size ? 'Choose where to go next.' : '', 12, '#7dff9b').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500);
+    this.tip = this.s.text(WORLD.width / 2, 152, '', 12, '#7dff9b').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500);
     items.push(this.tip);
     this.ui = this.s.add.container(0, 0, items).setDepth(40);
 

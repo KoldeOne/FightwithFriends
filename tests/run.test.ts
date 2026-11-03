@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { enemyCount, makeEncounter, PARTY_SCALE, strengthAt } from '../src/sim/acts';
 import { Battle, STEP } from '../src/sim/battle';
 import { ENEMY_LAYOUT, enemyPos, HERO_LINES, makeRound, SPOTS, TRAITS } from '../src/sim/content';
+import { CURSE_DAMAGE } from '../src/sim/events';
 import { CAMPSITE_FLOORS, generateActMap, MAP_FLOORS, nextNodes } from '../src/sim/map';
 import {
   applyReward,
@@ -317,7 +318,8 @@ describe('A map run', () => {
       if (availableNodes(run).some((n) => n.type === 'event')) step(run, 'event');
       else advance(run);
     }
-    expect(run.pending).toMatchObject({ kind: 'event', id: 'wishingWell' });
+    expect(run.pending?.kind).toBe('event');
+    run.pending = { kind: 'event', id: 'wishingWell' };
     expect(eventChoices(run).map((c) => c.label)).toEqual(['Make a wish', 'Walk on']);
     chooseEvent(run, 0);
     expect(run.wishes).toBe(1);
@@ -329,6 +331,19 @@ describe('A map run', () => {
     chooseEvent(run, 0);
     expect(run.gold).toBe(gold + 25);
     expect(run.wishes).toBe(1);
+  });
+
+  it('the Cursed Shrine makes every hero take more damage in the next fight only', () => {
+    const run = newRun('warrior', undefined, 33);
+    run.pending = { kind: 'event', id: 'cursedShrine' };
+    expect(eventChoices(run).map((c) => c.label)).toEqual(['Press on']);
+    chooseEvent(run, 0);
+    expect(run.cursed).toBe(true);
+    while (run.status !== 'fight') advance(run);
+    const cursed = new Battle({ seed: 1, wave: encounterFor(run), team: run.team, builds: run.builds, curse: CURSE_DAMAGE });
+    expect(cursed.heroes.every((h) => h.effects?.some((e) => e.kind === 'cursed' && e.amount === CURSE_DAMAGE))).toBe(true);
+    win(run);
+    expect(run.cursed).toBeUndefined();
   });
 
   it('a wish brings the party back after a wipe and restarts the fight with a new seed', () => {

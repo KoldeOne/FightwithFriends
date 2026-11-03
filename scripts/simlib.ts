@@ -5,7 +5,7 @@
  */
 import { addLoot, bankLoot, lootFor, scaleLoot, startLevel, withGear, type CampState } from '../src/sim/camp';
 import { ECONOMY } from '../src/sim/acts';
-import { WISH_DAMAGE } from '../src/sim/events';
+import { CURSE_DAMAGE, WISH_DAMAGE } from '../src/sim/events';
 import { Battle, STEP } from '../src/sim/battle';
 import { ARENA, HERO_KIT, WORLD } from '../src/sim/content';
 import {
@@ -116,6 +116,7 @@ export function playRound(run: RunState, violations: string[], camp?: CampState)
     team: run.team,
     builds: camp ? withGear(run.team, run.builds, camp) : run.builds,
     wishBoost: run.wishBoost ? WISH_DAMAGE : undefined,
+    curse: run.cursed ? CURSE_DAMAGE : undefined,
   });
   const heroes = battle.heroes;
   const bySlot = new Map<number, HeroStats>();

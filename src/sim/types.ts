@@ -139,7 +139,9 @@ export interface Effect {
     /** Doom: `amount` damage lands when it expires. */
     | 'doom'
     /** Wishing Well: the party rose again; heroes deal `amount` more damage this fight. */
-    | 'wished';
+    | 'wished'
+    /** Cursed Shrine: takes `amount` more damage this fight. */
+    | 'cursed';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */

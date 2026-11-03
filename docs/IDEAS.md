@@ -49,7 +49,7 @@ party of at most 4.)
 | **Harder levels pay more, in more detail** | Kolde | Act 2 and 3 already pay 2× and 3× Spoils. He thinks progression needs a more detailed design. |
 | **Cloud saves** | Design | Saves are per device today. Kolde didn't answer this one yet. |
 | **Difficulty ladder (what a win unlocks)** | Kolde | **Decided 2026-11-03, for a later design phase:** winning a full run on a difficulty unlocks a specific character (all characters stay unlocked during testing). Suggestion: tiers 1–5, each adding one rule (stronger enemies, more elites, less gold, a second boss move) and +25% camp loot. Open: which classes start locked, or new classes to unlock. |
-| **Chance encounter content** | Bailey + Kolde | The ? nodes are built (2026-11-03) with one event, the **Wishing Well** (an extra life). Still to do: more events (good, bad, or a choice), their story, art on the pop-up window, and the helper's lines. The text lives in `src/sim/events.ts`. |
+| **Chance encounter content** | Bailey + Kolde | The ? nodes are built (2026-11-03) with two events: the **Wishing Well** (an extra life) and the **Cursed Shrine** (a debuff for the next fight). Still to do: more events (good, bad, or a choice), their story, art on the pop-up window, and the helper's lines. The text lives in `src/sim/events.ts`. |
 | **Progression design (Training station, Jeweler, harder pays more)** | Kolde | Suggestions waiting on a decision: the Training station sells perks for Trophies (start with gold, an extra reroll, more first-ability choices) instead of +1 level; the Jeweler gives faster cooldowns only; harder difficulty tiers pay more loot. |
 
 ## Heroes

@@ -2,7 +2,9 @@ import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
 import type { Battle } from '../sim/battle';
 import { WORLD } from '../sim/content';
-import { COLORS } from './theme';
+import { ABILITIES, PASSIVES, TRAITS } from '../sim/content';
+import { PIXEL_ICONS } from './pixelArt';
+import { COLORS, ICON_PX } from './theme';
 
 const W = 168;
 const ROW = 17;
@@ -187,16 +189,29 @@ export class Meter {
     this.tip?.destroy();
     this.tipFor = id;
     if (!row) return;
-    const lines = row.parts.length
-      ? row.parts.map(([src, v]) => `${src}  ${formatNumber(v)}  (${Math.round((100 * v) / Math.max(1, row.total))}%)`)
-      : [this.mode === 'damage' ? 'No damage yet' : 'No healing yet'];
-    const text = this.s.text(0, 0, `${row.name} — ${this.mode}\n${lines.join('\n')}`, 11, '#e6e9f0').setLineSpacing(2);
-    const w = text.width + 14;
-    const h = text.height + 10;
+    // One line per source: its icon, name, amount and share. (No header: the bar says whose it is.)
+    const LINE = 16;
+    const items: Phaser.GameObjects.GameObject[] = [];
+    const texts: Phaser.GameObjects.Text[] = [];
+    if (!row.parts.length) texts.push(this.s.text(0, 0, this.mode === 'damage' ? 'No damage yet' : 'No healing yet', 11, '#e6e9f0'));
+    for (const [key, v] of row.parts) {
+      const src = meterSource(key);
+      texts.push(this.s.text(0, 0, `${src.name}  ${formatNumber(v)}  (${Math.round((100 * v) / Math.max(1, row.total))}%)`, 11, '#e6e9f0'));
+    }
+    const w = Math.max(...texts.map((t) => t.width)) + (row.parts.length ? 34 : 14);
+    const h = texts.length * LINE + 8;
     const x = RIGHT - W - 8 - w;
     const y = Math.max(110, this.bottom - h);
-    text.setPosition(x + 7, y + 5);
-    this.tip = this.s.add.container(0, 0, [this.s.add.rectangle(x, y, w, h, 0x0b0e14, 0.92).setOrigin(0, 0).setStrokeStyle(1, row.color), text]).setDepth(this.depth + 1);
+    items.push(this.s.add.rectangle(x, y, w, h, 0x0b0e14, 0.92).setOrigin(0, 0).setStrokeStyle(1, row.color));
+    texts.forEach((t, i) => {
+      const ly = y + 4 + i * LINE;
+      if (row.parts.length) {
+        items.push(this.s.add.image(x + 7, ly + 1, meterSource(row.parts[i][0]).icon).setOrigin(0, 0).setScale(14 / ICON_PX));
+        t.setPosition(x + 27, ly + 1);
+      } else t.setPosition(x + 7, ly + 1);
+      items.push(t);
+    });
+    this.tip = this.s.add.container(0, 0, items).setDepth(this.depth + 1);
   }
 
   private hideTip(): void {
@@ -224,4 +239,24 @@ function saveMode(mode: Mode): void {
   } catch {
     /* fine: the mode just won't be remembered */
   }
+}
+
+/** What a meter source id is called, and its icon. */
+export function meterSource(key: string): { name: string; icon: string } {
+  const fixed: Record<string, { name: string; icon: string }> = {
+    auto: { name: 'Auto-attack', icon: 'icon-nd-fight' },
+    autoHeal: { name: 'Auto-heal', icon: 'icon-ef-hot' },
+    dot: { name: 'Damage over time', icon: 'icon-ef-dot' },
+    other: { name: 'Other', icon: 'icon-ef-hot' },
+  };
+  if (fixed[key]) return fixed[key];
+  const [id, part] = key.split(':');
+  const ability = (ABILITIES as Record<string, { name: string } | undefined>)[id];
+  const passive = (PASSIVES as Record<string, { name: string } | undefined>)[id];
+  const trait = (TRAITS as Record<string, { name: string } | undefined>)[id];
+  const base = ability?.name ?? passive?.name ?? trait?.name ?? id.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+  const name = part === 'dot' ? `${base} (over time)` : part === 'absorb' ? `${base} (absorbed)` : base;
+  const candidates = [part === 'dot' ? `icon-ef-dot-${id}` : '', `icon-ab-${id}`, `icon-pa-${id}`, `icon-tr-${id}`, part === 'dot' ? 'icon-ef-dot' : '', part === 'absorb' ? 'icon-ef-shield' : ''];
+  const icon = candidates.find((k) => k && PIXEL_ICONS[k]) ?? 'icon-ef-empower';
+  return { name, icon };
 }

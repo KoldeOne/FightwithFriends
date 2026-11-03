@@ -16,7 +16,7 @@ import { Results } from './screens/results';
 import { CampScreen } from './screens/camp';
 import { Meter } from './meter';
 import { loadCamp, withGear, type CampState } from '../sim/camp';
-import { WISH_DAMAGE } from '../sim/events';
+import { CURSE_DAMAGE, WISH_DAMAGE } from '../sim/events';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
 export class BattleScene extends Phaser.Scene {
@@ -90,6 +90,7 @@ export class BattleScene extends Phaser.Scene {
       // Camp gear goes with every hero (read fresh: it may have been upgraded since the run began).
       builds: run ? withGear(run.team, run.builds, this.camp) : undefined,
       wishBoost: run?.wishBoost && fighting ? WISH_DAMAGE : undefined,
+      curse: run?.cursed && fighting ? CURSE_DAMAGE : undefined,
     });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
 

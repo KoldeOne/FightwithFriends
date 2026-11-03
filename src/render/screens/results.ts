@@ -8,7 +8,7 @@ import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
 import { ICON_PX } from '../theme';
 
-/** How long the spoils stay up before the map comes back (tap to skip). */
+/** With Auto on: how long the spoils stay up before moving on. */
 const SPOILS_MS = 2400;
 
 /** After a fight: the spoils (gold, XP, level-ups), or the end of the run (game over or victory). */
@@ -119,12 +119,26 @@ export class Results {
     const end = () => {
       if (finished) return;
       finished = true;
+      timer.remove();
       box.destroy();
+      button.destroy();
       onDone();
     };
-    veil.on('pointerdown', end);
-    panel.setInteractive().on('pointerdown', end);
-    this.s.time.delayedCall(SPOILS_MS, end);
+    // The rewards stay up until you press Next Wave; with Auto on, they move on by themselves.
+    const button = this.s.button(cx, cy + h / 2 + 46, spoils.won ? 'Continue ▶' : 'Next Wave ▶', 26, '#2e86de', end).setDepth(121);
+    let autoAt = -1;
+    const timer = this.s.time.addEvent({
+      delay: 200,
+      loop: true,
+      callback: () => {
+        if (!this.s.auto) {
+          autoAt = -1;
+          return;
+        }
+        if (autoAt < 0) autoAt = this.s.time.now + SPOILS_MS;
+        if (this.s.time.now >= autoAt) end();
+      },
+    });
   }
 
   /** The party fell, but they held a wish: everyone rises again and the fight starts over. */

@@ -38,7 +38,8 @@ export class Hud {
       this.s.text(x, y, '', 13, '#ffffff')
         .setPadding(10, 6, 10, 6)
         .setBackgroundColor('#2b3445')
-        .setDepth(50)
+        // Above every overlay (reward screens, picks, the camp), so the top menu is always there.
+        .setDepth(200)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', onTap);
 
@@ -150,12 +151,12 @@ export class Hud {
       this.hudText.setText('');
     } else if (this.s.state === 'map' || this.s.state === 'choice') {
       this.waveText.setText(`ACT ${run.act}`).setColor('#ffd166');
-      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}`);
+      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}`);
     } else {
       this.waveText.setText(`ACT ${run.act} · FLOOR ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
       const ramp = this.s.battle.damageRamp;
       const sudden = ramp > 1 ? ` · SUDDEN DEATH x${ramp.toFixed(1)}` : '';
-      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${sudden}`);
+      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${sudden}`);
     }
 
     this.speedButton.setText(`Speed ${this.s.speed}x`);
