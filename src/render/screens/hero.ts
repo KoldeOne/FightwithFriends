@@ -1,7 +1,7 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
 import { abilityText } from '../../sim/abilityText';
-import { ABILITIES, CLASS_POOL, HERO_KIT, MAX_ABILITY_SLOTS, PASSIVES, TRAITS, WORLD } from '../../sim/content';
+import { ABILITIES, HERO_KIT, PASSIVES, WORLD } from '../../sim/content';
 import { sound } from '../sound';
 import {
   ALL_CLASSES,
@@ -17,9 +17,9 @@ import {
   saveRun,
   winsSoFar,
 } from '../../sim/run';
-import type { AbilityId, HeroClass, TraitId } from '../../sim/types';
+import type { AbilityId, HeroClass } from '../../sim/types';
 import { loadCamp, saveCamp, startLevel } from '../../sim/camp';
-import { abilityIcon, COLORS, DARK_LETTER, ICON_PX, LETTERS, spriteKey, spriteOriginY, traitIcon } from '../theme';
+import { abilityIcon, COLORS, DARK_LETTER, ICON_PX, LETTERS, spriteKey, spriteOriginY } from '../theme';
 
 /** Choosing a hero: the starting hero of a run, and recruits at the first campsites. Both pick a class, then its first ability. */
 export class HeroPicker {
@@ -96,67 +96,9 @@ export class HeroPicker {
       items.push(this.s.text(cx, 206, `Your party: ${party}`, 12, '#ffd166').setOrigin(0.5));
     }
     items.push(
-      ...this.classCards(
-        270,
-        (cls) => {
-          sound.play('click');
-          onPick(cls);
-        },
-        (cls) => {
-          sound.play('click');
-          this.showClassInfo(cls, () => onPick(cls), () => this.chooseClass(title, sub, onPick));
-        },
-      ),
-    );
-    this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
-  }
-
-  /** Everything a class can learn: its passive, every ability in its pool and its passive picks. */
-  private showClassInfo(cls: HeroClass, onChoose: () => void, onBack: () => void): void {
-    this.s.overlay?.destroy();
-    const cx = WORLD.width / 2;
-    const name = cls[0].toUpperCase() + cls.slice(1);
-    const kit = HERO_KIT[cls];
-    const items: Phaser.GameObjects.GameObject[] = [
-      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.9).setOrigin(0, 0).setInteractive(),
-      ...this.portrait(cls, cx, 118, 2),
-      this.s.text(cx, 136, `${name} — ${kit.role}`, 22, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
-      this.s.text(cx, 162, `${PASSIVES[kit.passive].name} (always on): ${PASSIVES[kit.passive].short}`, 12, '#9ad1ff')
-        .setOrigin(0.5, 0)
-        .setAlign('center')
-        .setWordWrapWidth(470),
-      this.s.text(cx, 204, `Spells and abilities it can learn (${MAX_ABILITY_SLOTS} slots per run)`, 13, '#ffd166').setOrigin(0.5),
-    ];
-    const rows: { icon: string; title: string; detail: string; text: string }[] = [
-      ...firstAbilityOptions(cls).map((id) => {
-        const def = ABILITIES[id];
-        return { icon: abilityIcon(id), title: def.name, detail: `${def.cost ? `${def.cost} ${kit.resource}` : 'free'} · ${def.cooldown}s`, text: abilityText({ level: 1 }, { id }) };
-      }),
-      ...CLASS_POOL[cls]
-        .filter((id): id is TraitId => id in TRAITS)
-        .map((id) => ({ icon: traitIcon(id), title: TRAITS[id].name, detail: 'passive', text: TRAITS[id].description })),
-    ];
-    const rowH = 64;
-    rows.forEach((r, i) => {
-      const y = 260 + i * (rowH + 4);
-      const left = cx - 228;
-      items.push(
-        this.s.add.rectangle(cx, y, 480, rowH, 0x1c2433).setStrokeStyle(1, 0x3a4660),
-        this.s.add.image(left, y - 12, r.icon).setOrigin(0, 0.5).setScale(28 / ICON_PX),
-        this.s.text(left + 38, y - 26, r.title, 15, '#ffffff').setFontStyle('bold'),
-        this.s.text(left + 456, y - 24, r.detail, 11, '#8f9bb3').setOrigin(1, 0),
-        this.s.text(left + 38, y - 6, r.text, 11, '#c9d1e0').setWordWrapWidth(410),
-      );
-    });
-    const by = 260 + rows.length * (rowH + 4) + 16;
-    items.push(
-      this.s.button(cx - 90, by, '← Back', 15, '#2b3445', () => {
+      ...this.classCards(270, (cls) => {
         sound.play('click');
-        onBack();
-      }),
-      this.s.button(cx + 80, by, `Choose ${name}`, 15, '#1e6f50', () => {
-        sound.play('click');
-        onChoose();
+        onPick(cls);
       }),
     );
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
@@ -218,7 +160,7 @@ export class HeroPicker {
     ];
   }
 
-  classCards(top: number, onPick: (cls: HeroClass) => void, onInfo?: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
+  classCards(top: number, onPick: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
     const cx = WORLD.width / 2;
     const cardH = 68;
     const items: Phaser.GameObjects.GameObject[] = [];
@@ -240,7 +182,6 @@ export class HeroPicker {
         this.s.text(left + 150, y - 26, kit.role, 11, '#c9d1e0'),
         this.s.text(left + 64, y - 4, `Passive: ${PASSIVES[kit.passive].name} — ${PASSIVES[kit.passive].short}`, 12, '#9ad1ff').setWordWrapWidth(330),
       );
-      if (onInfo) items.push(this.s.button(left + 412, y - 20, '📖 Abilities', 12, '#34405a', () => onInfo(cls)).setPadding(8, 5, 8, 5));
     });
     return items;
   }
