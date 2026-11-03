@@ -130,7 +130,7 @@ export class Choices {
     const slot = p.left[0];
     const b = run.builds[slot];
     const n = run.team.length - p.left.length + 1;
-    const title = p.source === 'chest' ? `Chest opened!${p.gold ? ` +${p.gold} gold` : ''}` : 'Campsite: training';
+    const title = p.source === 'chest' ? `Chest opened!${p.gold ? ` +${p.gold} gold` : ''}` : p.source === 'boss' ? 'Boss spoils' : 'Campsite: training';
     const options = trainOptions(run, slot);
     const learns = options.some((o) => o.kind === 'ability' || o.kind === 'trait');
     const items = this.frame(title, `Every hero gets a pick. ${heroName(run, slot)} (${n} of ${run.team.length}): ${learns ? 'learn something new' : 'all slots full, choose an upgrade'}.`);
@@ -142,16 +142,18 @@ export class Choices {
     );
     const names = [...b.abilities.map((a) => ABILITIES[a.id].name), ...b.traits.map((t) => TRAITS[t].name)].join(', ');
     items.push(this.s.text(cx - 185 + Math.max(1, b.abilities.length + b.traits.length) * 24 + 6, 220, names, 11, '#8f9bb3').setWordWrapWidth(260));
+    items.push(...this.spoilsStrip());
+    const step = options.length > 3 ? 124 : 140;
     options.forEach((r, k) => {
       items.push(
-        ...this.card(run, slot, r, 252 + k * 140, 128, () => {
+        ...this.card(run, slot, r, 252 + k * step, step - 12, () => {
           train(run, slot, r);
           this.done();
         }),
       );
     });
     items.push(
-      this.s.button(cx, 252 + options.length * 140 + 24, 'Skip', 14, '#2b3445', () => {
+      this.s.button(cx, 252 + options.length * step + 24, 'Skip', 14, '#2b3445', () => {
         train(run, slot, null);
         this.done();
       }),
@@ -219,6 +221,16 @@ export class Choices {
     }
   }
 
+  /** What the last fight paid, at the top of the pick after an elite or boss (instead of a separate pop-up). */
+  private spoilsStrip(): Phaser.GameObjects.GameObject[] {
+    const run = this.s.run!;
+    if (!run.lastSpoils) return [];
+    const cx = WORLD.width / 2;
+    const strip = this.s.text(cx, 72, run.lastSpoils, 13, '#ffe066').setOrigin(0.5).setAlign('center').setWordWrapWidth(500).setFontStyle('bold');
+    strip.setStroke('#000000', 3);
+    return [this.s.add.rectangle(cx, 72, WORLD.width - 20, Math.max(30, strip.height + 10), 0x2a2210, 0.95).setStrokeStyle(1, 0xffd166), strip];
+  }
+
   // --- upgrade picks ------------------------------------------------------------
 
   showUpgrade(): void {
@@ -227,15 +239,8 @@ export class Choices {
     if (p?.kind !== 'upgrade') return;
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
-    const titles = { elite: 'Elite spoils', boss: 'Boss spoils' };
-    const sub = 'Choose a reward for one of your heroes.';
-    const items = this.frame(titles[p.source], sub);
-    // What the fight paid, at the top (instead of a separate pop-up).
-    if (run.lastSpoils) {
-      const strip = this.s.text(cx, 72, run.lastSpoils, 13, '#ffe066').setOrigin(0.5).setAlign('center').setWordWrapWidth(500).setFontStyle('bold');
-      strip.setStroke('#000000', 3);
-      items.push(this.s.add.rectangle(cx, 72, WORLD.width - 20, Math.max(30, strip.height + 10), 0x2a2210, 0.95).setStrokeStyle(1, 0xffd166), strip);
-    }
+    const items = this.frame('Elite spoils', 'Choose a reward for one of your heroes.');
+    items.push(...this.spoilsStrip());
     p.options.forEach((o: PartyReward, k) => {
       items.push(
         ...this.card(run, o.slot, o.reward, 196 + k * 150, 140, () => {

@@ -1,15 +1,23 @@
 import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
+import type { Battle } from '../sim/battle';
 import { WORLD } from '../sim/content';
 import { COLORS } from './theme';
 
 const W = 168;
 const ROW = 17;
 const RIGHT = WORLD.width - 12;
-const BOTTOM = WORLD.hudTop - 10;
 const MODE_KEY = 'fightwithfriends.meterMode';
+/** The "Last fight" button on the map and pick screens (bottom-right, by the hint line). */
+const BUTTON_Y = WORLD.height - 20;
 
 type Mode = 'damage' | 'healing';
+type Hero = { id: number; label: string; kind: string };
+
+/** The last fight's numbers, kept across scene restarts so the map and pick screens can show them. */
+let lastFight: { heroes: Hero[]; meter: Battle['meter'] } | undefined;
+/** Whether the last-fight panel is open on the map and pick screens. */
+let openAfter = false;
 
 /**
  * The damage meter: a small panel in the bottom-right of the field with each
@@ -26,26 +34,84 @@ export class Meter {
   private tipFor?: number;
   private refresh = 0;
 
+  /** Where the panel is: over the field during and right after a fight, or behind a button on the map. */
+  private placement: 'field' | 'after' | 'none' = 'none';
+  private button?: Phaser.GameObjects.Text;
+  private bottom = WORLD.hudTop - 10;
+  private depth = 60;
+
   update(deltaMs: number): void {
-    const visible = this.s.state === 'playing' || this.s.state === 'paused';
-    if (!visible) {
-      this.ui?.destroy();
-      this.ui = undefined;
-      this.hideTip();
+    const state = this.s.state;
+    const b = this.s.battle;
+    const fought = b.heroes.length > 0 && b.time > 0;
+    // During a fight and on the screens straight after it (spoils, game over), the live numbers.
+    if (fought && (state === 'playing' || state === 'paused' || state === 'spoils' || state === 'over')) {
+      lastFight = { heroes: b.heroes.map((h) => ({ id: h.id, label: h.label, kind: h.kind })), meter: b.meter };
+      if (state === 'playing') openAfter = false;
+      this.place('field', state === 'playing' || state === 'paused' ? 60 : 130, WORLD.hudTop - 10);
+    } else if (lastFight && (state === 'map' || state === 'choice')) {
+      this.place('after', 130, BUTTON_Y - 16);
+    } else {
+      this.place('none', 0, 0);
       return;
     }
     this.refresh -= deltaMs;
     if (this.ui && this.refresh > 0) return;
     this.refresh = 250;
-    if (!this.ui || this.rows.size !== this.s.battle.heroes.length) this.build();
+    const show = this.placement === 'field' || openAfter;
+    if (!show) {
+      this.ui?.destroy();
+      this.ui = undefined;
+      this.rows.clear();
+      this.hideTip();
+      return;
+    }
+    if (!this.ui || this.rows.size !== this.heroes().length) this.build();
     this.fill();
   }
 
+  /** Move the panel (and the "Last fight" button) when the screen changes. */
+  private place(placement: 'field' | 'after' | 'none', depth: number, bottom: number): void {
+    if (placement === this.placement && depth === this.depth) return;
+    this.placement = placement;
+    this.depth = depth;
+    this.bottom = bottom;
+    this.ui?.destroy();
+    this.ui = undefined;
+    this.rows.clear();
+    this.hideTip();
+    this.button?.destroy();
+    this.button = undefined;
+    this.refresh = 0;
+    if (placement !== 'after') return;
+    this.button = this.s
+      .text(RIGHT, BUTTON_Y, '📊 Last fight', 12, '#ffffff')
+      .setOrigin(1, 0.5)
+      .setPadding(8, 3, 8, 3)
+      .setBackgroundColor('#2b3445')
+      .setDepth(depth)
+      .setInteractive({ useHandCursor: true });
+    this.button.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, ev: Phaser.Types.Input.EventData) => {
+      ev.stopPropagation();
+      openAfter = !openAfter;
+      this.refresh = 0;
+    });
+  }
+
+  private heroes(): Hero[] {
+    return this.placement === 'after' ? (lastFight?.heroes ?? []) : this.s.battle.heroes.map((h) => ({ id: h.id, label: h.label, kind: h.kind }));
+  }
+
+  private data(): Battle['meter'] {
+    return this.placement === 'after' ? (lastFight?.meter ?? new Map()) : this.s.battle.meter;
+  }
+
   private totals(): { id: number; name: string; color: number; total: number; parts: [string, number][] }[] {
-    const heroes = this.s.battle.units.filter((u) => u.side === 'hero');
+    const heroes = this.heroes();
+    const meter = this.data();
     return heroes
       .map((h) => {
-        const parts = Object.entries(this.s.battle.meter.get(h.id)?.[this.mode] ?? {}).sort((a, b) => b[1] - a[1]);
+        const parts = Object.entries(meter.get(h.id)?.[this.mode] ?? {}).sort((a, b) => b[1] - a[1]);
         return { id: h.id, name: h.label, color: COLORS[h.kind] ?? 0xffffff, total: parts.reduce((a, [, v]) => a + v, 0), parts };
       })
       .sort((a, b) => b.total - a.total);
@@ -58,10 +124,10 @@ export class Meter {
   private top = 0;
 
   private build(): void {
-    const heroes = this.s.battle.heroes;
+    const heroes = this.heroes();
     const h = 24 + heroes.length * ROW + 4;
     const left = RIGHT - W;
-    this.top = BOTTOM - h;
+    this.top = this.bottom - h;
     this.ui?.destroy();
     this.rows.clear();
     const items: Phaser.GameObjects.GameObject[] = [this.s.add.rectangle(left, this.top, W, h, 0x0b0e14, 0.72).setOrigin(0, 0).setStrokeStyle(1, 0x3a4660)];
@@ -93,13 +159,13 @@ export class Meter {
       this.rows.set(hero.id, { bg, bar, name, num });
       items.push(bg, bar, name, num);
     }
-    this.ui = this.s.add.container(0, 0, items).setDepth(60);
+    this.ui = this.s.add.container(0, 0, items).setDepth(this.depth);
   }
 
   /** Update the numbers, bar lengths and order. */
   private fill(): void {
     if (!this.title || !this.toggle) return;
-    this.title.setText(this.mode === 'damage' ? 'Damage' : 'Healing');
+    this.title.setText(this.placement === 'after' ? 'Last fight' : this.mode === 'damage' ? 'Damage' : 'Healing');
     this.toggle.setText(this.mode === 'damage' ? 'DMG ⇄' : 'HEAL ⇄').setBackgroundColor(this.mode === 'damage' ? '#7a2e2e' : '#1e6f50');
     const totals = this.totals();
     const max = Math.max(1, ...totals.map((r) => r.total));
@@ -128,9 +194,9 @@ export class Meter {
     const w = text.width + 14;
     const h = text.height + 10;
     const x = RIGHT - W - 8 - w;
-    const y = Math.max(110, BOTTOM - h);
+    const y = Math.max(110, this.bottom - h);
     text.setPosition(x + 7, y + 5);
-    this.tip = this.s.add.container(0, 0, [this.s.add.rectangle(x, y, w, h, 0x0b0e14, 0.92).setOrigin(0, 0).setStrokeStyle(1, row.color), text]).setDepth(61);
+    this.tip = this.s.add.container(0, 0, [this.s.add.rectangle(x, y, w, h, 0x0b0e14, 0.92).setOrigin(0, 0).setStrokeStyle(1, row.color), text]).setDepth(this.depth + 1);
   }
 
   private hideTip(): void {

@@ -47,8 +47,9 @@ export interface ShopItem extends PartyReward {
 export type Pending =
   | { kind: 'recruit' }
   /** Chest or training campsite: every hero in `left` still gets their own pick (a new ability, or an upgrade once full). */
-  | { kind: 'train'; source: 'chest' | 'campsite'; left: number[]; gold?: number }
-  | { kind: 'upgrade'; source: 'elite' | 'boss'; options: PartyReward[] }
+  | { kind: 'train'; source: 'chest' | 'campsite' | 'boss'; left: number[]; gold?: number }
+  /** An elite's pick: one reward for one hero. */
+  | { kind: 'upgrade'; source: 'elite'; options: PartyReward[] }
   | { kind: 'shop'; stock: ShopItem[]; rerolls: number }
   | { kind: 'event'; id: EventId };
 
@@ -266,9 +267,10 @@ export function partyUpgradeOptions(run: RunState, salt: number, count = 3): Par
  */
 export function trainOptions(run: RunState, slot: number): Reward[] {
   const rng = nodeRng(run, 11 + slot);
-  // A golden chest offers four.
   const node = currentNode(run);
-  const count = run.pending?.kind === 'train' && run.pending.source === 'chest' && node?.rich ? 4 : 3;
+  // A boss, or a golden chest, offers four.
+  const p = run.pending;
+  const count = p?.kind === 'train' && (p.source === 'boss' || (p.source === 'chest' && node?.rich)) ? 4 : 3;
   const fresh = freshPicks(run.team[slot], run.builds[slot]);
   if (fresh.length) return shuffle(rng, fresh).slice(0, count);
   const u = upgrades(run.team[slot], run.builds[slot]);
@@ -427,8 +429,13 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
     spoils.won = true;
     return spoils;
   }
-  if (node.type === 'elite' || node.type === 'boss') {
-    run.pending = { kind: 'upgrade', source: node.type, options: partyPickOptions(run, 5) };
+  if (node.type === 'elite') {
+    run.pending = { kind: 'upgrade', source: 'elite', options: partyPickOptions(run, 5) };
+    spoils.pick = true;
+  }
+  // A boss: every hero gets their own pick (1 of 4).
+  if (node.type === 'boss') {
+    run.pending = { kind: 'train', source: 'boss', left: run.team.map((_, i) => i) };
     spoils.pick = true;
   }
   spoils.actCleared = node.type === 'boss';
@@ -438,7 +445,7 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
 /** After the current choice: if it was the act's boss, move on to the next act. */
 function finishPending(run: RunState): void {
   run.lastSpoils = undefined;
-  const wasBoss = run.pending?.kind === 'upgrade' && run.pending.source === 'boss';
+  const wasBoss = run.pending?.kind === 'train' && run.pending.source === 'boss';
   run.pending = undefined;
   if (wasBoss) {
     nextAct(run);

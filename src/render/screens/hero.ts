@@ -102,7 +102,7 @@ export class HeroPicker {
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }
 
-  /** Step two: the hero's first ability (its usual opener, or any active from its pool). */
+  /** Step two: the hero's first ability (any active from its pool). */
   private chooseAbility(cls: HeroClass, mode: 'start' | 'recruit', onPick: (id: AbilityId) => void): void {
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
@@ -121,13 +121,12 @@ export class HeroPicker {
     options.forEach((id, i) => {
       const def = ABILITIES[id];
       const y = 262 + i * (cardH + 6);
-      const usual = id === HERO_KIT[cls].starting;
       const bg = this.s.add
-        .rectangle(cx, y, 480, cardH, usual ? 0x22304a : 0x1c2433)
-        .setStrokeStyle(2, usual ? 0xffd166 : 0x3a4660)
+        .rectangle(cx, y, 480, cardH, 0x1c2433)
+        .setStrokeStyle(2, 0x3a4660)
         .setInteractive({ useHandCursor: true })
         .on('pointerover', () => bg.setFillStyle(0x26314a))
-        .on('pointerout', () => bg.setFillStyle(usual ? 0x22304a : 0x1c2433))
+        .on('pointerout', () => bg.setFillStyle(0x1c2433))
         .on('pointerdown', () => {
           sound.play('click');
           onPick(id);
@@ -136,7 +135,7 @@ export class HeroPicker {
       items.push(
         bg,
         this.s.add.image(left, y - 13, abilityIcon(id)).setOrigin(0, 0.5).setScale(28 / ICON_PX),
-        this.s.text(left + 38, y - 26, `${def.name}${usual ? '  (usual)' : ''}`, 16, '#ffffff').setFontStyle('bold'),
+        this.s.text(left + 38, y - 26, def.name, 16, '#ffffff').setFontStyle('bold'),
         this.s.text(left + 38, y - 6, abilityText({ level: 1 }, { id }), 12, '#c9d1e0').setWordWrapWidth(400),
         this.s.text(left + 230, y - 24, `${def.cost ? `${def.cost} ${HERO_KIT[cls].resource}` : 'free'} · ${def.cooldown}s`, 11, '#8f9bb3'),
       );
@@ -179,8 +178,7 @@ export class HeroPicker {
         ...this.portrait(cls, left + 30, y + 30, 1.65),
         this.s.text(left + 64, y - 29, cls[0].toUpperCase() + cls.slice(1), 17, '#ffffff').setFontStyle('bold'),
         this.s.text(left + 150, y - 26, kit.role, 11, '#c9d1e0'),
-        this.s.text(left + 64, y - 6, `Usually starts with: ${ABILITIES[kit.starting].name}`, 12, '#ffd166'),
-        this.s.text(left + 64, y + 12, `Passive: ${PASSIVES[kit.passive].name} — ${PASSIVES[kit.passive].short}`, 11, '#9ad1ff'),
+        this.s.text(left + 64, y - 4, `Passive: ${PASSIVES[kit.passive].name} — ${PASSIVES[kit.passive].short}`, 12, '#9ad1ff').setWordWrapWidth(330),
       );
     });
     return items;

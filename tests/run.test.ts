@@ -190,6 +190,22 @@ describe('A map run', () => {
     expect(opts.some((o) => o.reward.kind === 'mastery')).toBe(false);
   });
 
+  it('a boss gives every hero their own pick of four, then the next act', () => {
+    const run = newRun('warrior', undefined, 42);
+    let guard = 0;
+    while (!(run.status === 'fight' && currentNode(run)?.type === 'boss') && guard++ < 2000) advance(run);
+    win(run);
+    const p = run.pending;
+    expect(p).toMatchObject({ kind: 'train', source: 'boss' });
+    if (p?.kind !== 'train') return;
+    expect(p.left).toEqual(run.team.map((_, i) => i));
+    for (const slot of [...p.left]) {
+      expect(trainOptions(run, slot)).toHaveLength(4);
+      train(run, slot, trainOptions(run, slot)[0]);
+    }
+    expect(run.act).toBe(2);
+  });
+
   it('golden nodes pay double gold and 1.5x XP; a golden chest offers four options', () => {
     const run = newRun('mage', undefined, 41);
     while (run.status !== 'fight') advance(run);

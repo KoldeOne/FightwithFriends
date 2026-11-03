@@ -66,7 +66,7 @@ economy), `src/sim/run.ts` (run state, rewards, Auto).
 
 | Rule | Value |
 |---|---|
-| Start | **One hero.** Pick any class and its **first ability** (any active from its pool; its usual opener is highlighted). |
+| Start | **One hero.** Pick any class and its **first ability** (any active from its pool). |
 | Acts | **3, always in this order:** The Goblin Woods (goblins), The Sunken Crypt (undead), The Burning Rift (demons). Each act has its own look, enemies, elite and boss. |
 | Map | Each act is a new random map: **12 floors** of nodes on branching, non-crossing paths, then the act's **boss**. You pick one node per floor. |
 | Losing | **A party wipe ends the run**, unless you carry a **wish** from a Wishing Well (then everyone rises and the fight starts over). |
@@ -86,7 +86,7 @@ economy), `src/sim/run.ts` (run state, rewards, Auto).
 | **Shop** | 3 abilities and 2 upgrades for specific heroes, bought with gold; reroll for 10 (rising). Prices rise each act. |
 | **Campsite** | Two campsite floors are **recruits** (pick any class, repeats allowed, and its first ability): **mid-Act 1 (floor 6)** and **mid-Act 2 (floor 6)**. A third hero joins **right after the Act 1 boss**, so the party is 4 by the middle of the run. Every other campsite is **training**: **every hero picks 1 of 3** (new abilities or passives, or upgrades once full). |
 | **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). So far only the **Wishing Well**: make a wish (hold at most one), or fish out 25 gold if you already hold one. A used wish brings the party back and gives every hero **+20% damage** for the restarted fight (a "Wished" buff). |
-| **Boss** | The act's boss; then an upgrade pick and the next act. |
+| **Boss** | The act's boss; then **every hero picks 1 of 4** (new abilities, or upgrades once full) and the next act. |
 
 Some fights, elites and chests are **golden** (a gold ring): **2× gold, 1.5× XP
 and 2× camp loot**, and a golden chest offers every hero **4** options
@@ -197,17 +197,17 @@ on the cheapest upgrade).
 Target (decided 2026-11-03): you have to earn the win. Beat Act 1 after about
 1–2 failed runs, Act 2 by about run 4–6, the whole run around run 8–12.
 
-Result (20 guilds × 15 runs, 2026-11-03, after the recruit, XP and golden
-changes): the first run that beat Act 1 was run 2 (median), Act 2 run 7, the
-whole run run 10.
+Result (20 guilds × 15 runs, 2026-11-03, after the recruit, XP, golden and
+boss-reward changes): the first run that beat Act 1 was run 2 (median), Act 2
+run 6, the whole run run 8.
 
 | Runs | Beat Act 1 | Beat Act 2 | Won |
 |---|---|---|---|
 | 1 | 35% | 10% | 0% |
-| 2–3 | 53% | 5% | 0% |
-| 4–6 | 73% | 22% | 3% |
-| 7–10 | 73% | 34% | 16% |
-| 11–15 | 95% | 64% | 45% |
+| 2–3 | 53% | 13% | 3% |
+| 4–6 | 73% | 23% | 7% |
+| 7–10 | 83% | 44% | 31% |
+| 11–15 | 93% | 67% | 54% |
 
 ---
 
@@ -361,7 +361,8 @@ Polymorph exist as ability definitions but are only used by the passives.
   campsites**, where **every hero** picks 1 of 3 from their class pool (or 1
   of 3 upgrades once all 5 slots are full), and from **shops**. Picked
   abilities stay for the run (no swapping).
-- **Elite and boss picks:** 1 of 3 for one named hero. While anyone has a free
+- **Boss picks:** every hero picks 1 of 4 (like a chest, with one more option).
+- **Elite picks:** 1 of 3 for one named hero. While anyone has a free
   slot, two are **new abilities or passives** (for the heroes with the fewest)
   and one is an upgrade; once everyone is full, three upgrades. You can skip.
 - **New spells first:** named upgrades are only offered to a hero with at
@@ -530,6 +531,9 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   damage this fight, highest first; the **DMG ⇄ / HEAL ⇄** button switches to
   healing (healing that landed, plus shield absorbs). Hover or tap a bar for
   that hero's breakdown by source, auto-attacks and damage over time included.
+  It stays up on the spoils and end-of-run screens; on the map and pick
+  screens a **📊 Last fight** button (bottom-right) opens the last fight's
+  numbers.
 - **Title screen:** continue a saved run, best and wins, **The Camp**, then
   choose a class and its first ability.
 - **Map** (§2): node icons, golden rings for golden nodes, pulsing reachable
