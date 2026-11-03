@@ -38,7 +38,7 @@ export class Hud {
     const small = (x: number, y: number, onTap: () => void) =>
       new PixelButton(this.s, x, y, ' ', 13, '#3a4660', onTap)
         .setOrigin(0, 0)
-        .setPadding(10, 5)
+        .setPadding(11, 9)
         // Above every overlay (reward screens, picks, the camp), so the top menu is always there.
         .setDepth(200);
 
@@ -166,6 +166,13 @@ export class Hud {
     this.speedButton.setText(`Speed ${this.s.speed}x`);
     this.soundButton.setText(`Sound: ${sound.muted ? 'OFF' : 'ON'}`);
     this.pauseButton.setText(this.s.state === 'paused' ? '▶ Resume' : '❚❚ Pause');
+    // Speed and Pause only do something in a fight.
+    const fighting = this.s.state === 'playing' || this.s.state === 'paused';
+    this.speedButton.setVisible(fighting);
+    this.pauseButton.setVisible(fighting);
+    // Sound and Auto move to the edges when the others are hidden.
+    this.soundButton.setX(fighting ? 98 : 8);
+    this.autoButton.setX(fighting ? WORLD.width - 104 : WORLD.width - 8);
     this.autoButton.setText(`Auto: ${this.s.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.s.auto ? '#1e6f50' : '#3a4660');
 
     this.updatePartyHud();

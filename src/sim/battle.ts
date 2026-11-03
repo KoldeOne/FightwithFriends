@@ -72,8 +72,6 @@ export interface BattleOptions {
   playerClass?: HeroClass;
   /** Levels, abilities and traits carried over from earlier waves, per team slot. */
   builds?: HeroBuild[];
-  /** A wish brought the party back: every hero deals this much more damage this fight (e.g. 0.2). */
-  wishBoost?: number;
   /** A curse: every hero takes this much more damage this fight (e.g. 0.25). */
   curse?: number;
   /** A Feast: every hero has this much more max health this fight (e.g. 0.15). */
@@ -150,9 +148,6 @@ export class Battle {
         h.hp = h.maxHp;
         this.addEffect(h, { kind: 'fed', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: opts.feast, sourceId: h.id });
       }
-    if (opts.wishBoost)
-      for (const h of this.units.filter((u) => u.side === 'hero'))
-        this.addEffect(h, { kind: 'wished', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: opts.wishBoost, sourceId: h.id });
     // Arena enemies are on the field from the start, so you can scout them before the fight.
     this.spawnDue();
   }
@@ -1883,8 +1878,6 @@ export class Battle {
     if (from.side === 'hero') {
       const empower = Math.max(0, ...(from.effects ?? []).filter((e) => e.kind === 'empower').map((e) => e.amount));
       if (empower) amount = Math.round(amount * (1 + empower));
-      const wished = from.effects?.find((e) => e.kind === 'wished');
-      if (wished) amount = Math.round(amount * (1 + wished.amount));
     }
     const ruin = Math.max(0, ...(to.effects ?? []).filter((e) => e.kind === 'vulnerable').map((e) => e.amount));
     if (ruin) amount = Math.round(amount * (1 + ruin));

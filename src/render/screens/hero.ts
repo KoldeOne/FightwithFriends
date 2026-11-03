@@ -72,7 +72,7 @@ export class HeroPicker {
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
     const items: Phaser.GameObjects.GameObject[] = [
-      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.85).setOrigin(0, 0).setInteractive(),
+      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14, 0.96).setOrigin(0, 0).setInteractive(),
       this.s.text(cx, 128, title, 28, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
       this.s.text(cx, 168, sub, 13, '#c9d1e0').setOrigin(0.5).setAlign('center').setWordWrapWidth(470),
     ];
@@ -110,7 +110,7 @@ export class HeroPicker {
     const cx = WORLD.width / 2;
     const name = cls[0].toUpperCase() + cls.slice(1);
     const items: Phaser.GameObjects.GameObject[] = [
-      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.88).setOrigin(0, 0).setInteractive(),
+      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14, 0.96).setOrigin(0, 0).setInteractive(),
       ...this.portrait(cls, cx, 150, 2),
       this.s.text(cx, 168, `${name}'s first ability`, 24, '#ffffff').setOrigin(0.5).setFontStyle('bold'),
       this.s.text(cx, 198, `${PASSIVES[HERO_KIT[cls].passive].name} (always on): ${PASSIVES[HERO_KIT[cls].passive].short} More abilities come from training and shops.`, 12, '#9ad1ff')

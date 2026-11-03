@@ -138,8 +138,6 @@ export interface Effect {
     | 'guardian'
     /** Doom: `amount` damage lands when it expires. */
     | 'doom'
-    /** Wishing Well: the party rose again; heroes deal `amount` more damage this fight. */
-    | 'wished'
     /** Cursed Shrine: takes `amount` more damage this fight. */
     | 'cursed'
     /** Feast: `amount` more max health this fight. */

@@ -24,7 +24,8 @@ export class Results {
     const node = currentNode(run)!;
     // Camp loot goes home straight away, win or lose.
     const camp = loadCamp();
-    const { spoils, loot } = settleFight(run, camp, { won, fallen, kills: this.s.battle.kills });
+    const meter = this.s.battle.heroes.map((h) => ({ slot: h.slot ?? 0, damage: this.s.battle.meter.get(h.id)?.damage ?? {}, healing: this.s.battle.meter.get(h.id)?.healing ?? {} }));
+    const { spoils, loot } = settleFight(run, camp, { won, fallen, kills: this.s.battle.kills, meter });
     saveCamp(camp);
     if (spoils.wished) {
       saveRun(run);
@@ -46,7 +47,7 @@ export class Results {
     }
     if (spoils.pick) {
       // An elite or boss pick follows: the rewards go at the top of that screen instead.
-      run.lastSpoils = `${spoils.actCleared ? `ACT ${run.act} CLEARED! ` : node.type === 'challenge' ? 'Challenge won! ' : 'Victory: '}${spoilsLine(run, spoils, lootText(loot))}`;
+      run.lastSpoils = `${spoils.actCleared ? `ACT ${run.act} CLEARED! ` : 'Victory: '}${spoilsLine(run, spoils, lootText(loot))}`;
       saveRun(run);
       this.s.scene.restart({ run });
       return;
@@ -121,7 +122,7 @@ export class Results {
       onDone();
     };
     // The rewards stay up until you press Next Wave; with Auto on, they move on by themselves.
-    const button = this.s.button(cx, cy + h / 2 + 46, spoils.won ? 'Continue ▶' : 'Next Wave ▶', 26, '#2e86de', end).setDepth(121);
+    const button = this.s.button(cx, cy + h / 2 + 46, 'Continue ▶', 26, '#2e86de', end).setDepth(121);
     let autoAt = -1;
     const timer = this.s.time.addEvent({
       delay: 200,

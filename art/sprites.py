@@ -635,8 +635,6 @@ G.update({
                  '..###hh###..', '..##hhhh##..', '...######...', '.oo.oooo.oo.', '..oooooooo..', '............'],
     'crown': ['............', '............', '#....##....#', '##..####..##', '###.####.###', '############',
               '##hh##hh##hh', '############', '.##########.', '............', '............', '............'],
-    'swords': ['##........##', '###......###', '.###....###.', '..###..###..', '...######...', '....####....',
-               '....####....', '...######...', '..hh#..#hh..', '.hh......hh.', 'hh........hh', '............'],
     'meat': ['............', '.....####...', '....######..', '...########.', '...########.', '...#######..',
              '....#####...', '...hh###....', '..hh........', '.hhh........', '.hh.........', '............'],
     'question': ['............', '....####....', '...######...', '..##....##..', '.......###..', '......###...',
@@ -696,14 +694,14 @@ ICONS = {
     'ef-dot': ('flame', '8', 'f', 'F'), 'ef-slow': ('snow', '8', 'c'), 'ef-sheep': ('sheep', '8', 'w'),
     'ef-silence': ('nosign', '8', 'c'), 'ef-weaken': ('down', '8', 'a'), 'ef-stun': ('star', '8', 'y'),
     'ef-vulnerable': ('target', '8', 'x'), 'ef-doom': ('hourglass', '8', 'G'),
-    'ef-wished': ('star', '9', 'y'), 'ef-cursed': ('skull', '8', 'n'), 'ef-fed': ('meat', '9', 'f', 'w'),
+    'ef-cursed': ('skull', '8', 'n'), 'ef-fed': ('meat', '9', 'f', 'w'),
     # Damage over time, by what caused it
     'ef-dot-wither': ('skull', '8', 'G'), 'ef-dot-sinisterStrike': ('drop', '8', 'r'), 'ef-dot-fanOfKnives': ('drop', '8', 'n'),
     'ef-dot-poison': ('drop', '8', 'n'), 'ef-dot-hexBolt': ('skull', '8', 'n'), 'ef-dot-exorcism': ('flame', '8', 'g', 'L'),
     # Map nodes, and gold
     'nd-fight': ('sword', '7', 'm'), 'nd-elite': ('skull', '8', 'i'), 'nd-chest': ('chest', '0', 'b', 'g'),
     'nd-campsite': ('campfire', '0', 'f', 'F'), 'nd-shop': ('bag', '9', 'b', 'g'), 'nd-boss': ('crown', '8', 'g', 'x'),
-    'nd-event': ('question', '5', 'y'), 'nd-challenge': ('swords', '8', 'y', 'w'), 'nd-feast': ('meat', '0', 'f', 'w'),
+    'nd-event': ('question', '5', 'y'),
     'ui-gold': ('orb', '0', 'g', 'F'),
 }
 

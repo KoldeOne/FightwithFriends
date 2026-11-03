@@ -25,7 +25,8 @@ import {
   trainOptions,
   type RunState,
   MAX_PARTY,
-  challengeTwist,
+  eliteTwist,
+  TWISTS,
   fightMods,
   nextAct,
   currentNode,
@@ -187,6 +188,8 @@ describe('A map run', () => {
     const run = newRun('warrior', undefined, 40);
     while (run.pending?.kind !== 'recruit') advance(run);
     recruit(run, 'mage');
+    // Two abilities each: too few for named upgrades.
+    for (const b of run.builds) b.abilities = b.abilities.slice(0, 2);
     run.at = run.map.floors[3][0];
     const opts = partyPickOptions(run, 5);
     expect(opts).toHaveLength(3);
@@ -337,32 +340,18 @@ describe('A map run', () => {
     expect(run.wishes).toBe(1);
   });
 
-  it('the Cursed Shrine makes every hero take more damage in the next fight only', () => {
+  it('the Cursed Shrine: take its gold and every hero takes more damage in the next fight only', () => {
     const run = newRun('warrior', undefined, 33);
     run.pending = { kind: 'event', id: 'cursedShrine' };
-    expect(eventChoices(run).map((c) => c.label)).toEqual(['Press on']);
+    expect(eventChoices(run).map((c) => c.label)).toEqual(['Take the gold (cursed)', 'Walk on']);
     chooseEvent(run, 0);
     expect(run.cursed).toBe(true);
+    expect(run.gold).toBe(40);
     while (run.status !== 'fight') advance(run);
     const cursed = new Battle({ seed: 1, wave: encounterFor(run), team: run.team, builds: run.builds, curse: CURSE_DAMAGE });
     expect(cursed.heroes.every((h) => h.effects?.some((e) => e.kind === 'cursed' && e.amount === CURSE_DAMAGE))).toBe(true);
     win(run);
     expect(run.cursed).toBeUndefined();
-  });
-
-  it('the Gambler: win doubles the stake, lose loses it; no bet without the gold', () => {
-    const outcomes = new Set<number>();
-    for (let seed = 50; seed < 70; seed++) {
-      const run = newRun('mage', undefined, seed);
-      run.gold = 30;
-      run.pending = { kind: 'event', id: 'gambler' };
-      chooseEvent(run, 0);
-      outcomes.add(run.gold);
-    }
-    expect([...outcomes].sort()).toEqual([10, 50]);
-    const broke = newRun('mage', undefined, 1);
-    broke.pending = { kind: 'event', id: 'gambler' };
-    expect(eventChoices(broke).map((c) => c.label)).toEqual(['Walk away']);
   });
 
   it('the Wounded Traveller pays you back at the start of the next act', () => {
@@ -410,26 +399,31 @@ describe('A map run', () => {
     expect(run.feast).toBe(1);
   });
 
-  it('challenges: a twist, a tougher fight around an elite, then a pick of four', () => {
-    for (let seed = 70; seed < 120; seed++) {
+  it('some elites carry a twist: shown on the map, tougher, and a reward from four', () => {
+    let twisted = 0;
+    let plain = 0;
+    for (let seed = 70; seed < 120 && (twisted < 3 || plain < 3); seed++) {
       const run = newRun('warrior', undefined, seed);
-      const node = Object.values(run.map.nodes).find((n) => n.type === 'challenge');
-      if (!node) continue;
-      run.at = node.id;
-      run.status = 'fight';
-      const twist = challengeTwist(run, node);
-      const wave = encounterFor(run);
-      expect(wave.name).toContain('Challenge');
-      expect(wave.spawns.some((sp) => sp.kind === 'brute')).toBe(true);
-      const mods = fightMods(run);
-      if (twist === 'enraged') expect(mods.enemyDamage).toBeGreaterThan(1);
-      if (twist === 'frail') expect(mods.healingScale).toBeLessThan(1);
-      finishFight(run, true, [], wave.spawns.map((sp) => ({ kind: sp.kind })));
-      expect(run.pending).toMatchObject({ kind: 'upgrade', source: 'challenge' });
-      if (run.pending?.kind === 'upgrade') expect(run.pending.options).toHaveLength(4);
-      return;
+      for (const node of Object.values(run.map.nodes).filter((n) => n.type === 'elite')) {
+        const r = structuredClone(run);
+        r.at = node.id;
+        r.status = 'fight';
+        const twist = eliteTwist(r, node);
+        const wave = encounterFor(r);
+        expect(wave.spawns.some((sp) => sp.kind === 'brute')).toBe(true);
+        const mods = fightMods(r);
+        if (twist === 'enraged') expect(mods.enemyDamage).toBeGreaterThan(1);
+        if (twist === 'frail') expect(mods.healingScale).toBeLessThan(1);
+        if (twist) expect(wave.name).toContain(TWISTS[twist].name);
+        finishFight(r, true, [], wave.spawns.map((sp) => ({ kind: sp.kind })));
+        expect(r.pending).toMatchObject({ kind: 'upgrade', source: 'elite' });
+        if (r.pending?.kind === 'upgrade') expect(r.pending.options).toHaveLength(twist ? 4 : 3);
+        if (twist) twisted++;
+        else plain++;
+      }
     }
-    throw new Error('no challenge on any map');
+    expect(twisted).toBeGreaterThan(0);
+    expect(plain).toBeGreaterThan(0);
   });
 
   it('a wish brings the party back after a wipe and restarts the fight with a new seed', () => {

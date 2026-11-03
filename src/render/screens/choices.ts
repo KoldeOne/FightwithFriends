@@ -84,16 +84,31 @@ export class Choices {
   private frame(title: string, sub: string): Phaser.GameObjects.GameObject[] {
     const cx = WORLD.width / 2;
     return [
-      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
+      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14, 0.96).setOrigin(0, 0).setInteractive(),
       this.s.text(cx, 116, title, 26, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
       this.s.text(cx, 148, sub, 13, '#c9d1e0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(480),
     ];
   }
 
-  /** One card: icon, tag, title, what it does, and its numbers (Now / After for upgrades). */
-  private card(run: RunState, slot: number, r: Reward, y: number, h: number, onTap: () => void, extra?: string): Phaser.GameObjects.GameObject[] {
+  /** One card, sized to its text: icon, tag, title, what it does, and its numbers (Now / After for upgrades). */
+  private card(run: RunState, slot: number, r: Reward, y: number, onTap: () => void, extra?: string): { items: Phaser.GameObjects.GameObject[]; h: number } {
     const cx = WORLD.width / 2;
     const d = describeReward(r);
+    const left = cx - 185;
+    const wrap = 400;
+    const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
+    const preview = rewardPreview(run, slot, r);
+    const who = this.s.text(left, y + 8, `${d.tag} · ${heroName(run, slot)}${extra ? ` · ${extra}` : ''}`, 11, tagColor).setFontStyle('bold');
+    const title = this.s.text(left, y + 22, d.title, 17, '#ffffff').setFontStyle('bold');
+    const desc = this.s.text(left, y + 44, r.kind === 'ability' && preview ? preview.after : d.text, 12, '#c9d1e0').setWordWrapWidth(wrap);
+    const texts: Phaser.GameObjects.Text[] = [who, title, desc];
+    if (preview && r.kind !== 'ability') {
+      const now = this.s.text(left, y + 46 + desc.height, `Now: ${preview.now ?? '—'}`, 11, '#9aa5b8').setWordWrapWidth(wrap);
+      const after = this.s.text(left, y + 48 + desc.height + now.height, `After: ${preview.after}`, 11, '#ffd166').setWordWrapWidth(wrap);
+      texts.push(now, after);
+    }
+    const last = texts[texts.length - 1];
+    const h = Math.max(72, Math.ceil(last.y + last.height - y + 10));
     const bg = this.s.add.rectangle(cx, y + h / 2, 480, h, 0x1c2433).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
     bg.on('pointerover', () => bg.setFillStyle(0x26314a));
     bg.on('pointerout', () => bg.setFillStyle(0x1c2433));
@@ -101,21 +116,7 @@ export class Choices {
       sound.play('click');
       onTap();
     });
-    const left = cx - 185;
-    const wrap = 400;
-    const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
-    const preview = rewardPreview(run, slot, r);
-    const out: Phaser.GameObjects.GameObject[] = [bg, this.s.add.image(cx - 228, y + 10, rewardIcon(r)).setOrigin(0, 0).setScale(30 / ICON_PX)];
-    const who = this.s.text(left, y + 8, `${d.tag} · ${heroName(run, slot)}${extra ? ` · ${extra}` : ''}`, 11, tagColor).setFontStyle('bold');
-    const title = this.s.text(left, y + 22, d.title, 17, '#ffffff').setFontStyle('bold');
-    const desc = this.s.text(left, y + 44, r.kind === 'ability' && preview ? preview.after : d.text, 12, '#c9d1e0').setWordWrapWidth(wrap);
-    out.push(who, title, desc);
-    if (preview && r.kind !== 'ability') {
-      const now = this.s.text(left, y + 46 + desc.height, `Now: ${preview.now ?? '—'}`, 11, '#9aa5b8').setWordWrapWidth(wrap);
-      const after = this.s.text(left, y + 48 + desc.height + now.height, `After: ${preview.after}`, 11, '#ffd166').setWordWrapWidth(wrap);
-      out.push(now, after);
-    }
-    return out;
+    return { items: [bg, this.s.add.image(cx - 228, y + 10, rewardIcon(r)).setOrigin(0, 0).setScale(30 / ICON_PX), ...texts], h };
   }
 
   // --- training and bosses: every hero picks, on one screen ----------------------
@@ -186,8 +187,17 @@ export class Choices {
           bg,
           this.s.add.image(x + 6, y + 24, rewardIcon(r)).setOrigin(0, 0).setScale(24 / ICON_PX),
           this.s.text(x + 34, y + 24, d.tag === 'UPGRADE' ? 'UPGRADE' : 'NEW', 10, tagColor).setFontStyle('bold'),
-          this.s.text(x + 6, y + 52, d.title, 12, '#ffffff').setFontStyle('bold').setWordWrapWidth(w - 12),
         );
+        // The name, and what it does in a few words, so you can compare without tapping.
+        const name = this.s.text(x + 6, y + 50, d.title, 12, '#ffffff').setFontStyle('bold').setWordWrapWidth(w - 12);
+        const pv = rewardPreview(run, slot, r);
+        const full = r.kind === 'ability' && pv ? pv.after : d.text;
+        const short = full.length > 64 ? `${full.slice(0, 62).replace(/[ ,.;:]+\S*$/, '')}…` : full;
+        const effect = this.s.text(x + 6, y + 52 + name.height, short, 10, '#9aa5b8').setWordWrapWidth(w - 12).setLineSpacing(1);
+        // Keep it inside the tile.
+        const room = y + 18 + h - 4 - effect.y;
+        if (effect.height > room) effect.setText(short.slice(0, Math.max(10, Math.floor(short.length * (room / effect.height)) - 2)) + '…');
+        items.push(name, effect);
         list.push({ r, bg });
       });
       tiles.set(slot, list);
@@ -217,21 +227,27 @@ export class Choices {
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
     const def = EVENTS[p.id];
+    // The panel fits its text and buttons.
+    const top = 180;
+    const body = this.s.text(cx, top + 112, def.text, 14, '#e6e9f0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(420);
+    const choices = eventChoices(run);
+    const firstButton = body.y + body.height + 44;
+    const bottom = firstButton + (choices.length - 1) * 58 + 40;
     const items: Phaser.GameObjects.GameObject[] = [
-      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
-      this.s.add.rectangle(cx, 380, 470, 420, 0x161c28).setStrokeStyle(2, 0xb57bff),
-      this.s.add.image(cx, 214, 'icon-nd-event').setScale(40 / ICON_PX),
-      this.s.text(cx, 252, def.title, 24, '#e0c3ff').setOrigin(0.5, 0).setFontStyle('bold'),
-      this.s.text(cx, 292, def.text, 14, '#e6e9f0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(420),
+      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14, 0.96).setOrigin(0, 0).setInteractive(),
+      this.s.add.rectangle(cx, (top + bottom) / 2, 470, bottom - top, 0x161c28).setStrokeStyle(2, 0xb57bff),
+      this.s.add.image(cx, top + 34, 'icon-nd-event').setScale(40 / ICON_PX),
+      this.s.text(cx, top + 72, def.title, 24, '#e0c3ff').setOrigin(0.5, 0).setFontStyle('bold'),
+      body,
     ];
     const choose = (i: number) => {
       const result = chooseEvent(run, i);
       saveRun(run);
       this.showEventResult(def.title, result);
     };
-    eventChoices(run).forEach((c, i) => {
+    choices.forEach((c, i) => {
       items.push(
-        this.s.button(cx, 400 + i * 58, c.label, 17, i === 0 ? '#6d3fb5' : '#2b3445', () => {
+        this.s.button(cx, firstButton + i * 58, c.label, 17, i === 0 ? '#6d3fb5' : '#2b3445', () => {
           sound.play('click');
           choose(i);
         }),
@@ -254,11 +270,20 @@ export class Choices {
     const go = () => this.s.scene.restart({ run });
     this.s.overlay = this.s.add
       .container(0, 0, [
-        this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
-        this.s.add.rectangle(cx, 380, 470, 300, 0x161c28).setStrokeStyle(2, 0xb57bff),
-        this.s.text(cx, 262, title, 22, '#e0c3ff').setOrigin(0.5, 0).setFontStyle('bold'),
-        this.s.text(cx, 306, result, 15, '#ffffff').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(420),
-        this.s.button(cx, 470, 'Continue', 18, '#2e86de', go),
+        this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14, 0.96).setOrigin(0, 0).setInteractive(),
+        ...(() => {
+          // Fit the panel to the result text.
+          const top = 230;
+          const text = this.s.text(cx, top + 76, result, 15, '#ffffff').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(420);
+          const buttonY = text.y + text.height + 46;
+          const bottom = buttonY + 40;
+          return [
+            this.s.add.rectangle(cx, (top + bottom) / 2, 470, bottom - top, 0x161c28).setStrokeStyle(2, 0xb57bff),
+            this.s.text(cx, top + 32, title, 22, '#e0c3ff').setOrigin(0.5, 0).setFontStyle('bold'),
+            text,
+            this.s.button(cx, buttonY, 'Continue', 18, '#2e86de', go),
+          ];
+        })(),
       ])
       .setDepth(100);
     if (this.s.auto) {
@@ -285,20 +310,20 @@ export class Choices {
     if (p?.kind !== 'upgrade') return;
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
-    const title = p.source === 'chest' ? `Chest opened!${p.gold ? ` +${p.gold} gold` : ''}` : p.source === 'challenge' ? 'Challenge won!' : 'Elite spoils';
+    const title = p.source === 'chest' ? `Chest opened!${p.gold ? ` +${p.gold} gold` : ''}` : 'Elite spoils';
     const items = this.frame(title, 'Choose a reward for one of your heroes.');
     items.push(...this.spoilsStrip());
-    const step = p.options.length > 3 ? 126 : 150;
-    p.options.forEach((o: PartyReward, k) => {
-      items.push(
-        ...this.card(run, o.slot, o.reward, 196 + k * step, step - 10, () => {
-          chooseUpgrade(run, o);
-          this.done();
-        }),
-      );
+    let y = 196;
+    p.options.forEach((o: PartyReward) => {
+      const c = this.card(run, o.slot, o.reward, y, () => {
+        chooseUpgrade(run, o);
+        this.done();
+      });
+      items.push(...c.items);
+      y += c.h + 10;
     });
     items.push(
-      this.s.button(cx, 196 + p.options.length * step + 30, 'Skip', 14, '#2b3445', () => {
+      this.s.button(cx, y + 26, 'Skip', 14, '#2b3445', () => {
         chooseUpgrade(run, null);
         this.done();
       }),
@@ -315,8 +340,8 @@ export class Choices {
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
     const items = this.frame('Shop', `Gold: ${run.gold}. Abilities and upgrades for your heroes.`);
+    let y = 186;
     p.stock.forEach((item, k) => {
-      const y = 186 + k * 112;
       const label = item.sold ? 'Sold' : `${item.price} gold`;
       const can = !item.sold && run.gold >= item.price;
       const card = this.card(
@@ -324,7 +349,6 @@ export class Choices {
         item.slot,
         item.reward,
         y,
-        104,
         () => {
           if (!can) return;
           if (buy(run, k)) {
@@ -336,10 +360,11 @@ export class Choices {
         label,
       );
       // Sold out or too expensive: dimmed.
-      if (!can) for (const o of card) (o as Phaser.GameObjects.Image).setAlpha(item.sold ? 0.35 : 0.6);
-      items.push(...card);
+      if (!can) for (const o of card.items) (o as Phaser.GameObjects.Image).setAlpha(item.sold ? 0.35 : 0.6);
+      items.push(...card.items);
+      y += card.h + 8;
     });
-    const y = 186 + p.stock.length * 112 + 22;
+    y += 30;
     items.push(
       this.s.button(cx - 110, y, `Reroll (${rerollPrice(run)} gold)`, 14, run.gold >= rerollPrice(run) ? '#5a4a1c' : '#2b3445', () => {
         if (reroll(run)) {

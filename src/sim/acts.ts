@@ -71,8 +71,8 @@ export const STRENGTH = {
   perFloor: [0.08, 0.1, 0.16],
   /** Elites are a real risk (for a better reward); bosses stand out. */
   elite: 1.15,
-  /** A challenge: like an elite, a bit tougher, plus its twist. */
-  challenge: 1.2,
+  /** An elite with a twist is a bit tougher again. */
+  twist: 1.05,
   boss: [1.05, 1, 0.95],
 };
 
@@ -107,7 +107,7 @@ export function makeEncounter(seed: number, act: number, floor: number, type: No
   const count = Math.min(6, enemyCount(partySize, floor, type) + extraEnemies);
   const kinds: EnemyKind[] = [];
   if (type === 'boss') kinds.push(a.boss);
-  if (type === 'elite' || type === 'challenge') kinds.push(a.elite);
+  if (type === 'elite') kinds.push(a.elite);
   // Fill the rest from the act's regulars: mostly melee, then shooters; a healer
   // from floor 3 (never two); a fast hunter now and then.
   while (kinds.length < count) {
@@ -128,7 +128,7 @@ export function makeEncounter(seed: number, act: number, floor: number, type: No
   back.forEach((k, i) => spawns.push({ time: 0, kind: k, ...enemyPos(cols[(i + 1) % 4], 2) }));
   const label = type === 'boss' ? `BOSS: ${ENEMY_STATS[a.boss].label}` : type === 'elite' ? `Elite: ${ENEMY_STATS[a.elite].label}` : a.name;
   const scale =
-    PARTY_SCALE[Math.min(PARTY_SCALE.length, Math.max(1, partySize)) - 1] * (type === 'elite' ? STRENGTH.elite : type === 'challenge' ? STRENGTH.challenge : type === 'boss' ? STRENGTH.boss[act - 1] : 1);
+    PARTY_SCALE[Math.min(PARTY_SCALE.length, Math.max(1, partySize)) - 1] * (type === 'elite' ? STRENGTH.elite : type === 'boss' ? STRENGTH.boss[act - 1] : 1);
   return { number: floor + 1, name: label, spawns, strength: strengthAt(act, floor) * scale, boss: type === 'boss' };
 }
 
@@ -147,7 +147,7 @@ export const ECONOMY = {
   richLoot: 2,
   chestGold: [20, 34],
   /** XP for a won fight, by node type (10 XP = a level): slow, so the camp's gear is what carries you further. */
-  xp: { fight: 4, elite: 7, challenge: 9, boss: 12 } as Partial<Record<NodeType, number>>,
+  xp: { fight: 4, elite: 7, boss: 12 } as Partial<Record<NodeType, number>>,
   /** XP for the first level-up; each level after costs xpGrowth more, so a hero who's ahead slows down and the party levels out over time. */
   xpPerLevel: 10,
   xpGrowth: 3,

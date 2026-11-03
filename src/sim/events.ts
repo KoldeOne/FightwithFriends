@@ -10,10 +10,8 @@ export type EventEffect =
   /** Gain a wish: the next time the party falls, everyone rises again and the fight restarts. */
   | { kind: 'wish' }
   | { kind: 'gold'; amount: number }
-  /** A curse: every hero starts the next fight with a debuff (takes CURSE_DAMAGE more damage). */
-  | { kind: 'curse' }
-  /** Bet gold on a coin flip: win and get it back doubled, lose and it's gone. */
-  | { kind: 'gamble'; stake: number; win: string; lose: string }
+  /** A curse: every hero starts the next fight with a debuff (takes CURSE_DAMAGE more damage), for some gold. */
+  | { kind: 'curse'; gold: number }
   /** Pay gold to a traveller; they come back with a gift at the start of the next act. */
   | { kind: 'help'; cost: number }
   /** Blood Altar: the hero with the fewest abilities loses some max health this act and gets an extra pick. */
@@ -37,26 +35,13 @@ export interface EventDef {
   title: string;
   text: string;
   choices: EventChoice[];
-  /** Not a random "?" event: it only happens on its own (a Feast node, a traveller's return). */
+  /** Not a random "?" event: it only happens on its own (the traveller's return). */
   special?: boolean;
 }
 
-export type EventId = 'wishingWell' | 'cursedShrine' | 'gambler' | 'traveller' | 'bloodAltar' | 'helper' | 'feast' | 'travellerGift';
+export type EventId = 'wishingWell' | 'cursedShrine' | 'traveller' | 'bloodAltar' | 'helper' | 'feast' | 'travellerGift';
 
 export const EVENTS: Record<EventId, EventDef> = {
-  gambler: {
-    title: 'The Gambler',
-    text: 'A grinning goblin in a far-too-nice hat sits on a barrel, flipping a gold coin. "Heads you win, tails I win. Fancy a go?"',
-    choices: [
-      {
-        label: 'Bet 20 gold',
-        result: '',
-        effect: { kind: 'gamble', stake: 20, win: 'Heads! The goblin grumbles and pays you 40 gold.', lose: 'Tails. The goblin bites your coin, cackles and vanishes.' },
-        minGold: 20,
-      },
-      { label: 'Walk away', result: 'You keep your gold. The goblin looks very disappointed.', effect: { kind: 'nothing' } },
-    ],
-  },
   traveller: {
     title: 'A Wounded Traveller',
     text: 'A merchant sits by the road with a twisted ankle and an empty purse. "Help me get home, friends, and I won\'t forget it."',
@@ -98,17 +83,17 @@ export const EVENTS: Record<EventId, EventDef> = {
     title: 'A Feast',
     text: 'A clearing with a roaring fire and a spit of something that smells wonderful. The party sits down to eat together.',
     choices: [{ label: 'Dig in', result: 'Full and happy, every hero has 15% more maximum health for the next two fights.', effect: { kind: 'feast' } }],
-    special: true,
   },
   cursedShrine: {
     title: 'A Cursed Shrine',
-    text: 'A cracked altar wrapped in black thorns. As you pass, the candles flare green and a cold whisper follows your party down the path.',
+    text: 'A cracked altar wrapped in black thorns, piled with old offerings of gold. The candles flare green as you get close.',
     choices: [
       {
-        label: 'Press on',
-        result: 'The curse clings to you. In your next fight, every hero takes 25% more damage.',
-        effect: { kind: 'curse' },
+        label: 'Take the gold (cursed)',
+        result: 'You fill your pockets with 40 gold. A cold whisper follows you: in your next fight, every hero takes 25% more damage.',
+        effect: { kind: 'curse', gold: 40 },
       },
+      { label: 'Walk on', result: 'You leave the offerings alone and the candles die down.', effect: { kind: 'nothing' } },
     ],
   },
   wishingWell: {
@@ -134,9 +119,6 @@ export const EVENTS: Record<EventId, EventDef> = {
 
 /** A curse from the Cursed Shrine: every hero takes this much more damage in the next fight. */
 export const CURSE_DAMAGE = 0.25;
-
-/** A used wish: every hero deals this much more damage in the restarted fight. */
-export const WISH_DAMAGE = 0.2;
 
 /** The most wishes a party can hold at once. */
 export const MAX_WISHES = 1;

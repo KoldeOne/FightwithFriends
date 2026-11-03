@@ -5,6 +5,7 @@ import { bankLoot, resetUpgrades, canAfford, gearCost, loadCamp, lootFor, newCam
 import { autoResolve, availableNodes, encounterFor, enterNode, finishFight, newRun, recruit } from '../src/sim/run';
 import type { HeroClass } from '../src/sim/types';
 import { playRun } from '../scripts/simlib';
+import { settleFight } from '../src/sim/settle';
 
 const TRIO: HeroClass[] = ['warrior', 'priest', 'mage'];
 
@@ -79,16 +80,14 @@ describe('The camp (between map runs)', () => {
     expect(Object.values(by('priest').healing).reduce((a, v) => a + v, 0)).toBeGreaterThan(0);
   });
 
-  it('a wish boost makes every hero hit 20% harder that fight', () => {
-    const plain = new Battle({ seed: 1, wave: makeRound(1), team: TRIO });
-    const boosted = new Battle({ seed: 1, wave: makeRound(1), team: TRIO, wishBoost: 0.2 });
-    expect(boosted.heroes.every((h) => h.effects?.some((e) => e.kind === 'wished' && e.amount === 0.2))).toBe(true);
-    for (let i = 0; i < 400; i++) {
-      plain.step(STEP);
-      boosted.step(STEP);
-    }
-    const dealt = (b: Battle) => [...b.meter.values()].reduce((a, m) => a + Object.values(m.damage).reduce((x, y) => x + y, 0), 0);
-    expect(dealt(boosted)).toBeGreaterThan(dealt(plain));
+  it('settling fights adds up each hero\'s damage and healing for the whole run', () => {
+    const run = newRun('warrior', undefined, 5);
+    enterNode(run, availableNodes(run)[0].id);
+    settleFight(run, undefined, { won: true, fallen: [], kills: [], meter: [{ slot: 0, damage: { auto: 10, heroicStrike: 5 }, healing: {} }] });
+    enterNode(run, availableNodes(run)[0].id);
+    if (run.status === 'fight') settleFight(run, undefined, { won: true, fallen: [], kills: [], meter: [{ slot: 0, damage: { auto: 7 }, healing: { other: 3 } }] });
+    expect(run.meter?.[0].damage.auto).toBeGreaterThanOrEqual(10);
+    expect(run.meter?.[0].damage.heroicStrike).toBe(5);
   });
 
   it('upgrades cost loot, can be refused, and every 5th gear level takes a Trophy', () => {

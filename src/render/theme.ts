@@ -201,7 +201,6 @@ export const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string;
   vulnerable: { name: 'Ruined', letter: 'V', color: 0xc0392b, debuff: true, text: (e) => `Takes ${Math.round(e.amount * 100)}% more damage from everything.` },
   fed: { name: 'Well fed', letter: '+', color: 0xffb347, debuff: false, text: (e) => `A hearty feast: ${Math.round(e.amount * 100)}% more maximum health.` },
   cursed: { name: 'Cursed', letter: '!', color: 0x7dff9b, debuff: true, text: (e) => `A shrine's curse: takes ${Math.round(e.amount * 100)}% more damage this fight.` },
-  wished: { name: 'Wished', letter: '*', color: 0xe0c3ff, debuff: false, text: (e) => `The party rose again: ${Math.round(e.amount * 100)}% more damage this fight.` },
   empower: { name: 'Rallied', letter: 'A', color: 0xff9f43, debuff: false, text: (e) => `Deals ${Math.round(e.amount * 100)}% more damage.` },
   frenzy: { name: 'War Cry', letter: '!', color: 0xe74c3c, debuff: false, text: (e) => `Attacks ${Math.round(e.amount * 100)}% faster.` },
   guardian: { name: 'Guardian Spirit', letter: 'G', color: 0xfffbe0, debuff: false, text: (e) => `A killing blow leaves them at ${Math.round(e.amount * 100)}% health instead.` },

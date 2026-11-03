@@ -1,11 +1,10 @@
 import { createRng } from './rng';
 
 /**
- * What's at a map node. 'event' is a chance encounter (a "?" on the map; see events.ts); 'challenge'
- * an optional harder fight with a twist and a better reward; 'feast' a meal
- * that buffs the next two fights.
+ * What's at a map node. 'event' is a chance encounter (a "?" on the map; see
+ * events.ts). Some elites carry a twist (see eliteTwist in run.ts).
  */
-export type NodeType = 'fight' | 'elite' | 'chest' | 'campsite' | 'shop' | 'event' | 'challenge' | 'feast' | 'boss';
+export type NodeType = 'fight' | 'elite' | 'chest' | 'campsite' | 'shop' | 'event' | 'boss';
 
 export interface MapNode {
   id: string;
@@ -19,12 +18,8 @@ export interface MapNode {
   next: string[];
 }
 
-/** A map's personality: tilts the odds so routes and maps feel different. */
-export type MapFlavor = 'balanced' | 'treasure' | 'dangerous' | 'merchant';
-
 export interface ActMap {
   act: number;
-  flavor: MapFlavor;
   /** floors[f] = node ids on floor f, left to right. The last floor is the boss. */
   floors: string[][];
   nodes: Record<string, MapNode>;
@@ -43,13 +38,8 @@ const PATHS = 6;
  */
 export const CAMPSITE_FLOORS: Record<number, number[]> = { 1: [2, 5, 8, 11], 2: [5, 11], 3: [5, 11] };
 
-/** Base odds for the other floors, by node type. */
-const WEIGHTS: Record<MapFlavor, Partial<Record<NodeType, number>>> = {
-  balanced: { fight: 44, elite: 12, chest: 11, shop: 10, campsite: 9, challenge: 7, feast: 6, event: 5 },
-  treasure: { fight: 42, elite: 10, chest: 21, shop: 9, campsite: 6, challenge: 6, feast: 5, event: 5 },
-  dangerous: { fight: 40, elite: 22, chest: 10, shop: 9, campsite: 6, challenge: 12, feast: 5, event: 4 },
-  merchant: { fight: 44, elite: 10, chest: 10, shop: 18, campsite: 6, challenge: 6, feast: 5, event: 5 },
-};
+/** Odds for the other floors, by node type. */
+const WEIGHTS: Partial<Record<NodeType, number>> = { fight: 50, elite: 16, chest: 11, shop: 10, campsite: 7, event: 6 };
 
 /**
  * A random map for an act, Slay the Spire style: several paths climb from the
@@ -61,7 +51,6 @@ const WEIGHTS: Record<MapFlavor, Partial<Record<NodeType, number>>> = {
 export function generateActMap(seed: number, act: number): ActMap {
   const rng = createRng(seed * 7919 + act * 104729);
   const pick = <T>(list: T[]): T => list[Math.floor(rng() * list.length)];
-  const flavor: MapFlavor = act === 1 ? pick<MapFlavor>(['balanced', 'balanced', 'treasure', 'merchant']) : pick<MapFlavor>(['balanced', 'treasure', 'dangerous', 'merchant']);
 
   // 1. Paths: each starts in a column and moves up by -1/0/+1 a floor, without crossing an existing edge.
   const at = new Map<string, MapNode>();
@@ -102,7 +91,7 @@ export function generateActMap(seed: number, act: number): ActMap {
 
   // 2. Node types.
   const fixed = CAMPSITE_FLOORS[act] ?? [];
-  const weights = WEIGHTS[flavor];
+  const weights = WEIGHTS;
   for (let f = 0; f < MAP_FLOORS; f++) {
     for (const id of floors[f]) {
       const n = nodes[id];
@@ -111,7 +100,7 @@ export function generateActMap(seed: number, act: number): ActMap {
       else {
         // Act 1 has campsites only on its fixed floors; no campsite right next to a campsite floor.
         const allowed = (Object.entries(weights) as [NodeType, number][]).filter(([t]) => {
-          if ((t === 'elite' || t === 'shop' || t === 'challenge') && f < 3) return false;
+          if ((t === 'elite' || t === 'shop') && f < 3) return false;
           if (t === 'campsite' && (act === 1 || fixed.includes(f + 1) || fixed.includes(f - 1))) return false;
           // No two of the same special node in a row along a path.
           if (t !== 'fight' && parents(id).some((p) => p.type === t)) return false;
@@ -128,7 +117,7 @@ export function generateActMap(seed: number, act: number): ActMap {
         }
       }
       // Some nodes are golden: better loot. More on a treasure map.
-      if (['fight', 'elite', 'chest'].includes(n.type) && rng() < (flavor === 'treasure' ? 0.22 : 0.12)) n.rich = true;
+      if (['fight', 'elite', 'chest'].includes(n.type) && rng() < 0.12) n.rich = true;
     }
   }
   // 3. Guarantees: at least one shop and two chests on every map, and one chance encounter.
@@ -145,7 +134,7 @@ export function generateActMap(seed: number, act: number): ActMap {
   ensure('shop', 1);
   ensure('chest', 2);
   ensure('event', 1);
-  return { act, flavor, floors, nodes };
+  return { act, floors, nodes };
 }
 
 /** Nodes you can move to next: the start floor at first, then the current node's links. */
