@@ -25,6 +25,9 @@ import {
   trainOptions,
   type RunState,
   MAX_PARTY,
+  challengeTwist,
+  fightMods,
+  nextAct,
   currentNode,
   levelsFor,
   partyPickOptions,
@@ -218,23 +221,24 @@ describe('A map run', () => {
     expect(golden.gold).toBe(plain.gold * 2);
     expect(golden.goldBonus).toBe(plain.gold);
     expect(golden.xp).toBe(Math.round(plain.xp * 1.5));
-    run.pending = { kind: 'train', source: 'chest', left: [0], gold: 1 };
-    expect(trainOptions(run, 0)).toHaveLength(4);
+    run.pending = { kind: 'upgrade', source: 'chest', options: partyPickOptions(run, 2, 4), gold: 1 };
+    expect(run.pending.options).toHaveLength(4);
   });
 
-  it('chests give gold and a pick for every hero', () => {
+  it('chests give gold and one pick for one hero', () => {
     for (const seed of [10, 11, 12, 13]) {
       const run = newRun('mage', undefined, seed);
       let guard = 0;
-      while (!(run.pending?.kind === 'train' && run.pending.source === 'chest') && guard++ < 300) {
+      while (!(run.pending?.kind === 'upgrade' && run.pending.source === 'chest') && guard++ < 300) {
         if (availableNodes(run).some((n) => n.type === 'chest')) step(run, 'chest');
         else advance(run);
       }
       const p = run.pending;
-      if (p?.kind !== 'train') continue;
+      if (p?.kind !== 'upgrade') continue;
       expect(p.gold).toBeGreaterThan(0);
-      expect(p.left).toEqual(run.team.map((_, i) => i));
-      while (run.pending) autoResolve(run);
+      expect(p.options.length).toBe(currentNode(run)?.rich ? 4 : 3);
+      chooseUpgrade(run, p.options[0]);
+      expect(run.pending).toBeUndefined();
       return;
     }
     throw new Error('no chest reached');
@@ -346,6 +350,88 @@ describe('A map run', () => {
     expect(run.cursed).toBeUndefined();
   });
 
+  it('the Gambler: win doubles the stake, lose loses it; no bet without the gold', () => {
+    const outcomes = new Set<number>();
+    for (let seed = 50; seed < 70; seed++) {
+      const run = newRun('mage', undefined, seed);
+      run.gold = 30;
+      run.pending = { kind: 'event', id: 'gambler' };
+      chooseEvent(run, 0);
+      outcomes.add(run.gold);
+    }
+    expect([...outcomes].sort()).toEqual([10, 50]);
+    const broke = newRun('mage', undefined, 1);
+    broke.pending = { kind: 'event', id: 'gambler' };
+    expect(eventChoices(broke).map((c) => c.label)).toEqual(['Walk away']);
+  });
+
+  it('the Wounded Traveller pays you back at the start of the next act', () => {
+    const run = newRun('warrior', undefined, 60);
+    run.gold = 20;
+    run.pending = { kind: 'event', id: 'traveller' };
+    chooseEvent(run, 0);
+    expect(run.gold).toBe(5);
+    expect(run.traveller).toBe(true);
+    nextAct(run);
+    // Nothing else waiting: the next choice that finishes brings the gift.
+    run.pending = { kind: 'event', id: 'helper' };
+    chooseEvent(run, 0);
+    expect(run.pending).toEqual({ kind: 'event', id: 'travellerGift' });
+    chooseEvent(run, 0);
+    expect(run.gold).toBe(5 + 25 + 60);
+  });
+
+  it('the Blood Altar wounds the least experienced hero for the act and gives them a pick', () => {
+    const run = newRun('warrior', undefined, 61);
+    while (run.pending?.kind !== 'recruit') advance(run);
+    recruit(run, 'mage');
+    run.builds[0].abilities.push({ id: 'thunderclap', power: 0, haste: 0, mastery: false });
+    run.pending = { kind: 'event', id: 'bloodAltar' };
+    const result = chooseEvent(run, 0);
+    expect(result).toContain('Mage');
+    expect(run.builds[1].wound).toBeCloseTo(0.2);
+    expect(run.pending).toEqual({ kind: 'train', source: 'altar', left: [1] });
+    const plain = new Battle({ seed: 1, wave: encounterFor({ ...run, at: run.map.floors[0][0] }), team: run.team, builds: run.builds.map((b) => ({ ...b, wound: undefined })) });
+    const hurt = new Battle({ seed: 1, wave: encounterFor({ ...run, at: run.map.floors[0][0] }), team: run.team, builds: run.builds });
+    const mage = (b: Battle) => b.heroes.find((h) => h.kind === 'mage')!;
+    expect(mage(hurt).maxHp).toBeLessThan(mage(plain).maxHp);
+    nextAct(run);
+    expect(run.builds[1].wound).toBeUndefined();
+  });
+
+  it('a Feast gives more max health for two fights', () => {
+    const run = newRun('warrior', undefined, 62);
+    run.pending = { kind: 'event', id: 'feast' };
+    chooseEvent(run, 0);
+    expect(run.feast).toBe(2);
+    while (run.status !== 'fight') advance(run);
+    expect(fightMods(run).feast).toBeGreaterThan(0);
+    win(run);
+    expect(run.feast).toBe(1);
+  });
+
+  it('challenges: a twist, a tougher fight around an elite, then a pick of four', () => {
+    for (let seed = 70; seed < 120; seed++) {
+      const run = newRun('warrior', undefined, seed);
+      const node = Object.values(run.map.nodes).find((n) => n.type === 'challenge');
+      if (!node) continue;
+      run.at = node.id;
+      run.status = 'fight';
+      const twist = challengeTwist(run, node);
+      const wave = encounterFor(run);
+      expect(wave.name).toContain('Challenge');
+      expect(wave.spawns.some((sp) => sp.kind === 'brute')).toBe(true);
+      const mods = fightMods(run);
+      if (twist === 'enraged') expect(mods.enemyDamage).toBeGreaterThan(1);
+      if (twist === 'frail') expect(mods.healingScale).toBeLessThan(1);
+      finishFight(run, true, [], wave.spawns.map((sp) => ({ kind: sp.kind })));
+      expect(run.pending).toMatchObject({ kind: 'upgrade', source: 'challenge' });
+      if (run.pending?.kind === 'upgrade') expect(run.pending.options).toHaveLength(4);
+      return;
+    }
+    throw new Error('no challenge on any map');
+  });
+
   it('a wish brings the party back after a wipe and restarts the fight with a new seed', () => {
     const run = newRun('mage', undefined, 32);
     while (run.status !== 'fight') advance(run);
@@ -372,6 +458,7 @@ describe('Encounters', () => {
     const full = makeEncounter(1, 1, 0, 'fight', 5, 'a');
     expect(solo.strength! / full.strength!).toBeCloseTo(PARTY_SCALE[0]);
     expect(strengthAt(2, 0)).toBeGreaterThan(strengthAt(1, 12));
+    expect(strengthAt(3, 0)).toBeGreaterThan(strengthAt(2, 12));
   });
 
   it('elites and bosses lead their fights; the line-up is the same on a reload', () => {

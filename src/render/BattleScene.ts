@@ -3,10 +3,11 @@ import { Battle, STEP } from '../sim/battle';
 import { actDef } from '../sim/acts';
 import { ARENA, ENEMY_LAYOUT, HERO_LINES, SUDDEN_DEATH, WORLD } from '../sim/content';
 import { sound } from './sound';
-import { encounterFor, fightSeed, type RunState } from '../sim/run';
+import { encounterFor, fightMods, fightSeed, type RunState } from '../sim/run';
 import { type Unit } from '../sim/types';
 import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, DPR, FONT, HUD } from './theme';
 import { Hud } from './hud';
+import { ChunkyButton } from './button';
 import { Inspect } from './inspect';
 import { UnitLayer } from './units';
 import { HeroPicker } from './screens/hero';
@@ -16,7 +17,6 @@ import { Results } from './screens/results';
 import { CampScreen } from './screens/camp';
 import { Meter } from './meter';
 import { loadCamp, withGear, type CampState } from '../sim/camp';
-import { CURSE_DAMAGE, WISH_DAMAGE } from '../sim/events';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
 export class BattleScene extends Phaser.Scene {
@@ -89,8 +89,7 @@ export class BattleScene extends Phaser.Scene {
       team: run?.team ?? [],
       // Camp gear goes with every hero (read fresh: it may have been upgraded since the run began).
       builds: run ? withGear(run.team, run.builds, this.camp) : undefined,
-      wishBoost: run?.wishBoost && fighting ? WISH_DAMAGE : undefined,
-      curse: run?.cursed && fighting ? CURSE_DAMAGE : undefined,
+      ...(run && fighting ? fightMods(run) : {}),
     });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
 
@@ -348,13 +347,9 @@ export class BattleScene extends Phaser.Scene {
 
   // --- helpers ------------------------------------------------------------
 
-  button(x: number, y: number, label: string, size: number, bg: string, onTap: () => void): Phaser.GameObjects.Text {
-    return this.text(x, y, label, size, '#ffffff')
-      .setOrigin(0.5)
-      .setPadding(24, 12, 24, 12)
-      .setBackgroundColor(bg)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', onTap);
+  /** A chunky square button (see button.ts), centred on x, y. */
+  button(x: number, y: number, label: string, size: number, bg: string, onTap: () => void): ChunkyButton {
+    return new ChunkyButton(this, x, y, label, size, bg, onTap);
   }
 
   text(x: number, y: number, str: string, size: number, color: string): Phaser.GameObjects.Text {

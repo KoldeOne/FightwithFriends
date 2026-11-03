@@ -1,8 +1,12 @@
 import { createRng } from './rng';
 
 /** What's at a map node. */
-/** 'event' is a chance encounter (a "?" on the map; see events.ts). */
-export type NodeType = 'fight' | 'elite' | 'chest' | 'campsite' | 'shop' | 'event' | 'boss';
+/**
+ * 'event' is a chance encounter (a "?" on the map; see events.ts); 'challenge'
+ * an optional harder fight with a twist and a better reward; 'feast' a meal
+ * that buffs the next two fights.
+ */
+export type NodeType = 'fight' | 'elite' | 'chest' | 'campsite' | 'shop' | 'event' | 'challenge' | 'feast' | 'boss';
 
 export interface MapNode {
   id: string;
@@ -42,10 +46,10 @@ export const CAMPSITE_FLOORS: Record<number, number[]> = { 1: [2, 5, 8, 11], 2: 
 
 /** Base odds for the other floors, by node type. */
 const WEIGHTS: Record<MapFlavor, Partial<Record<NodeType, number>>> = {
-  balanced: { fight: 52, elite: 14, chest: 13, shop: 11, campsite: 10 },
-  treasure: { fight: 48, elite: 12, chest: 24, shop: 10, campsite: 6 },
-  dangerous: { fight: 46, elite: 26, chest: 12, shop: 10, campsite: 6 },
-  merchant: { fight: 50, elite: 12, chest: 12, shop: 20, campsite: 6 },
+  balanced: { fight: 44, elite: 12, chest: 11, shop: 10, campsite: 9, challenge: 7, feast: 6, event: 5 },
+  treasure: { fight: 42, elite: 10, chest: 21, shop: 9, campsite: 6, challenge: 6, feast: 5, event: 5 },
+  dangerous: { fight: 40, elite: 22, chest: 10, shop: 9, campsite: 6, challenge: 12, feast: 5, event: 4 },
+  merchant: { fight: 44, elite: 10, chest: 10, shop: 18, campsite: 6, challenge: 6, feast: 5, event: 5 },
 };
 
 /**
@@ -108,7 +112,7 @@ export function generateActMap(seed: number, act: number): ActMap {
       else {
         // Act 1's only campsites are the recruit floors; no campsite right before a campsite floor.
         const allowed = (Object.entries(weights) as [NodeType, number][]).filter(([t]) => {
-          if ((t === 'elite' || t === 'shop') && f < 3) return false;
+          if ((t === 'elite' || t === 'shop' || t === 'challenge') && f < 3) return false;
           if (t === 'campsite' && (act === 1 || fixed.includes(f + 1) || fixed.includes(f - 1))) return false;
           // No two of the same special node in a row along a path.
           if (t !== 'fight' && parents(id).some((p) => p.type === t)) return false;

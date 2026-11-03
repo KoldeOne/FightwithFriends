@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { ABILITIES, TRAITS, WORLD } from '../../sim/content';
 import { EVENTS } from '../../sim/events';
 import {
+  autoChoose,
   autoResolve,
   buy,
   chooseEvent,
@@ -69,6 +70,8 @@ export class Choices {
       this.s.time.delayedCall(1100, () => {
         if (this.s.overlay !== token || !this.s.auto || run.pending !== p) return;
         autoResolve(run);
+        // A party pick: everyone at once.
+        while (p.kind === 'train' && run.pending === p) autoResolve(run);
         this.done();
       });
     }
@@ -118,46 +121,92 @@ export class Choices {
     return out;
   }
 
-  // --- chests and training: every hero picks ---------------------------------
+  // --- training and bosses: every hero picks, on one screen ----------------------
 
-  /** Chest or training campsite: each hero in turn picks one of three (new abilities, or upgrades once full). */
+  /**
+   * Training campsite, boss (or Blood Altar): a row per hero with their options.
+   * Tap one per row (tap again to skip that hero), see its details below, then
+   * Confirm. "Choose for me" fills in any hero you haven't picked for.
+   */
   showTrain(): void {
     const run = this.s.run!;
     const p = run.pending;
     if (p?.kind !== 'train') return;
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
-    const slot = p.left[0];
-    const b = run.builds[slot];
-    const n = run.team.length - p.left.length + 1;
-    const title = p.source === 'chest' ? `Chest opened!${p.gold ? ` +${p.gold} gold` : ''}` : p.source === 'boss' ? 'Boss spoils' : 'Campsite: training';
-    const options = trainOptions(run, slot);
-    const learns = options.some((o) => o.kind === 'ability' || o.kind === 'trait');
-    const items = this.frame(title, `Every hero gets a pick. ${heroName(run, slot)} (${n} of ${run.team.length}): ${learns ? 'learn something new' : 'all slots full, choose an upgrade'}.`);
-    // Who's picking, with what they have.
-    items.push(...this.s.heroPicker.portrait(run.team[slot], cx - 215, 236, 1.4));
-    items.push(this.s.text(cx - 185, 196, `${heroName(run, slot)} — level ${b.level}`, 15, '#' + COLORS[run.team[slot]].toString(16).padStart(6, '0')).setFontStyle('bold'));
-    [...b.abilities.map((a) => abilityIcon(a.id)), ...b.traits.map((t) => traitIcon(t))].forEach((key, j) =>
-      items.push(this.s.add.image(cx - 185 + j * 24, 216, key).setOrigin(0, 0).setScale(20 / ICON_PX)),
-    );
-    const names = [...b.abilities.map((a) => ABILITIES[a.id].name), ...b.traits.map((t) => TRAITS[t].name)].join(', ');
-    items.push(this.s.text(cx - 185 + Math.max(1, b.abilities.length + b.traits.length) * 24 + 6, 220, names, 11, '#8f9bb3').setWordWrapWidth(260));
+    const title = p.source === 'boss' ? 'Boss spoils' : p.source === 'altar' ? 'The Blood Altar' : 'Campsite: training';
+    const items = this.frame(title, 'Every hero picks one: tap to choose (again to skip), then Confirm.');
     items.push(...this.spoilsStrip());
-    const step = options.length > 3 ? 124 : 140;
-    options.forEach((r, k) => {
-      items.push(
-        ...this.card(run, slot, r, 252 + k * step, step - 12, () => {
-          train(run, slot, r);
-          this.done();
-        }),
-      );
+    const chosen = new Map<number, Reward>();
+    const slots = [...p.left];
+    const top = 176;
+    const detailTop = 760;
+    const rowH = Math.min(150, Math.floor((detailTop - 12 - top) / slots.length));
+    const tiles = new Map<number, { r: Reward; bg: Phaser.GameObjects.Rectangle }[]>();
+    // The details panel for the last reward tapped.
+    const detail = this.s.text(24, detailTop + 8, 'Tap a reward to see what it does.', 12, '#c9d1e0').setWordWrapWidth(WORLD.width - 48).setLineSpacing(2);
+    items.push(this.s.add.rectangle(12, detailTop, WORLD.width - 24, 96, 0x111723).setOrigin(0, 0).setStrokeStyle(1, 0x2b3445), detail);
+    const confirm = this.s.button(cx + 110, WORLD.height - 62, '', 20, '#2e86de', () => {
+      for (const slot of slots) if (run.pending === p) train(run, slot, chosen.get(slot) ?? null);
+      this.done();
+    });
+    const update = () => {
+      confirm.setText(`Confirm (${chosen.size}/${slots.length}) ▶`);
+      for (const [slot, list] of tiles)
+        for (const t of list) {
+          const on = chosen.get(slot) === t.r;
+          t.bg.setFillStyle(on ? 0x2a3550 : 0x1c2433).setStrokeStyle(2, on ? 0xffd166 : 0x3a4660);
+        }
+    };
+    slots.forEach((slot, k) => {
+      const y = top + k * rowH;
+      const b = run.builds[slot];
+      const options = trainOptions(run, slot);
+      const learns = options.some((o) => o.kind === 'ability' || o.kind === 'trait');
+      items.push(...this.s.heroPicker.portrait(run.team[slot], 34, y + rowH - 22, 1.2));
+      items.push(this.s.text(64, y, `${heroName(run, slot)} — level ${b.level} · ${learns ? 'learn something new' : 'all slots full: an upgrade'}`, 12, '#' + COLORS[run.team[slot]].toString(16).padStart(6, '0')).setFontStyle('bold'));
+      const left = 64;
+      const gap = 6;
+      const w = Math.floor((WORLD.width - 12 - left - gap * (options.length - 1)) / options.length);
+      const h = rowH - 26;
+      const list: { r: Reward; bg: Phaser.GameObjects.Rectangle }[] = [];
+      options.forEach((r, i) => {
+        const x = left + i * (w + gap);
+        const d = describeReward(r);
+        const bg = this.s.add.rectangle(x, y + 18, w, h, 0x1c2433).setOrigin(0, 0).setStrokeStyle(2, 0x3a4660).setInteractive({ useHandCursor: true });
+        bg.on('pointerdown', () => {
+          sound.play('click');
+          if (chosen.get(slot) === r) chosen.delete(slot);
+          else chosen.set(slot, r);
+          const pv = rewardPreview(run, slot, r);
+          const body = r.kind === 'ability' && pv ? pv.after : d.text;
+          const nums = pv && r.kind !== 'ability' ? `\nNow: ${pv.now ?? '—'}\nAfter: ${pv.after}` : '';
+          detail.setText(`${heroName(run, slot)}: ${d.title} (${d.tag.toLowerCase()})\n${body}${nums}`);
+          update();
+        });
+        const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
+        items.push(
+          bg,
+          this.s.add.image(x + 6, y + 24, rewardIcon(r)).setOrigin(0, 0).setScale(24 / ICON_PX),
+          this.s.text(x + 34, y + 24, d.tag === 'UPGRADE' ? 'UPGRADE' : 'NEW', 10, tagColor).setFontStyle('bold'),
+          this.s.text(x + 6, y + 52, d.title, 12, '#ffffff').setFontStyle('bold').setWordWrapWidth(w - 12),
+        );
+        list.push({ r, bg });
+      });
+      tiles.set(slot, list);
     });
     items.push(
-      this.s.button(cx, 252 + options.length * step + 24, 'Skip', 14, '#2b3445', () => {
-        train(run, slot, null);
-        this.done();
+      this.s.button(cx - 130, WORLD.height - 62, 'Choose for me', 15, '#2b3445', () => {
+        for (const slot of slots) {
+          if (chosen.has(slot)) continue;
+          const options = trainOptions(run, slot);
+          if (options.length) chosen.set(slot, autoChoose(run.team[slot], options));
+        }
+        update();
       }),
+      confirm,
     );
+    update();
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }
 
@@ -239,18 +288,20 @@ export class Choices {
     if (p?.kind !== 'upgrade') return;
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
-    const items = this.frame('Elite spoils', 'Choose a reward for one of your heroes.');
+    const title = p.source === 'chest' ? `Chest opened!${p.gold ? ` +${p.gold} gold` : ''}` : p.source === 'challenge' ? 'Challenge won!' : 'Elite spoils';
+    const items = this.frame(title, 'Choose a reward for one of your heroes.');
     items.push(...this.spoilsStrip());
+    const step = p.options.length > 3 ? 126 : 150;
     p.options.forEach((o: PartyReward, k) => {
       items.push(
-        ...this.card(run, o.slot, o.reward, 196 + k * 150, 140, () => {
+        ...this.card(run, o.slot, o.reward, 196 + k * step, step - 10, () => {
           chooseUpgrade(run, o);
           this.done();
         }),
       );
     });
     items.push(
-      this.s.button(cx, 196 + p.options.length * 150 + 30, 'Skip', 14, '#2b3445', () => {
+      this.s.button(cx, 196 + p.options.length * step + 30, 'Skip', 14, '#2b3445', () => {
         chooseUpgrade(run, null);
         this.done();
       }),

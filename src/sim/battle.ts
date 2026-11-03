@@ -76,6 +76,11 @@ export interface BattleOptions {
   wishBoost?: number;
   /** A curse: every hero takes this much more damage this fight (e.g. 0.25). */
   curse?: number;
+  /** A Feast: every hero has this much more max health this fight (e.g. 0.15). */
+  feast?: number;
+  /** Challenge twists: enemies deal this times their damage; heroes heal this times as much. */
+  enemyDamage?: number;
+  healingScale?: number;
 }
 
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
@@ -112,6 +117,10 @@ export class Battle {
   /** Every enemy killed this fight (gold and camp loot). */
   readonly kills: { kind: EnemyKind; summoned: boolean }[] = [];
 
+  /** Challenge twists (1 = normal). */
+  private enemyDamage = 1;
+  private healingScale = 1;
+
   private nextId = 1;
   private pending: SpawnDef[];
   private events: BattleEvent[] = [];
@@ -120,6 +129,8 @@ export class Battle {
   constructor(opts: BattleOptions) {
     this.rng = createRng(opts.seed);
     this.wave = opts.wave;
+    this.enemyDamage = opts.enemyDamage ?? 1;
+    this.healingScale = opts.healingScale ?? 1;
     this.carefulAI = opts.carefulAI ?? true;
     this.pending = [...opts.wave.spawns].sort((a, b) => a.time - b.time);
     const team = opts.team ?? opts.heroes ?? ONE_OF_EACH;
@@ -133,6 +144,12 @@ export class Battle {
     if (opts.curse)
       for (const h of this.units.filter((u) => u.side === 'hero'))
         this.addEffect(h, { kind: 'cursed', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: opts.curse, sourceId: h.id });
+    if (opts.feast)
+      for (const h of this.units.filter((u) => u.side === 'hero')) {
+        h.maxHp = Math.round(h.maxHp * (1 + opts.feast));
+        h.hp = h.maxHp;
+        this.addEffect(h, { kind: 'fed', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: opts.feast, sourceId: h.id });
+      }
     if (opts.wishBoost)
       for (const h of this.units.filter((u) => u.side === 'hero'))
         this.addEffect(h, { kind: 'wished', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: opts.wishBoost, sourceId: h.id });
@@ -349,7 +366,8 @@ export class Battle {
     // Camp Mode gear: weapon -> damage and healing, armor -> health, trinket -> regen and cooldowns.
     const gear = build?.gear;
     const might = (1 + UPGRADE.mightPerRank * (build?.might ?? 0)) * (1 + GEAR_BONUS.weapon * (gear?.weapon ?? 0));
-    const vitality = (1 + UPGRADE.vitalityPerRank * (build?.vitality ?? 0)) * (1 + GEAR_BONUS.armor * (gear?.armor ?? 0));
+    // A Blood Altar wound lowers max health until the end of the act.
+    const vitality = (1 + UPGRADE.vitalityPerRank * (build?.vitality ?? 0)) * (1 + GEAR_BONUS.armor * (gear?.armor ?? 0)) * (1 - (build?.wound ?? 0));
     const focus = (1 + UPGRADE.focusPerRank * (build?.focus ?? 0)) * (1 + GEAR_BONUS.trinketRegen * (gear?.trinket ?? 0));
     const scale = 1 + LEVEL_SCALING * (level - 1);
     const abilities: AbilitySlot[] = build
@@ -406,7 +424,7 @@ export class Battle {
     const maxHp = Math.round(s.maxHp * strength * hpFactor);
     const special = BOSS_INFO[kind]?.special;
     const specialCooldown = special ? BOSS_SPECIALS[special as keyof typeof BOSS_SPECIALS].first : undefined;
-    this.addUnit({ ...s, maxHp, damage: s.damage * strength * damageFactor, id: 0, side: 'enemy', kind, x: clampedX, y, hp: maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [], specialCooldown, summoned });
+    this.addUnit({ ...s, maxHp, damage: s.damage * strength * damageFactor * this.enemyDamage, id: 0, side: 'enemy', kind, x: clampedX, y, hp: maxHp, cooldown: 0.5, targetId: null, alive: true, threat: {}, effects: [], specialCooldown, summoned });
   }
 
   private addUnit(u: Unit): void {
@@ -1255,7 +1273,7 @@ export class Battle {
   /** Heal an ally (capped at missing health); emits events and heal threat. Returns the amount. */
   private healUnit(from: Unit, to: Unit, raw: number): number {
     if (!to.alive) return 0;
-    const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(this.healAmount(from, to, raw))));
+    const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(this.healAmount(from, to, raw) * (from.side === 'hero' ? this.healingScale : 1))));
     if (amount <= 0) return 0;
     to.hp += amount;
     this.events.push({ type: 'heal', from: from.id, to: to.id, amount });
@@ -1806,7 +1824,7 @@ export class Battle {
       const amount = Math.round(e.amount);
       if (e.kind === 'hot') {
         const source = this.unit(e.sourceId);
-        const healed = Math.min(u.maxHp - u.hp, Math.round(source ? this.healAmount(source, u, amount) : amount));
+        const healed = Math.min(u.maxHp - u.hp, Math.round((source ? this.healAmount(source, u, amount) : amount) * (u.side === 'hero' ? this.healingScale : 1)));
         u.hp += healed;
         if (healed > 0) {
           this.events.push({ type: 'tick', to: u.id, amount: healed, kind: 'hot', from: e.sourceId });

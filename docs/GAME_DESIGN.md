@@ -82,19 +82,21 @@ economy), `src/sim/run.ts` (run state, rewards, Auto).
 |---|---|
 | **Fight** | The act's regulars. Gold and XP. |
 | **Elite** | A tougher fight around the act's elite (×1.15 strength). More gold and XP, then an **upgrade pick**. |
-| **Chest** | Gold (20, or 34 if golden), then **every hero picks 1 of 3**: a new ability or passive from their pool, or an upgrade once their slots are full. |
+| **Chest** | Gold (20–34, ×2 if golden), then **one reward for one hero**: 1 of 3 (4 if golden), mostly new abilities while anyone has a free slot. |
+| **Challenge** | An optional, tougher fight around the act's elite (×1.2 strength) with a **twist**, shown under the node: *Enraged* (enemies deal 30% more damage), *No Rest* (heroes heal 50% less) or *Swarm* (two extra enemies). More XP, then **one reward from four**. |
+| **Feast** | The party eats: every hero has **15% more max health** for the next two fights (a "Well fed" buff; "fed (n)" in the top bar). |
 | **Shop** | 3 abilities and 2 upgrades for specific heroes, bought with gold; reroll for 10 (rising). Prices rise each act. |
 | **Campsite** | Two campsite floors are **recruits** (pick any class, repeats allowed, and its first ability): **mid-Act 1 (floor 6)** and **mid-Act 2 (floor 6)**. A third hero joins **right after the Act 1 boss**, so the party is 4 by the middle of the run. Every other campsite is **training**: **every hero picks 1 of 3** (new abilities or passives, or upgrades once full). |
-| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). Two so far, picked at random: the **Wishing Well** (make a wish, holding at most one, or fish out 25 gold if you already hold one; a used wish brings the party back and gives every hero **+20% damage** for the restarted fight, a "Wished" buff), and the **Cursed Shrine** (no way out: every hero takes **25% more damage** in the next fight, a "Cursed" debuff, shown as "☠ cursed" in the top bar). |
-| **Boss** | The act's boss; then **every hero picks 1 of 4** (new abilities, or upgrades once full) and the next act. |
+| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). Picked at random from: the **Wishing Well** (make a wish, holding at most one, or fish out 25 gold if you already hold one; a used wish brings the party back and gives every hero **+20% damage** for the restarted fight, a "Wished" buff); the **Cursed Shrine** (no way out: every hero takes **25% more damage** in the next fight, a "Cursed" debuff, shown as "☠ cursed" in the top bar); **The Gambler** (bet 20 gold on a coin flip: win 40 back or lose it); **A Wounded Traveller** (pay 15 gold; they catch up at the start of the next act with 60); **The Blood Altar** (the hero with the fewest abilities loses 20% max health until the end of the act and gets an extra pick); and **A Visit from Camp** (the camp's helper drops by with 25 gold; placeholder writing for Bailey). |
+| **Boss** | The act's boss; then **every hero picks 1 of 4** (new abilities, or upgrades once full), all on one screen, and the next act. |
 
 Some fights, elites and chests are **golden** (a gold ring): **2× gold, 1.5× XP
-and 2× camp loot**, and a golden chest offers every hero **4** options
-instead of 3. The rewards say how much the golden bonus was.
+and 2× camp loot**, and a golden chest offers **4** options instead of 3. The rewards say how much the golden bonus was.
 
 **Map rules** (so every route has a good mix): floors 1–2 are fights; no elite
-or shop before floor 4; no two of the same special node in a row on a path;
-every map has at least one shop, two chests and one chance encounter. Act 1's
+or shop (or challenge) before floor 4; no two of the same special node in a
+row on a path; every map has at least one shop, two chests and one chance
+encounter. Act 1's
 campsite floors are 3, 6, 9 and 12 (floor 6 recruits, the others train);
 Acts 2 and 3 have
 training campsites on floors 6 and 12. Each map also has a **flavor** that
@@ -116,8 +118,10 @@ tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
    **Auto** on it moves on by itself. After an **elite or boss** there's no
    panel: the same rewards line sits at the top of the pick screen instead.
 4. **Choices** (recruit, training, upgrade, shop, events) open as overlays on
-   the map. At chests and training campsites each hero picks in turn (Skip
-   allowed).
+   the map. At training campsites and after bosses, **one screen** shows a
+   row of options per hero: tap one per row (tap again to skip that hero),
+   read its details below, then **Confirm**; **Choose for me** fills in the
+   rest.
    A wish in hand shows as "✦ wish" in the top bar.
 5. **Auto** (top bar) also picks the route (balanced, not elite-chasing),
    recruits, training, upgrades and shopping.
@@ -126,8 +130,8 @@ tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
 
 - **Enemy count:** one per hero, plus one from floor 7 on (a lone hero always
   meets one enemy at a time), up to 5.
-- **Strength** (enemy HP and damage): Act 1 1.3 + 0.09 a floor; Act 2 2.55 +
-  0.14; Act 3 4.2 + 0.2. Smaller parties meet weaker enemies (×0.6 for 1 hero,
+- **Strength** (enemy HP and damage): Act 1 1.2 + 0.08 a floor; Act 2 2.35 +
+  0.1; Act 3 3.6 + 0.16 (each act starts above the last one's end). Smaller parties meet weaker enemies (×0.6 for 1 hero,
   then 0.62, 0.8, and 1 for 4). Bosses ×1.05 / 1 / 0.95 by act.
 - **Gold:** 3 per regular enemy, 14 per elite, 40 per boss, × 1 / 1.4 / 1.8 by
   act (raised minions pay nothing).
@@ -199,17 +203,18 @@ on the cheapest upgrade).
 Target (decided 2026-11-03): you have to earn the win. Beat Act 1 after about
 1–2 failed runs, Act 2 by about run 4–6, the whole run around run 8–12.
 
-Result (20 guilds × 15 runs, 2026-11-03, after the recruit, XP, golden and
-boss-reward changes): the first run that beat Act 1 was run 2 (median), Act 2
-run 6, the whole run run 8.
+Result (20 guilds × 15 runs, 2026-11-03, after one-pick chests, the new
+encounters, 4 slots and the steeper XP curve): the first run that beat Act 1
+was run 2 (median), Act 2 run 5, the whole run run 8. A winning run now has
+about 40 picks (was ~53), and the party picks share one screen.
 
 | Runs | Beat Act 1 | Beat Act 2 | Won |
 |---|---|---|---|
-| 1 | 35% | 10% | 0% |
-| 2–3 | 53% | 13% | 3% |
-| 4–6 | 73% | 23% | 7% |
-| 7–10 | 83% | 44% | 31% |
-| 11–15 | 93% | 67% | 54% |
+| 1 | 40% | 5% | 0% |
+| 2–3 | 60% | 13% | 5% |
+| 4–6 | 75% | 38% | 7% |
+| 7–10 | 86% | 53% | 28% |
+| 11–15 | 91% | 81% | 61% |
 
 ---
 
@@ -359,12 +364,13 @@ Polymorph exist as ability definitions but are only used by the passives.
 ## 5. Hero progression (within a run)
 
 - **Levels** come from XP (§2): +6% health, damage and healing per level.
-- **New abilities and passives** come from **chests** and **training
-  campsites**, where **every hero** picks 1 of 3 from their class pool (or 1
-  of 3 upgrades once all 4 slots are full), and from **shops**. Picked
-  abilities stay for the run (no swapping).
-- **Boss picks:** every hero picks 1 of 4 (like a chest, with one more option).
-- **Elite picks:** 1 of 3 for one named hero. While anyone has a free
+- **New abilities and passives** come mainly from **training campsites**,
+  where **every hero** picks 1 of 3 from their class pool (or 1 of 3 upgrades
+  once all 4 slots are full), and from **shops**. Picked abilities stay for the
+  run (no swapping).
+- **Boss picks:** every hero picks 1 of 4, on one screen.
+- **Chest, elite and challenge picks:** one reward for one named hero (1 of 3;
+  4 for a golden chest or a challenge). While anyone has a free
   slot, two are **new abilities or passives** (for the heroes with the fewest)
   and one is an upgrade; once everyone is full, three upgrades. You can skip.
 - **New spells first:** named upgrades are only offered to a hero with at
@@ -527,7 +533,8 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 
 - **Top bar:** "ACT n · FLOOR f" (just "ACT n" on the map), with the act or
   fight name, gold, enemies left and the fight clock underneath. Buttons:
-  Speed, Sound, **Auto** and Pause, always visible (on top of reward, pick and
+  Speed, Sound, **Auto** and Pause (chunky square buttons that sink when
+  pressed; the big screen buttons use the same style), always visible (on top of reward, pick and
   camp screens too). **Auto** picks the route and every choice for you after a
   short pause.
 - **Damage meter** (bottom-right of the field during a fight): each hero's

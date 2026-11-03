@@ -141,7 +141,9 @@ export interface Effect {
     /** Wishing Well: the party rose again; heroes deal `amount` more damage this fight. */
     | 'wished'
     /** Cursed Shrine: takes `amount` more damage this fight. */
-    | 'cursed';
+    | 'cursed'
+    /** Feast: `amount` more max health this fight. */
+    | 'fed';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */
@@ -307,6 +309,8 @@ export interface HeroBuild {
   vitality?: number;
   might?: number;
   focus?: number;
+  /** Blood Altar: this share of max health is lost until the end of the act. */
+  wound?: number;
   /** Camp Mode: gear levels from the camp's stations. */
   gear?: { weapon: number; armor: number; trinket: number };
 }

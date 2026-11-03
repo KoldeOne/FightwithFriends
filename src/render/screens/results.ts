@@ -49,7 +49,7 @@ export class Results {
     }
     if (spoils.pick) {
       // An elite or boss pick follows: the rewards go at the top of that screen instead.
-      run.lastSpoils = `${spoils.actCleared ? `ACT ${run.act} CLEARED! ` : 'Victory: '}${spoilsLine(run, spoils, lootText(loot))}`;
+      run.lastSpoils = `${spoils.actCleared ? `ACT ${run.act} CLEARED! ` : node.type === 'challenge' ? 'Challenge won! ' : 'Victory: '}${spoilsLine(run, spoils, lootText(loot))}`;
       saveRun(run);
       this.s.scene.restart({ run });
       return;

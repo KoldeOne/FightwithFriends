@@ -2,6 +2,7 @@ import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
 import { ABILITIES, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, TRAITS, WORLD } from '../sim/content';
 import { sound } from './sound';
+import { ChunkyButton } from './button';
 import { actDef } from '../sim/acts';
 import { type Effect, type Unit } from '../sim/types';
 import { COLORS, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD, effectInfo, effectIcon, abilityIcon, traitIcon, ICON_PX } from './theme';
@@ -15,12 +16,12 @@ const BOX_TOP = 66;
 export class Hud {
   constructor(readonly s: BattleScene) {}
 
-  autoButton!: Phaser.GameObjects.Text;
-  soundButton!: Phaser.GameObjects.Text;
+  autoButton!: ChunkyButton;
+  soundButton!: ChunkyButton;
   hudText!: Phaser.GameObjects.Text;
   waveText!: Phaser.GameObjects.Text;
-  speedButton!: Phaser.GameObjects.Text;
-  pauseButton!: Phaser.GameObjects.Text;
+  speedButton!: ChunkyButton;
+  pauseButton!: ChunkyButton;
   partyFrames: PartyFrame[] = [];
   partyBars!: Phaser.GameObjects.Graphics;
   partyCooldowns!: Phaser.GameObjects.Graphics;
@@ -35,13 +36,11 @@ export class Hud {
   /** Small testing/utility buttons along the top edge. */
   drawTopBar(): void {
     const small = (x: number, y: number, onTap: () => void) =>
-      this.s.text(x, y, '', 13, '#ffffff')
-        .setPadding(10, 6, 10, 6)
-        .setBackgroundColor('#2b3445')
+      new ChunkyButton(this.s, x, y, ' ', 13, '#3a4660', onTap)
+        .setOrigin(0, 0)
+        .setPadding(10, 5)
         // Above every overlay (reward screens, picks, the camp), so the top menu is always there.
-        .setDepth(200)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', onTap);
+        .setDepth(200);
 
     // Row 1: testing aids on the left; AUTO and Pause on the right.
     this.speedButton = small(8, 8, () => {
@@ -109,6 +108,11 @@ export class Hud {
             if (!pointer.wasTouch) this.hideTooltip();
           })
           .on('pointerdown', () => this.showAbilityTooltip(i, j));
+        // Pixel bevel: light top-left edge, dark bottom-right, over the icon.
+        const bs = this.s.party.box;
+        const bevel = this.s.add.graphics().setDepth(4);
+        bevel.fillStyle(0xffffff, 0.22).fillRect(bx - bs / 2, by - bs / 2, bs, 2).fillRect(bx - bs / 2, by - bs / 2, 2, bs);
+        bevel.fillStyle(0x000000, 0.45).fillRect(bx - bs / 2, by + bs / 2 - 2, bs, 2).fillRect(bx + bs / 2 - 2, by - bs / 2, 2, bs);
         const label = this.s.text(bx, by, '', 9, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
         // Ability icon (the box underneath shows the cooldown sweep on top of it).
         const icon = this.s.add.image(bx, by, 'icon-ab-fireball').setScale((this.s.party.box - 2) / ICON_PX).setDepth(3).setVisible(false);
@@ -151,18 +155,18 @@ export class Hud {
       this.hudText.setText('');
     } else if (this.s.state === 'map' || this.s.state === 'choice') {
       this.waveText.setText(`ACT ${run.act}`).setColor('#ffd166');
-      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}`);
+      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${run.feast ? ` · fed (${run.feast})` : ""}`);
     } else {
       this.waveText.setText(`ACT ${run.act} · FLOOR ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
       const ramp = this.s.battle.damageRamp;
       const sudden = ramp > 1 ? ` · SUDDEN DEATH x${ramp.toFixed(1)}` : '';
-      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${sudden}`);
+      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${run.feast ? ` · fed (${run.feast})` : ""}${sudden}`);
     }
 
     this.speedButton.setText(`Speed ${this.s.speed}x`);
     this.soundButton.setText(`Sound: ${sound.muted ? 'OFF' : 'ON'}`);
     this.pauseButton.setText(this.s.state === 'paused' ? '▶ Resume' : '❚❚ Pause');
-    this.autoButton.setText(`Auto: ${this.s.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.s.auto ? '#1e6f50' : '#2b3445');
+    this.autoButton.setText(`Auto: ${this.s.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.s.auto ? '#1e6f50' : '#3a4660');
 
     this.updatePartyHud();
   }
@@ -211,7 +215,7 @@ export class Hud {
         if (hasIcon && b.icon.texture.key !== iconKey) b.icon.setTexture(iconKey);
         if (a) {
           const def = ABILITIES[a.id];
-          b.bg.setFillStyle(COLORS[h.kind]).setStrokeStyle(1, a.mastery ? 0xffd166 : 0x111111);
+          b.bg.setFillStyle(COLORS[h.kind]).setStrokeStyle(2, a.mastery ? 0xffd166 : 0x000000);
           b.label.setText(hasIcon ? '' : initials(def.name)).setColor(DARK_LETTER.includes(h.kind) ? '#111' : '#fff');
           if (a.cooldown > 0) {
             const bx = b.bg.x - this.s.party.box / 2;
@@ -219,10 +223,10 @@ export class Hud {
             this.partyCooldowns.fillStyle(0x000000, 0.6).fillRect(bx, by, this.s.party.box, this.s.party.box * Math.min(1, a.cooldown / this.s.battle.abilityCooldown(a)));
           }
         } else if (trait) {
-          b.bg.setFillStyle(0x24203a).setStrokeStyle(1, 0xb57bff);
+          b.bg.setFillStyle(0x24203a).setStrokeStyle(2, 0xb57bff);
           b.label.setText(hasIcon ? '' : initials(TRAITS[trait].name)).setColor('#e0c3ff');
         } else {
-          b.bg.setFillStyle(0x151b27).setStrokeStyle(1, 0x2b3445);
+          b.bg.setFillStyle(0x151b27).setStrokeStyle(2, 0x000000);
           b.label.setText('');
         }
       });

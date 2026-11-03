@@ -3,7 +3,7 @@ import { ECONOMY, goldFor, makeEncounter } from './acts';
 import { ABILITIES, CLASS_POOL, HERO_KIT, HERO_STATS, LEVEL_SCALING, MAX_ABILITY_SLOTS, RESOURCES, TRAITS, UPGRADE } from './content';
 import { generateActMap, nextNodes, type ActMap, type MapNode } from './map';
 import { createRng } from './rng';
-import { EVENTS, eventFor, MAX_WISHES, type EventChoice, type EventId } from './events';
+import { ALTAR_WOUND, CURSE_DAMAGE, EVENTS, eventFor, FEAST, MAX_WISHES, WISH_DAMAGE, type EventChoice, type EventId } from './events';
 import type { AbilityId, EnemyKind, HeroBuild, HeroClass, Loot, TraitId, WaveDef } from './types';
 
 /** The last act; beating its boss wins the run. */
@@ -47,9 +47,10 @@ export interface ShopItem extends PartyReward {
 export type Pending =
   | { kind: 'recruit' }
   /** Chest or training campsite: every hero in `left` still gets their own pick (a new ability, or an upgrade once full). */
-  | { kind: 'train'; source: 'chest' | 'campsite' | 'boss'; left: number[]; gold?: number }
-  /** An elite's pick: one reward for one hero. */
-  | { kind: 'upgrade'; source: 'elite'; options: PartyReward[] }
+  /** Training campsite or boss: every hero in `left` still gets their own pick (a new ability, or an upgrade once full). */
+  | { kind: 'train'; source: 'campsite' | 'boss' | 'altar'; left: number[] }
+  /** A chest's, elite's or challenge's pick: one reward for one hero. */
+  | { kind: 'upgrade'; source: 'chest' | 'elite' | 'challenge'; options: PartyReward[]; gold?: number }
   | { kind: 'shop'; stock: ShopItem[]; rerolls: number }
   | { kind: 'event'; id: EventId };
 
@@ -80,6 +81,12 @@ export interface RunState {
   wishBoost?: boolean;
   /** A Cursed Shrine: every hero starts the next fight with a debuff. */
   cursed?: boolean;
+  /** A Feast: fights left with the extra max health. */
+  feast?: number;
+  /** Helped the Wounded Traveller: they come back with a gift next act. */
+  traveller?: boolean;
+  /** An event waiting to happen once the current choice is done (the traveller's return). */
+  queued?: EventId;
   /** Camp loot found this run (already banked at the camp as each fight ends). */
   loot: Loot;
   /** Campsites reached so far. */
@@ -210,23 +217,25 @@ export function levelsFor(xp: number): number {
 }
 
 /**
- * An elite's or boss's pick for the party: while any hero has a free slot, two
- * new abilities or passives (for different heroes, those with the fewest
- * first) and one upgrade; once everyone is full, three upgrades.
+ * One pick for the party (chests, elites, challenges): while any hero has a
+ * free slot, all but one are new abilities or passives (for different heroes,
+ * those with the fewest first) and one is an upgrade; once everyone is full,
+ * all upgrades.
  */
-export function partyPickOptions(run: RunState, salt: number): PartyReward[] {
+export function partyPickOptions(run: RunState, salt: number, count = 3): PartyReward[] {
   const rng = nodeRng(run, salt);
   const open = shuffle(rng, run.team.map((_, i) => i)).filter((i) => freshPicks(run.team[i], run.builds[i]).length);
-  if (!open.length) return partyUpgradeOptions(run, salt);
+  if (!open.length) return partyUpgradeOptions(run, salt, count);
   open.sort((a, b) => slotsUsed(run.builds[a]) - slotsUsed(run.builds[b]));
   const fresh: PartyReward[] = [];
-  for (let k = 0; fresh.length < 2 && k < 4; k++)
+  const want = count - 1;
+  for (let k = 0; fresh.length < want && k < 4; k++)
     for (const slot of open) {
-      if (fresh.length >= 2) break;
+      if (fresh.length >= want) break;
       const options = shuffle(rng, freshPicks(run.team[slot], run.builds[slot])).filter((r) => !fresh.some((f) => f.slot === slot && JSON.stringify(f.reward) === JSON.stringify(r)));
       if (options.length && (k > 0 || !fresh.some((f) => f.slot === slot))) fresh.push({ slot, reward: options[0] });
     }
-  return [...fresh, ...partyUpgradeOptions(run, salt + 1, 3 - fresh.length)];
+  return [...fresh, ...partyUpgradeOptions(run, salt + 1, count - fresh.length)];
 }
 
 /**
@@ -270,9 +279,9 @@ export function partyUpgradeOptions(run: RunState, salt: number, count = 3): Par
 export function trainOptions(run: RunState, slot: number): Reward[] {
   const rng = nodeRng(run, 11 + slot);
   const node = currentNode(run);
-  // A boss, or a golden chest, offers four.
+  // A boss offers four.
   const p = run.pending;
-  const count = p?.kind === 'train' && (p.source === 'boss' || (p.source === 'chest' && node?.rich)) ? 4 : 3;
+  const count = p?.kind === 'train' && p.source === 'boss' ? 4 : 3;
   const fresh = freshPicks(run.team[slot], run.builds[slot]);
   if (fresh.length) return shuffle(rng, fresh).slice(0, count);
   const u = upgrades(run.team[slot], run.builds[slot]);
@@ -323,8 +332,12 @@ export function enterNode(run: RunState, id: string): MapNode {
   switch (node.type) {
     case 'fight':
     case 'elite':
+    case 'challenge':
     case 'boss':
       run.status = 'fight';
+      break;
+    case 'feast':
+      run.pending = { kind: 'event', id: 'feast' };
       break;
     case 'campsite':
       run.campsites += 1;
@@ -337,7 +350,8 @@ export function enterNode(run: RunState, id: string): MapNode {
       const gold = Math.round((lo + rng() * (hi - lo)) * ECONOMY.actGold[run.act - 1] * (node.rich ? ECONOMY.richBonus : 1));
       run.gold += gold;
       run.stats.gold += gold;
-      run.pending = { kind: 'train', source: 'chest', left: run.team.map((_, i) => i), gold };
+      // One pick for one hero (four options if golden).
+      run.pending = { kind: 'upgrade', source: 'chest', options: partyPickOptions(run, 2, node.rich ? 4 : 3), gold };
       break;
     }
     case 'shop':
@@ -359,7 +373,37 @@ export function fightSeed(run: RunState): number {
 /** The enemies at the current fight node. */
 export function encounterFor(run: RunState): WaveDef {
   const node = currentNode(run)!;
-  return makeEncounter(run.seed, run.act, node.floor, node.type, run.team.length, node.id);
+  const twist = node.type === 'challenge' ? challengeTwist(run, node) : undefined;
+  const wave = makeEncounter(run.seed, run.act, node.floor, node.type, run.team.length, node.id, twist === 'swarm' ? 2 : 0);
+  return twist ? { ...wave, name: `Challenge: ${TWISTS[twist].name}` } : wave;
+}
+
+/** A challenge's twist: what makes it harder. */
+export type Twist = 'enraged' | 'frail' | 'swarm';
+export const TWISTS: Record<Twist, { name: string; text: string }> = {
+  enraged: { name: 'Enraged', text: 'Enemies deal 30% more damage.' },
+  frail: { name: 'No Rest', text: 'Your heroes heal 50% less.' },
+  swarm: { name: 'Swarm', text: 'Two extra enemies join the fight.' },
+};
+
+export function challengeTwist(run: RunState, node: MapNode): Twist {
+  const list = Object.keys(TWISTS) as Twist[];
+  let h = 0;
+  for (const ch of node.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return list[(h + run.seed + run.act) % list.length];
+}
+
+/** Everything about the current fight beyond its enemies: wish boost, curse, feast, a challenge's twist. */
+export function fightMods(run: RunState): { wishBoost?: number; curse?: number; feast?: number; enemyDamage?: number; healingScale?: number } {
+  const node = currentNode(run);
+  const twist = node?.type === 'challenge' ? challengeTwist(run, node) : undefined;
+  return {
+    wishBoost: run.wishBoost ? WISH_DAMAGE : undefined,
+    curse: run.cursed ? CURSE_DAMAGE : undefined,
+    feast: run.feast ? FEAST.health : undefined,
+    enemyDamage: twist === 'enraged' ? 1.3 : undefined,
+    healingScale: twist === 'frail' ? 0.5 : undefined,
+  };
 }
 
 export function averageLevel(run: RunState): number {
@@ -373,6 +417,13 @@ export function averageLevel(run: RunState): number {
  * moves on to the next act; beating the last one wins the run.
  */
 /** One line for a fight's rewards: "Victory: +14 gold (golden +7) · +4 XP · Level up: Mage 3 · Camp: 3 Spoils". */
+/** "Mage", or "Mage 2" for a second Mage. */
+export function heroLabel(run: RunState, slot: number): string {
+  const cls = run.team[slot];
+  const same = run.team.slice(0, slot).filter((c) => c === cls).length;
+  return `${cls[0].toUpperCase() + cls.slice(1)}${same ? ` ${same + 1}` : ''}`;
+}
+
 export function spoilsLine(run: RunState, spoils: Spoils, campLoot?: string): string {
   const name = (slot: number) => {
     const cls = run.team[slot];
@@ -409,6 +460,7 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
   }
   run.status = 'map';
   run.wishBoost = undefined;
+  if (run.feast) run.feast -= 1;
   run.stats.fights += 1;
   if (node.type === 'elite') run.stats.elites += 1;
   if (node.type === 'boss') run.stats.bosses += 1;
@@ -437,6 +489,11 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
     run.pending = { kind: 'upgrade', source: 'elite', options: partyPickOptions(run, 5) };
     spoils.pick = true;
   }
+  // A challenge: one pick of four (named upgrades and new abilities first).
+  if (node.type === 'challenge') {
+    run.pending = { kind: 'upgrade', source: 'challenge', options: partyPickOptions(run, 6, 4) };
+    spoils.pick = true;
+  }
   // A boss: every hero gets their own pick (1 of 4).
   if (node.type === 'boss') {
     run.pending = { kind: 'train', source: 'boss', left: run.team.map((_, i) => i) };
@@ -456,6 +513,11 @@ function finishPending(run: RunState): void {
     // A new hero joins right after the Act 1 boss.
     if (run.act === 2 && run.team.length < MAX_PARTY) run.pending = { kind: 'recruit' };
   }
+  // Something waiting its turn (the traveller's return) comes next.
+  if (!run.pending && run.queued) {
+    run.pending = { kind: 'event', id: run.queued };
+    run.queued = undefined;
+  }
 }
 
 export function nextAct(run: RunState): void {
@@ -464,6 +526,12 @@ export function nextAct(run: RunState): void {
   run.at = null;
   run.visited = [];
   run.status = 'map';
+  // Blood Altar wounds heal; a traveller you helped catches up.
+  for (const b of run.builds) b.wound = undefined;
+  if (run.traveller) {
+    run.traveller = undefined;
+    run.queued = 'travellerGift';
+  }
 }
 
 /** Recruit site: a new hero joins at the run's starting level with the first ability you chose (they earn double XP until they catch up). */
@@ -532,7 +600,9 @@ export function leaveShop(run: RunState): void {
 export function eventChoices(run: RunState): EventChoice[] {
   const p = run.pending;
   if (p?.kind !== 'event') return [];
-  return EVENTS[p.id].choices.filter((c) => !c.when || (c.when === 'noWish' ? run.wishes < MAX_WISHES : run.wishes >= MAX_WISHES));
+  return EVENTS[p.id].choices.filter(
+    (c) => (!c.when || (c.when === 'noWish' ? run.wishes < MAX_WISHES : run.wishes >= MAX_WISHES)) && run.gold >= (c.minGold ?? 0),
+  );
 }
 
 /** Take a choice at a chance encounter; returns the result text. */
@@ -540,14 +610,32 @@ export function chooseEvent(run: RunState, index: number): string {
   const choice = eventChoices(run)[index];
   if (!choice) throw new Error('no such choice');
   const e = choice.effect;
+  let result = choice.result;
+  let next: Pending | undefined;
   if (e.kind === 'wish') run.wishes = Math.min(MAX_WISHES, run.wishes + 1);
   else if (e.kind === 'curse') run.cursed = true;
   else if (e.kind === 'gold') {
     run.gold += e.amount;
     run.stats.gold += e.amount;
+  } else if (e.kind === 'gamble') {
+    const won = nodeRng(run, 91)() < 0.5;
+    run.gold += won ? e.stake : -e.stake;
+    if (won) run.stats.gold += e.stake;
+    result = won ? e.win : e.lose;
+  } else if (e.kind === 'help') {
+    run.gold -= e.cost;
+    run.traveller = true;
+  } else if (e.kind === 'feast') run.feast = FEAST.fights;
+  else if (e.kind === 'altar') {
+    // The hero with the fewest abilities bleeds, and gets an extra pick.
+    const slot = run.team.map((_, i) => i).sort((a, b) => slotsUsed(run.builds[a]) - slotsUsed(run.builds[b]) || b - a)[0];
+    run.builds[slot].wound = ALTAR_WOUND;
+    result = result.replace('Your least experienced hero', heroLabel(run, slot));
+    next = { kind: 'train', source: 'altar', left: [slot] };
   }
   finishPending(run);
-  return choice.result;
+  if (next) run.pending = next;
+  return result;
 }
 
 // --- the AI (Auto, and the balance simulator) ----------------------------
@@ -558,7 +646,7 @@ const ROLE_ORDER: HeroClass[][] = [['warrior', 'paladin'], ['priest'], ['mage', 
 export function autoPath(run: RunState): string {
   const options = availableNodes(run);
   const score = (n: MapNode) => {
-    const base: Record<string, number> = { fight: 3, campsite: 5, chest: 4, event: 4, shop: run.gold >= 45 ? 4 : 1, elite: run.team.length >= MAX_PARTY ? 2 : -2, boss: 9 };
+    const base: Record<string, number> = { fight: 3, campsite: 5, chest: 4, event: 4, feast: 4, challenge: run.team.length >= MAX_PARTY ? 2 : -3, shop: run.gold >= 45 ? 4 : 1, elite: run.team.length >= MAX_PARTY ? 2 : -2, boss: 9 };
     return (base[n.type] ?? 0) + (n.rich ? 1 : 0);
   };
   return options.reduce((best, n) => (score(n) > score(best) ? n : best)).id;

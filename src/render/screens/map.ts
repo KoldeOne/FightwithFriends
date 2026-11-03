@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { actDef } from '../../sim/acts';
 import { BOSS_INFO, ENEMY_STATS, WORLD } from '../../sim/content';
 import { MAP_COLS, MAP_FLOORS, type MapNode, type NodeType } from '../../sim/map';
-import { autoPath, availableNodes, enterNode, isRecruitCampsite, saveRun } from '../../sim/run';
+import { autoPath, availableNodes, challengeTwist, enterNode, isRecruitCampsite, saveRun, TWISTS } from '../../sim/run';
 import { sound } from '../sound';
 import { ICON_PX } from '../theme';
 
@@ -13,7 +13,7 @@ const BOTTOM = 742;
 const LEFT = 58;
 const RIGHT = WORLD.width - 58;
 
-const NODE_NAMES: Record<NodeType, string> = { fight: 'Fight', elite: 'Elite', chest: 'Chest', campsite: 'Campsite', shop: 'Shop', event: 'Event', boss: 'Boss' };
+const NODE_NAMES: Record<NodeType, string> = { fight: 'Fight', elite: 'Elite', chest: 'Chest', campsite: 'Campsite', shop: 'Shop', event: 'Event', challenge: 'Challenge', feast: 'Feast', boss: 'Boss' };
 
 /** Map colours per act. */
 const LOOK = {
@@ -99,13 +99,20 @@ export class MapScreen {
         this.s.tweens.add({ targets: ring, scale: 1.25, alpha: 0.2, duration: 700, yoyo: true, repeat: -1 });
       }
       items.push(icon);
+      // A challenge says what its twist is.
+      if (n.type === 'challenge') {
+        const tw = this.s.text(p.x, p.y + size / 2 + 1, TWISTS[challengeTwist(run, n)].name, 9, '#ff9f9f').setOrigin(0.5, 0);
+        tw.setStroke('#000000', 3);
+        items.push(tw);
+      }
     }
 
     // Legend.
-    const types: NodeType[] = ['fight', 'elite', 'chest', 'campsite', 'shop', 'event'];
+    const types: NodeType[] = ['fight', 'elite', 'chest', 'campsite', 'shop', 'event', 'challenge', 'feast'];
     types.forEach((t, i) => {
-      const x = 30 + i * 80;
-      items.push(this.s.add.image(x, 770, `icon-nd-${t}`).setScale(18 / ICON_PX), this.s.text(x + 13, 763, NODE_NAMES[t], 11, '#c9d1e0'));
+      const x = 26 + (i % 4) * 116;
+      const y = 762 + Math.floor(i / 4) * 20;
+      items.push(this.s.add.image(x, y, `icon-nd-${t}`).setScale(16 / ICON_PX), this.s.text(x + 12, y - 7, NODE_NAMES[t], 11, '#c9d1e0'));
     });
     items.push(this.s.add.circle(WORLD.width - 30, 770, 9, 0xffd166, 0.25).setStrokeStyle(2, 0xffd166, 0.9), this.s.text(WORLD.width - 44, 784, 'golden', 9, '#ffd166').setOrigin(0.5, 0));
     this.tip = this.s.text(WORLD.width / 2, 152, '', 12, '#7dff9b').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500);
@@ -145,10 +152,12 @@ export class MapScreen {
     const text: Record<NodeType, string> = {
       fight: `Fight: ${act.name} regulars. Gold and XP.`,
       elite: `Elite: a tougher fight with a ${ENEMY_STATS[act.elite].label}. More gold, more XP and an upgrade.`,
-      chest: 'Chest: gold, and a pick for every hero.',
+      chest: 'Chest: gold, and a reward for one hero.',
       campsite: isRecruitCampsite(run, n) ? 'Campsite: a new hero joins your party.' : 'Campsite: every hero trains (a new ability, or an upgrade once full).',
       shop: 'Shop: buy abilities and upgrades with gold.',
       event: 'Chance encounter: something unexpected. Who knows?',
+      challenge: `Challenge (${TWISTS[challengeTwist(run, n)].name}): ${TWISTS[challengeTwist(run, n)].text} A tougher fight around a ${ENEMY_STATS[act.elite].label}; win for a reward from four.`,
+      feast: 'Feast: a hearty meal. Every hero has 15% more maximum health for the next two fights.',
       boss: `Boss: ${ENEMY_STATS[act.boss].label}. Beat it to finish the act.`,
     };
     this.tip?.setText(`${text[n.type]}${n.rich ? ' Golden: better loot.' : ''}`).setColor('#ffffff');
