@@ -1,71 +1,96 @@
 import Phaser from 'phaser';
 import { DPR, FONT } from './theme';
 
-/** How far the button's thick bottom edge sticks out (px); the face sinks by this much when pressed. */
-const EDGE = 5;
+/** Bevel thickness (px). */
+const BEVEL = 2;
+/** Extra tap area around the button (px), so it's easy to hit on a phone. */
+const SLOP = 4;
 
-/** A colour this much darker (0-1), as a number. */
-function darker(hex: string, by: number): number {
+/** A colour shifted lighter (+) or darker (-) by this share (0-1), as a number. */
+function shade(hex: string, by: number): number {
   const c = Phaser.Display.Color.HexStringToColor(hex);
-  return Phaser.Display.Color.GetColor(Math.round(c.red * (1 - by)), Math.round(c.green * (1 - by)), Math.round(c.blue * (1 - by)));
+  const f = (v: number) => Math.round(by >= 0 ? v + (255 - v) * by : v * (1 + by));
+  return Phaser.Display.Color.GetColor(f(c.red), f(c.green), f(c.blue));
 }
 
 /**
- * The game's button: a square face with a black outline and a thick, darker
- * bottom edge that the face sinks into when you press it ("chunky press").
- * Works like the old text buttons: setText, setPadding, setOrigin,
- * setBackgroundColor and setDepth all still apply.
+ * The game's button: a square face with a black outline and a pixel bevel
+ * (light top-left edge, dark bottom-right). Pressing swaps the bevel so the
+ * button looks pushed in. Works like the old text buttons: setText,
+ * setPadding, setOrigin, setBackgroundColor and setDepth all still apply.
  */
-export class ChunkyButton extends Phaser.GameObjects.Container {
+export class PixelButton extends Phaser.GameObjects.Container {
   private readonly label: Phaser.GameObjects.Text;
-  private readonly face: Phaser.GameObjects.Rectangle;
-  private readonly edge: Phaser.GameObjects.Rectangle;
+  private readonly gfx: Phaser.GameObjects.Graphics;
   private pad = { x: 24, y: 12 };
   private origin = { x: 0.5, y: 0.5 };
   private color: string;
   private pressed = false;
+  private hover = false;
+  private box = { left: 0, top: 0, w: 0, h: 0 };
 
   constructor(scene: Phaser.Scene, x: number, y: number, text: string, size: number, color: string, onTap: () => void) {
     super(scene, x, y);
     this.color = color;
-    this.edge = scene.add.rectangle(0, 0, 10, 10, darker(color, 0.45)).setOrigin(0, 0).setStrokeStyle(2, 0x000000);
-    this.face = scene.add.rectangle(0, 0, 10, 10, Phaser.Display.Color.HexStringToColor(color).color).setOrigin(0, 0).setStrokeStyle(2, 0x000000);
+    this.gfx = scene.add.graphics();
     this.label = scene.add.text(0, 0, text, { fontFamily: FONT, fontSize: `${size}px`, color: '#ffffff' }).setResolution(DPR).setOrigin(0.5).setFontStyle('bold');
-    this.label.setShadow(0, 2, 'rgba(0,0,0,0.45)', 0);
-    this.add([this.edge, this.face, this.label]);
+    this.label.setShadow(1, 1, 'rgba(0,0,0,0.5)', 0);
+    this.add([this.gfx, this.label]);
     scene.add.existing(this);
     this.layout();
     this.on('pointerdown', () => {
-      this.press(true);
+      this.setPressed(true);
       onTap();
     });
-    this.on('pointerup', () => this.press(false));
-    this.on('pointerout', () => this.press(false));
-    this.on('pointerover', () => this.face.setFillStyle(Phaser.Display.Color.HexStringToColor(this.color).lighten(8).color));
+    this.on('pointerup', () => this.setPressed(false));
+    this.on('pointerout', () => {
+      this.hover = false;
+      this.setPressed(false);
+      this.draw();
+    });
+    this.on('pointerover', () => {
+      this.hover = true;
+      this.draw();
+    });
   }
 
-  /** Size everything around the label (call after changing text or padding). */
+  /** Size everything around the label (after changing text, padding or origin). */
   private layout(): void {
     const w = Math.ceil(this.label.width + this.pad.x * 2);
     const h = Math.ceil(this.label.height + this.pad.y * 2);
-    const left = -w * this.origin.x;
-    const top = -(h + EDGE) * this.origin.y;
-    const sink = this.pressed ? EDGE - 1 : 0;
-    this.edge.setPosition(left, top + EDGE).setSize(w, h);
-    this.face.setPosition(left, top + sink).setSize(w, h);
-    this.label.setPosition(left + w / 2, top + sink + h / 2);
-    this.setSize(w, h + EDGE);
-    const area = new Phaser.Geom.Rectangle(left, top, w, h + EDGE);
+    this.box = { left: -w * this.origin.x, top: -h * this.origin.y, w, h };
+    this.setSize(w, h);
+    // Phaser checks a container's tap area in coordinates shifted by half its
+    // size (its display origin), so the area is offset to match the drawing.
+    const area = new Phaser.Geom.Rectangle(this.box.left + this.displayOriginX - SLOP, this.box.top + this.displayOriginY - SLOP, w + SLOP * 2, h + SLOP * 2);
     if (this.input) this.input.hitArea = area;
     else this.setInteractive(area, Phaser.Geom.Rectangle.Contains);
     if (this.input) this.input.cursor = 'pointer';
+    this.draw();
   }
 
-  private press(on: boolean): void {
+  private draw(): void {
+    const { left, top, w, h } = this.box;
+    const g = this.gfx.clear();
+    const shift = this.pressed ? 1 : 0;
+    // Black outline, the face, then the bevel (swapped while pressed).
+    g.fillStyle(0x000000).fillRect(left - 2, top - 2, w + 4, h + 4);
+    g.fillStyle(shade(this.color, this.hover && !this.pressed ? 0.08 : this.pressed ? -0.08 : 0)).fillRect(left, top, w, h);
+    const light = shade(this.color, 0.3);
+    const dark = shade(this.color, -0.45);
+    g.fillStyle(this.pressed ? dark : light)
+      .fillRect(left, top, w, BEVEL)
+      .fillRect(left, top, BEVEL, h);
+    g.fillStyle(this.pressed ? light : dark)
+      .fillRect(left, top + h - BEVEL, w, BEVEL)
+      .fillRect(left + w - BEVEL, top, BEVEL, h);
+    this.label.setPosition(left + w / 2 + shift, top + h / 2 + shift);
+  }
+
+  private setPressed(on: boolean): void {
     if (this.pressed === on) return;
     this.pressed = on;
-    if (!on) this.face.setFillStyle(Phaser.Display.Color.HexStringToColor(this.color).color);
-    this.layout();
+    this.draw();
   }
 
   get text(): string {
@@ -95,8 +120,7 @@ export class ChunkyButton extends Phaser.GameObjects.Container {
   setBackgroundColor(color: string): this {
     if (color === this.color) return this;
     this.color = color;
-    this.face.setFillStyle(Phaser.Display.Color.HexStringToColor(color).color);
-    this.edge.setFillStyle(darker(color, 0.45));
+    this.draw();
     return this;
   }
 }

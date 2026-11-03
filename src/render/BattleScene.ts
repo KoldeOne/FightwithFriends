@@ -7,7 +7,7 @@ import { encounterFor, fightMods, fightSeed, type RunState } from '../sim/run';
 import { type Unit } from '../sim/types';
 import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, DPR, FONT, HUD } from './theme';
 import { Hud } from './hud';
-import { ChunkyButton } from './button';
+import { PixelButton } from './button';
 import { Inspect } from './inspect';
 import { UnitLayer } from './units';
 import { HeroPicker } from './screens/hero';
@@ -347,9 +347,9 @@ export class BattleScene extends Phaser.Scene {
 
   // --- helpers ------------------------------------------------------------
 
-  /** A chunky square button (see button.ts), centred on x, y. */
-  button(x: number, y: number, label: string, size: number, bg: string, onTap: () => void): ChunkyButton {
-    return new ChunkyButton(this, x, y, label, size, bg, onTap);
+  /** A pixel-bevel button (see button.ts), centred on x, y. */
+  button(x: number, y: number, label: string, size: number, bg: string, onTap: () => void): PixelButton {
+    return new PixelButton(this, x, y, label, size, bg, onTap);
   }
 
   text(x: number, y: number, str: string, size: number, color: string): Phaser.GameObjects.Text {

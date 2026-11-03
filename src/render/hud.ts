@@ -2,7 +2,7 @@ import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
 import { ABILITIES, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, TRAITS, WORLD } from '../sim/content';
 import { sound } from './sound';
-import { ChunkyButton } from './button';
+import { PixelButton } from './button';
 import { actDef } from '../sim/acts';
 import { type Effect, type Unit } from '../sim/types';
 import { COLORS, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD, effectInfo, effectIcon, abilityIcon, traitIcon, ICON_PX } from './theme';
@@ -16,12 +16,12 @@ const BOX_TOP = 66;
 export class Hud {
   constructor(readonly s: BattleScene) {}
 
-  autoButton!: ChunkyButton;
-  soundButton!: ChunkyButton;
+  autoButton!: PixelButton;
+  soundButton!: PixelButton;
   hudText!: Phaser.GameObjects.Text;
   waveText!: Phaser.GameObjects.Text;
-  speedButton!: ChunkyButton;
-  pauseButton!: ChunkyButton;
+  speedButton!: PixelButton;
+  pauseButton!: PixelButton;
   partyFrames: PartyFrame[] = [];
   partyBars!: Phaser.GameObjects.Graphics;
   partyCooldowns!: Phaser.GameObjects.Graphics;
@@ -36,7 +36,7 @@ export class Hud {
   /** Small testing/utility buttons along the top edge. */
   drawTopBar(): void {
     const small = (x: number, y: number, onTap: () => void) =>
-      new ChunkyButton(this.s, x, y, ' ', 13, '#3a4660', onTap)
+      new PixelButton(this.s, x, y, ' ', 13, '#3a4660', onTap)
         .setOrigin(0, 0)
         .setPadding(10, 5)
         // Above every overlay (reward screens, picks, the camp), so the top menu is always there.

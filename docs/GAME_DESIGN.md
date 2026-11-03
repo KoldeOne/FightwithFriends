@@ -533,8 +533,9 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 
 - **Top bar:** "ACT n · FLOOR f" (just "ACT n" on the map), with the act or
   fight name, gold, enemies left and the fight clock underneath. Buttons:
-  Speed, Sound, **Auto** and Pause (chunky square buttons that sink when
-  pressed; the big screen buttons use the same style), always visible (on top of reward, pick and
+  Speed, Sound, **Auto** and Pause (square pixel-bevel buttons: a light
+  top-left edge and a dark bottom-right that swap when pressed; every big
+  screen button uses the same style), always visible (on top of reward, pick and
   camp screens too). **Auto** picks the route and every choice for you after a
   short pause.
 - **Damage meter** (bottom-right of the field during a fight): each hero's
