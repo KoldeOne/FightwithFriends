@@ -1,12 +1,12 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
-import { actDef } from '../../sim/acts';
+import { actDef, ECONOMY } from '../../sim/acts';
 import { WORLD } from '../../sim/content';
-import { bestProgress, clearRun, currentNode, describeProgress, finishFight, fightSeed, recordProgress, recordWin, saveRun, type Spoils } from '../../sim/run';
-import { addLoot, bankLoot, loadCamp, lootFor, lootText, saveCamp } from '../../sim/camp';
+import { bestProgress, clearRun, currentNode, describeProgress, finishFight, fightSeed, recordProgress, recordWin, saveRun, spoilsLine, type Spoils } from '../../sim/run';
+import { addLoot, bankLoot, loadCamp, lootFor, lootText, saveCamp, scaleLoot } from '../../sim/camp';
 import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
-import { COLORS, ICON_PX } from '../theme';
+import { ICON_PX } from '../theme';
 
 /** How long the spoils stay up before the map comes back (tap to skip). */
 const SPOILS_MS = 2400;
@@ -22,7 +22,8 @@ export class Results {
     const fallen = this.s.battle.heroes.filter((h) => !h.alive).map((h) => h.slot ?? 0);
     const node = currentNode(run)!;
     // Camp loot goes home straight away, win or lose.
-    const loot = lootFor(this.s.battle.kills, run.act, fightSeed(run));
+    const golden = !!node.rich;
+    const loot = scaleLoot(lootFor(this.s.battle.kills, run.act, fightSeed(run)), golden ? ECONOMY.richLoot : 1);
     const camp = loadCamp();
     bankLoot(camp, loot);
     saveCamp(camp);
@@ -46,6 +47,13 @@ export class Results {
       this.showSpoils(spoils, loot, () => this.showVictory(wins));
       return;
     }
+    if (spoils.pick) {
+      // An elite or boss pick follows: the rewards go at the top of that screen instead.
+      run.lastSpoils = `${spoils.actCleared ? `ACT ${run.act} CLEARED! ` : 'Victory: '}${spoilsLine(run, spoils, lootText(loot))}`;
+      saveRun(run);
+      this.s.scene.restart({ run });
+      return;
+    }
     saveRun(run);
     this.showSpoils(spoils, loot, () => this.s.scene.restart({ run }));
   }
@@ -59,8 +67,8 @@ export class Results {
     const cy = 380;
     const items: Phaser.GameObjects.GameObject[] = [];
     const veil = this.s.add.rectangle(0, 0, WORLD.width, WORLD.hudTop, 0x000000, 0.45).setOrigin(0, 0).setInteractive();
-    const rows = spoils.heroes.length;
-    const h = 172 + rows * 30;
+    const ups = spoils.heroes.filter((r) => r.to > r.from);
+    const h = 190 + (ups.length ? 28 : 0) + (spoils.goldBonus ? 22 : 0);
     const panel = this.s.add.rectangle(cx, cy, 380, h, 0x111723, 0.94).setStrokeStyle(2, 0xffd166);
     const title = spoils.won ? 'THE RIFT IS CLOSED!' : spoils.actCleared ? `ACT ${run.act} CLEARED!` : 'VICTORY!';
     const t = this.s.text(cx, cy - h / 2 + 30, title, spoils.actCleared || spoils.won ? 28 : 32, '#ffd166').setOrigin(0.5).setFontStyle('bold');
@@ -86,29 +94,21 @@ export class Results {
       const a = Math.random() * Math.PI * 2;
       this.s.tweens.add({ targets: c, x: cx - 56 + Math.cos(a) * (50 + Math.random() * 60), y: gy + Math.sin(a) * (40 + Math.random() * 40) - 20, alpha: 0, duration: 650 + Math.random() * 300, ease: 'Cubic.easeOut' });
     }
-    // XP and level-ups, one row per hero.
-    spoils.heroes.forEach((r, i) => {
-      const y = gy + 40 + i * 30;
-      const cls = run.team[r.slot];
-      const name = cls[0].toUpperCase() + cls.slice(1);
-      items.push(this.s.add.circle(cx - 150, y, 7, COLORS[cls]).setStrokeStyle(1, 0x000000));
-      items.push(this.s.text(cx - 136, y, name, 14, '#ffffff').setOrigin(0, 0.5));
-      if (r.fell) {
-        items.push(this.s.text(cx - 20, y, 'fell — no XP', 13, '#8f9bb3').setOrigin(0, 0.5));
-        return;
-      }
-      items.push(this.s.text(cx - 20, y, `+${r.xp} XP`, 13, '#9ad1ff').setOrigin(0, 0.5));
-      if (r.to > r.from) {
-        const up = this.s.text(cx + 60, y, `Lv ${r.from} → ${r.to}!`, 15, '#7dff9b').setOrigin(0, 0.5).setFontStyle('bold');
-        up.setStroke('#000000', 3);
-        up.setScale(0.2);
-        this.s.tweens.add({ targets: up, scale: 1, duration: 380, delay: 350 + i * 120, ease: 'Back.easeOut' });
-        items.push(up);
-      }
-    });
+    // XP once (everyone standing gets the same), then any level-ups, then the camp loot.
+    let y = gy + (spoils.goldBonus ? 26 : 0);
+    if (spoils.goldBonus) items.push(this.s.text(cx, gy + 22, `Golden bonus: +${spoils.goldBonus} gold`, 13, '#ffd166').setOrigin(0.5));
+    y += 38;
+    items.push(this.s.text(cx, y, `+${spoils.xp} XP`, 18, '#9ad1ff').setOrigin(0.5).setFontStyle('bold'));
+    if (ups.length) {
+      y += 30;
+      const name = (slot: number) => run.team[slot][0].toUpperCase() + run.team[slot].slice(1);
+      const up = this.s.text(cx, y, `Level up! ${ups.map((r) => `${name(r.slot)} ${r.to}`).join(', ')}`, 15, '#7dff9b').setOrigin(0.5).setFontStyle('bold');
+      up.setStroke('#000000', 3).setScale(0.2);
+      this.s.tweens.add({ targets: up, scale: 1, duration: 380, delay: 350, ease: 'Back.easeOut' });
+      items.push(up);
+    }
     // Camp loot (already sent home).
-    const ly = gy + 40 + rows * 30 + 4;
-    const lt = this.s.text(cx, ly, `⛺ To the camp: ${lootText(loot)}`, 13, '#e0b878').setOrigin(0.5).setAlpha(0);
+    const lt = this.s.text(cx, y + 32, `⛺ To the camp: ${lootText(loot)}`, 13, '#e0b878').setOrigin(0.5).setAlpha(0);
     this.s.tweens.add({ targets: lt, alpha: 1, duration: 300, delay: 500 });
     items.push(lt);
     if (spoils.pick) items.push(this.s.text(cx, cy + h / 2 - 18, 'An upgrade awaits…', 12, '#ffd166').setOrigin(0.5));

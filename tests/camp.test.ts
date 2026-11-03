@@ -65,6 +65,32 @@ describe('The camp (between map runs)', () => {
     expect(b.kills.map((k) => k.kind)).toEqual(['grunt', 'grunt', 'grunt']);
   });
 
+  it('the damage meter splits each hero\'s damage and healing by source, auto-attacks included', () => {
+    const b = new Battle({ seed: 3, wave: makeRound(5), team: TRIO, builds: [
+      { level: 3, abilities: [{ id: 'heroicStrike', power: 0, haste: 0, mastery: false }], traits: [] },
+      { level: 3, abilities: [{ id: 'heal', power: 0, haste: 0, mastery: false }], traits: [] },
+      { level: 3, abilities: [{ id: 'fireball', power: 0, haste: 0, mastery: false }], traits: [] },
+    ] });
+    while (b.outcome === 'running' && b.time < 300) b.step(STEP);
+    const by = (cls: string) => b.meter.get(b.units.find((u) => u.kind === cls)!.id)!;
+    expect(by('warrior').damage['Auto-attack']).toBeGreaterThan(0);
+    expect(by('warrior').damage['Heroic Strike']).toBeGreaterThan(0);
+    expect(Object.keys(by('mage').damage).some((k) => k.startsWith('Fireball'))).toBe(true);
+    expect(Object.values(by('priest').healing).reduce((a, v) => a + v, 0)).toBeGreaterThan(0);
+  });
+
+  it('a wish boost makes every hero hit 20% harder that fight', () => {
+    const plain = new Battle({ seed: 1, wave: makeRound(1), team: TRIO });
+    const boosted = new Battle({ seed: 1, wave: makeRound(1), team: TRIO, wishBoost: 0.2 });
+    expect(boosted.heroes.every((h) => h.effects?.some((e) => e.kind === 'wished' && e.amount === 0.2))).toBe(true);
+    for (let i = 0; i < 400; i++) {
+      plain.step(STEP);
+      boosted.step(STEP);
+    }
+    const dealt = (b: Battle) => [...b.meter.values()].reduce((a, m) => a + Object.values(m.damage).reduce((x, y) => x + y, 0), 0);
+    expect(dealt(boosted)).toBeGreaterThan(dealt(plain));
+  });
+
   it('upgrades cost loot, can be refused, and every 5th gear level takes a Trophy', () => {
     const camp = newCamp();
     expect(upgradeGear(camp, 'warrior', 'weapon')).toBe(false);

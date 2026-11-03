@@ -51,6 +51,9 @@ export const EVENTS: Record<EventId, EventDef> = {
   },
 };
 
+/** A used wish: every hero deals this much more damage in the restarted fight. */
+export const WISH_DAMAGE = 0.2;
+
 /** The most wishes a party can hold at once. */
 export const MAX_WISHES = 1;
 

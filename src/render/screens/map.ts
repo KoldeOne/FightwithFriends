@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { actDef } from '../../sim/acts';
 import { BOSS_INFO, ENEMY_STATS, WORLD } from '../../sim/content';
 import { MAP_COLS, MAP_FLOORS, type MapNode, type NodeType } from '../../sim/map';
-import { autoPath, availableNodes, enterNode, MAX_PARTY, RECRUIT_CAMPSITES, saveRun } from '../../sim/run';
+import { autoPath, availableNodes, enterNode, isRecruitCampsite, saveRun } from '../../sim/run';
 import { sound } from '../sound';
 import { ICON_PX } from '../theme';
 
@@ -140,12 +140,11 @@ export class MapScreen {
   private describe(n: MapNode): void {
     const run = this.s.run!;
     const act = actDef(run.act);
-    const recruitsLeft = Math.max(0, Math.min(RECRUIT_CAMPSITES - run.campsites, MAX_PARTY - run.team.length));
     const text: Record<NodeType, string> = {
       fight: `Fight: ${act.name} regulars. Gold and XP.`,
       elite: `Elite: a tougher fight with a ${ENEMY_STATS[act.elite].label}. More gold, more XP and an upgrade.`,
       chest: 'Chest: gold, and a pick for every hero.',
-      campsite: recruitsLeft ? 'Campsite: a new hero joins your party.' : 'Campsite: every hero trains (a new ability, or an upgrade once full).',
+      campsite: isRecruitCampsite(run, n) ? 'Campsite: a new hero joins your party.' : 'Campsite: every hero trains (a new ability, or an upgrade once full).',
       shop: 'Shop: buy abilities and upgrades with gold.',
       event: 'Chance encounter: something unexpected. Who knows?',
       boss: `Boss: ${ENEMY_STATS[act.boss].label}. Beat it to finish the act.`,

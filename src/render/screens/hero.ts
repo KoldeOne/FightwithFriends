@@ -12,7 +12,7 @@ import {
   loadRun,
   MAX_PARTY,
   newRun,
-  RECRUIT_CAMPSITES,
+  RECRUITS,
   recruit,
   saveRun,
   winsSoFar,
@@ -28,7 +28,7 @@ export class HeroPicker {
   /** Start of a run: continue a saved run, or choose your first hero. */
   showStart(): void {
     this.s.state = 'title';
-    this.chooseClass('Choose your hero', 'You start alone. The first three campsites you reach each bring a new hero to your party (up to 4).', (cls) =>
+    this.chooseClass('Choose your hero', 'You start alone. More heroes join mid-Act 1, after the Act 1 boss and mid-Act 2 (a party of 4).', (cls) =>
       this.chooseAbility(cls, 'start', (first) => {
         sound.unlock();
         const camp = loadCamp();
@@ -47,8 +47,8 @@ export class HeroPicker {
     this.s.state = 'choice';
     const n = run.team.length;
     this.chooseClass(
-      'Campsite: a new hero joins',
-      `Recruit ${n} of ${RECRUIT_CAMPSITES} (party ${n} → ${n + 1} of ${MAX_PARTY}). They start at level ${run.baseLevel} and earn double XP until they catch up.`,
+      'A new hero joins',
+      `Recruit ${n} of ${RECRUITS} (party ${n} → ${n + 1} of ${MAX_PARTY}). They start at level ${run.baseLevel}; leveling gets slower the higher you are, so they close the gap over time.`,
       (cls) =>
         this.chooseAbility(cls, 'recruit', (first) => {
           recruit(run, cls, first);

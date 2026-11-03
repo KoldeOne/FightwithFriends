@@ -72,6 +72,8 @@ export interface BattleOptions {
   playerClass?: HeroClass;
   /** Levels, abilities and traits carried over from earlier waves, per team slot. */
   builds?: HeroBuild[];
+  /** A wish brought the party back: every hero deals this much more damage this fight (e.g. 0.2). */
+  wishBoost?: number;
 }
 
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
@@ -97,6 +99,10 @@ export class Battle {
   zones: Zone[] = [];
   /** Shots in flight. */
   private projectiles: Projectile[] = [];
+  /** Damage and healing per hero (by unit id) this fight, split by source: the damage meter. */
+  readonly meter = new Map<number, { damage: Record<string, number>; healing: Record<string, number> }>();
+  /** What healing done right now counts as (the ability being cast). */
+  private healSource?: string;
   /** Every enemy killed this fight (gold and camp loot). */
   readonly kills: { kind: EnemyKind; summoned: boolean }[] = [];
 
@@ -118,6 +124,9 @@ export class Battle {
     // Priest passive: Power Word: Fortitude is up on the whole party all wave.
     const priest = this.units.find((u) => u.side === 'hero' && u.passive === 'fortitudeAura');
     if (priest) this.applyFortitude(priest, Infinity);
+    if (opts.wishBoost)
+      for (const h of this.units.filter((u) => u.side === 'hero'))
+        this.addEffect(h, { kind: 'wished', remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: opts.wishBoost, sourceId: h.id });
     // Arena enemies are on the field from the start, so you can scout them before the fight.
     this.spawnDue();
   }
@@ -933,7 +942,9 @@ export class Battle {
       // A focused ally gets heals first whenever they're missing any health.
       if (focus?.side === 'hero' && focus.alive && focus.hp < focus.maxHp) hurt = focus;
       if (hurt) {
+        this.healSource = 'Auto-heal';
         this.healUnit(h, hurt, this.roll(h.heal));
+        this.healSource = undefined;
         h.cooldown = h.attackInterval;
         return;
       }
@@ -1240,6 +1251,7 @@ export class Battle {
     to.hp += amount;
     this.events.push({ type: 'heal', from: from.id, to: to.id, amount });
     this.addHealThreat(from, amount);
+    this.record(from, 'healing', this.healSource ?? 'Other', amount);
     return amount;
   }
 
@@ -1275,7 +1287,9 @@ export class Battle {
       }
       // Sanctified Ground: allies standing in it are healed.
       if (z.heal && source.alive) {
+        this.healSource = this.sourceName(z.ability);
         for (const ally of this.allies()) if (Math.hypot(ally.x - z.x, ally.y - z.y) <= z.radius) this.healUnit(source, ally, z.heal);
+        this.healSource = undefined;
       }
     }
     this.zones = this.zones.filter((z) => z.remaining > 1e-6);
@@ -1435,7 +1449,32 @@ export class Battle {
   }
 
   /** Perform the ability in `slot`. Returns false if there was no valid target. */
+  /** Add to a hero's damage or healing total for the meter. */
+  private record(u: Unit | undefined, kind: 'damage' | 'healing', source: string, amount: number): void {
+    if (!u || u.side !== 'hero' || amount <= 0) return;
+    let m = this.meter.get(u.id);
+    if (!m) this.meter.set(u.id, (m = { damage: {}, healing: {} }));
+    m[kind][source] = (m[kind][source] ?? 0) + amount;
+  }
+
+  /** The meter's name for a source: an ability's name, or a passive's id made readable. */
+  private sourceName(id?: string): string {
+    if (!id) return 'Auto-attack';
+    const def = (ABILITIES as Record<string, { name: string } | undefined>)[id];
+    return def?.name ?? id.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+  }
+
   private cast(h: Unit, slot: number, byPlayer: boolean): boolean {
+    const before = this.healSource;
+    this.healSource = this.sourceName(h.abilities![slot].id);
+    try {
+      return this.castAbility(h, slot, byPlayer);
+    } finally {
+      this.healSource = before;
+    }
+  }
+
+  private castAbility(h: Unit, slot: number, byPlayer: boolean): boolean {
     const a = h.abilities![slot];
     const id = a.id;
     const t = ABILITY_TUNING;
@@ -1770,6 +1809,7 @@ export class Battle {
         if (healed > 0) {
           this.events.push({ type: 'tick', to: u.id, amount: healed, kind: 'hot', from: e.sourceId });
           if (source) this.addHealThreat(source, healed);
+          this.record(source, 'healing', this.sourceName(e.ability), healed);
         }
       } else {
         const source = this.unit(e.sourceId);
@@ -1828,6 +1868,8 @@ export class Battle {
     if (from.side === 'hero') {
       const empower = Math.max(0, ...(from.effects ?? []).filter((e) => e.kind === 'empower').map((e) => e.amount));
       if (empower) amount = Math.round(amount * (1 + empower));
+      const wished = from.effects?.find((e) => e.kind === 'wished');
+      if (wished) amount = Math.round(amount * (1 + wished.amount));
     }
     const ruin = Math.max(0, ...(to.effects ?? []).filter((e) => e.kind === 'vulnerable').map((e) => e.amount));
     if (ruin) amount = Math.round(amount * (1 + ruin));
@@ -1850,6 +1892,7 @@ export class Battle {
         const absorbed = Math.min(shield.amount, amount);
         shield.amount -= absorbed;
         amount -= absorbed;
+        this.record(this.unit(shield.sourceId), 'healing', `${this.sourceName(shield.ability)} (absorbed)`, absorbed);
         if (shield.amount <= 0) shield.remaining = 0;
         // Reflective Shield: the attacker takes half of what was absorbed.
         if (shield.ability === 'powerShield' && absorbed > 0 && from.alive && from.side === 'enemy') {
@@ -1889,6 +1932,7 @@ export class Battle {
       amount = 0;
       this.events.push({ type: 'notice', id: to.id, text: 'Saved!', tone: 'good' });
     }
+    this.record(from, 'damage', opts.tick && opts.ability ? `${this.sourceName(opts.ability)} (over time)` : opts.tick ? 'Damage over time' : this.sourceName(opts.ability), Math.min(amount, Math.max(0, to.hp)));
     to.hp -= amount;
     if (from.side === 'hero' && to.side === 'enemy') {
       to.threat ??= {};
@@ -1928,7 +1972,9 @@ export class Battle {
       if (w.side !== 'hero' || !w.alive || w.passive !== 'soulHarvest') continue;
       w.resource = Math.min(w.maxResource!, (w.resource ?? 0) + p.mana);
       const ally = this.mostInjuredAlly();
+      this.healSource = 'Soul Harvest';
       if (ally) this.healUnit(w, ally, p.heal * (1 + LEVEL_SCALING * ((w.level ?? 1) - 1)) * (w.might ?? 1));
+      this.healSource = undefined;
     }
   }
 

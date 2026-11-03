@@ -137,7 +137,9 @@ export interface Effect {
     /** Guardian Spirit: the next killing blow leaves the hero at `amount` of max health instead. */
     | 'guardian'
     /** Doom: `amount` damage lands when it expires. */
-    | 'doom';
+    | 'doom'
+    /** Wishing Well: the party rose again; heroes deal `amount` more damage this fight. */
+    | 'wished';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */

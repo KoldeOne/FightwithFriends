@@ -3,7 +3,9 @@
  * runs with the same rules as the game (Auto's choices, or random ones) and
  * records what happened. Pure: no Phaser, no DOM.
  */
-import { addLoot, bankLoot, lootFor, startLevel, withGear, type CampState } from '../src/sim/camp';
+import { addLoot, bankLoot, lootFor, scaleLoot, startLevel, withGear, type CampState } from '../src/sim/camp';
+import { ECONOMY } from '../src/sim/acts';
+import { WISH_DAMAGE } from '../src/sim/events';
 import { Battle, STEP } from '../src/sim/battle';
 import { ARENA, HERO_KIT, WORLD } from '../src/sim/content';
 import {
@@ -113,6 +115,7 @@ export function playRound(run: RunState, violations: string[], camp?: CampState)
     carefulAI: process.env.CAREFUL !== '0',
     team: run.team,
     builds: camp ? withGear(run.team, run.builds, camp) : run.builds,
+    wishBoost: run.wishBoost ? WISH_DAMAGE : undefined,
   });
   const heroes = battle.heroes;
   const bySlot = new Map<number, HeroStats>();
@@ -305,7 +308,7 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
     rec.rounds.push(r);
     finishFight(run, r.won, r.fallen, r.kills);
     if (camp) {
-      const loot = lootFor(r.kills, run.act, fightSeed(run));
+      const loot = scaleLoot(lootFor(r.kills, run.act, fightSeed(run)), currentNode(run)?.rich ? ECONOMY.richLoot : 1);
       bankLoot(camp, loot);
       addLoot(run.loot, loot);
     }

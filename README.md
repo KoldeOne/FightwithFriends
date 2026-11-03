@@ -19,11 +19,13 @@ A playable arena auto-battler with a Slay the Spire-style map:
   Crypt, The Burning Rift), 12 floors and a boss each: fights, elites, chests,
   shops, campsites and ? chance encounters (a Wishing Well can give your party
   a second chance). Golden nodes pay more. The way you came is dotted.
-- **Campsites:** the first three you reach each bring a new hero (any class,
-  you choose its first ability) for a party of 4; later ones train every hero.
+- **Party:** new heroes join mid-Act 1, after the Act 1 boss and mid-Act 2
+  (any class, you choose its first ability), for a party of 4. Other
+  campsites train every hero.
 - **Gold** from enemies buys abilities and upgrades in shops; chests give every
-  hero a pick, elites and bosses an upgrade pick. Heroes earn XP slowly
-  (recruits catch up at double rate). Everyone heals fully between fights.
+  hero a pick, elites and bosses a pick (new spells first). Heroes earn XP
+  slowly, and each level costs a bit more. Everyone heals fully between fights.
+- **Damage meter** in fights (toggle to healing; hover a bar for the breakdown).
 - **One life:** a party wipe ends the run (unless you hold a wish). It's meant
   to take a few runs, and camp upgrades, to beat the Act 3 boss.
 - **The camp** (from Bailey's Camp Mode): every fight's loot goes home, win or

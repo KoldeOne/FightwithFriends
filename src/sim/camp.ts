@@ -172,6 +172,11 @@ export function startLevel(camp: CampState): number {
   return 1 + camp.drills;
 }
 
+/** Multiply a loot bundle (a golden node's camp loot is doubled). */
+export function scaleLoot(loot: Loot, k: number): Loot {
+  return { spoils: Math.round(loot.spoils * k), ore: Math.round(loot.ore * k), hide: Math.round(loot.hide * k), gems: Math.round(loot.gems * k), trophies: loot.trophies };
+}
+
 /** A fight is over (won or lost): its loot goes straight home. */
 export function bankLoot(camp: CampState, loot: Loot): void {
   addLoot(camp.loot, loot);

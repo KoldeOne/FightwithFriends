@@ -59,6 +59,7 @@ party of at most 4.)
 | **Race per class** | Bailey | Let players change the race of each class. Parked on 2026-11-01. |
 | **More classes** | Design | Hunter, Druid, Shaman (from the old castle design). Need full designs. |
 | **Party synergies** | Design | Bonuses for class or role combinations. |
+| **Late recruits start behind** | Kolde | The mid-Act 2 recruit joins at level 1 with one ability. To revisit (e.g. start them with 2 abilities). |
 | **Recruit as 1 of 3** | Design | Instead of a free pick of any class, a recruit campsite offers 3 random classes. Coming back to this later. |
 | **Bench** | Design | Allow more than 5 heroes, with a bench. |
 | **Formation choice** | Design | E.g. "spread out" vs "huddle", if it would add something now that the grid is gone. |

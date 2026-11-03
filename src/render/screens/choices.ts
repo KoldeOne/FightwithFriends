@@ -228,8 +228,14 @@ export class Choices {
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
     const titles = { elite: 'Elite spoils', boss: 'Boss spoils' };
-    const sub = 'Choose an upgrade for one of your heroes.';
+    const sub = 'Choose a reward for one of your heroes.';
     const items = this.frame(titles[p.source], sub);
+    // What the fight paid, at the top (instead of a separate pop-up).
+    if (run.lastSpoils) {
+      const strip = this.s.text(cx, 72, run.lastSpoils, 13, '#ffe066').setOrigin(0.5).setAlign('center').setWordWrapWidth(500).setFontStyle('bold');
+      strip.setStroke('#000000', 3);
+      items.push(this.s.add.rectangle(cx, 72, WORLD.width - 20, Math.max(30, strip.height + 10), 0x2a2210, 0.95).setStrokeStyle(1, 0xffd166), strip);
+    }
     p.options.forEach((o: PartyReward, k) => {
       items.push(
         ...this.card(run, o.slot, o.reward, 196 + k * 150, 140, () => {

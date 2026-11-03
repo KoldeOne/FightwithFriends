@@ -24,6 +24,9 @@ import {
   trainOptions,
   type RunState,
   MAX_PARTY,
+  currentNode,
+  levelsFor,
+  partyPickOptions,
   chooseEvent,
   eventChoices,
   fightSeed,
@@ -122,33 +125,33 @@ describe('A map run', () => {
     expect(again.heroes[0]).toMatchObject({ xp: 0, fell: true });
   });
 
-  it('the first three campsites you reach recruit (class and first ability); the next ones train', () => {
+  it('heroes join mid-Act 1, after the Act 1 boss and mid-Act 2; other campsites train everyone', () => {
     const run = newRun('warrior', undefined, 8);
+    const joined: string[] = [];
+    let trained = false;
     let guard = 0;
-    while ((run.campsites < 3 || run.pending?.kind === 'recruit') && guard++ < 200) {
-      if (run.pending?.kind === 'recruit') {
+    while (run.team.length < MAX_PARTY && guard++ < 2000) {
+      const p = run.pending;
+      if (p?.kind === 'recruit') {
+        const node = currentNode(run);
+        joined.push(node ? `act ${run.act} floor ${node.floor}` : `act ${run.act} start`);
         const before = run.team.length;
         recruit(run, 'priest', 'renew');
-        expect(run.team).toHaveLength(before + 1);
         expect(run.builds[before]).toMatchObject({ level: 1, abilities: [{ id: 'renew' }] });
-      } else advance(run);
+      } else if (p?.kind === 'train' && p.source === 'campsite' && !trained) {
+        // Training: a pick for every hero.
+        trained = true;
+        expect(p.left).toEqual(run.team.map((_, i) => i));
+        const before = run.builds.map((b) => b.abilities.length + b.traits.length);
+        for (const slot of [...p.left]) train(run, slot, trainOptions(run, slot)[0]);
+        expect(run.pending).toBeUndefined();
+        run.builds.forEach((b, i) => expect(b.abilities.length + b.traits.length).toBe(before[i] + 1));
+      } else if (p) autoResolve(run);
+      else if (run.status === 'fight') win(run);
+      else step(run);
     }
-    expect(run.team).toHaveLength(MAX_PARTY);
-    // On to the next campsite: training, a pick for every hero.
-    while (!(run.pending?.kind === 'train' && run.pending.source === 'campsite') && guard++ < 600) advance(run);
-    const p = run.pending;
-    expect(p?.kind).toBe('train');
-    if (p?.kind !== 'train') return;
-    expect(p.source).toBe('campsite');
-    expect(p.left).toEqual([0, 1, 2, 3]);
-    const before = run.builds.map((b) => b.abilities.length + b.traits.length);
-    for (const slot of [0, 1, 2, 3]) {
-      const opts = trainOptions(run, slot);
-      expect(opts.length).toBe(3);
-      train(run, slot, opts[0]);
-    }
-    expect(run.pending).toBeUndefined();
-    run.builds.forEach((b, i) => expect(b.abilities.length + b.traits.length).toBe(before[i] + 1));
+    expect(joined).toEqual(['act 1 floor 5', 'act 2 start', 'act 2 floor 5']);
+    expect(trained).toBe(true);
   });
 
   it('a hero with every slot full is offered upgrades instead', () => {
@@ -163,15 +166,43 @@ describe('A map run', () => {
     expect(opts.every((r) => r.kind !== 'ability' && r.kind !== 'trait')).toBe(true);
   });
 
-  it('recruits start at level 1 and earn double XP until they catch up', () => {
+  it('XP: everyone standing gets the same; each level costs a little more, so the party levels out', () => {
+    expect([9, 10, 20, 21, 33].map(levelsFor)).toEqual([0, 1, 1, 2, 3]);
     const run = newRun('warrior', undefined, 9);
     while (run.pending?.kind !== 'recruit') advance(run);
     recruit(run, 'mage');
-    run.xp[0] = 30; // the veteran is three levels ahead
+    run.xp[0] = 30;
     while (run.status !== 'fight') advance(run);
     const spoils = win(run);
     const [veteran, rookie] = spoils.heroes;
-    expect(rookie.xp).toBe(veteran.xp * 2);
+    expect(rookie.xp).toBe(veteran.xp);
+    expect(rookie.xp).toBe(spoils.xp);
+  });
+
+  it('elite and boss picks offer new abilities while anyone has a free slot; named upgrades need 3 abilities', () => {
+    const run = newRun('warrior', undefined, 40);
+    while (run.pending?.kind !== 'recruit') advance(run);
+    recruit(run, 'mage');
+    run.at = run.map.floors[3][0];
+    const opts = partyPickOptions(run, 5);
+    expect(opts).toHaveLength(3);
+    expect(opts.filter((o) => o.reward.kind === 'ability' || o.reward.kind === 'trait')).toHaveLength(2);
+    expect(opts.some((o) => o.reward.kind === 'mastery')).toBe(false);
+  });
+
+  it('golden nodes pay double gold and 1.5x XP; a golden chest offers four options', () => {
+    const run = newRun('mage', undefined, 41);
+    while (run.status !== 'fight') advance(run);
+    const node = currentNode(run)!;
+    const kills = encounterFor(run).spawns.map((s) => ({ kind: s.kind }));
+    const plain = finishFight(structuredClone(run), true, [], kills);
+    node.rich = true;
+    const golden = finishFight(run, true, [], kills);
+    expect(golden.gold).toBe(plain.gold * 2);
+    expect(golden.goldBonus).toBe(plain.gold);
+    expect(golden.xp).toBe(Math.round(plain.xp * 1.5));
+    run.pending = { kind: 'train', source: 'chest', left: [0], gold: 1 };
+    expect(trainOptions(run, 0)).toHaveLength(4);
   });
 
   it('chests give gold and a pick for every hero', () => {

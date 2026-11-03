@@ -8,9 +8,19 @@ import type { AbilityId, EnemyKind, HeroBuild, HeroClass, Loot, TraitId, WaveDef
 
 /** The last act; beating its boss wins the run. */
 export const FINAL_ACT = 3;
-/** The first this many campsites you reach are recruit sites (a party of 4). */
-export const RECRUIT_CAMPSITES = 3;
+/**
+ * Where new heroes join (a party of 4 by the middle of the run): the campsite
+ * floor in the middle of Act 1, right after the Act 1 boss, and the campsite
+ * floor in the middle of Act 2. Floors are 0-based (5 = the sixth floor).
+ */
+export const RECRUIT_FLOORS: Record<number, number> = { 1: 5, 2: 5 };
+export const RECRUITS = 3;
 export const MAX_PARTY = 4;
+
+/** Is this campsite a recruit site (rather than training)? */
+export function isRecruitCampsite(run: RunState, node: MapNode): boolean {
+  return node.type === 'campsite' && RECRUIT_FLOORS[run.act] === node.floor && run.team.length < MAX_PARTY;
+}
 
 export type Reward =
   | { kind: 'ability'; id: AbilityId }
@@ -65,12 +75,16 @@ export interface RunState {
   wishes: number;
   /** Fights restarted by a wish so far (changes the next fight's seed). */
   attempt: number;
+  /** The current fight was restarted by a wish: heroes deal more damage in it. */
+  wishBoost?: boolean;
   /** Camp loot found this run (already banked at the camp as each fight ends). */
   loot: Loot;
-  /** Campsites reached so far (the first RECRUIT_CAMPSITES are recruit sites). */
+  /** Campsites reached so far. */
   campsites: number;
   status: 'map' | 'fight' | 'won' | 'lost';
   pending?: Pending;
+  /** What the last fight paid, shown at the top of the pick that follows it (elites and bosses). */
+  lastSpoils?: string;
   stats: { fights: number; elites: number; bosses: number; gold: number };
 }
 
@@ -78,6 +92,10 @@ export interface RunState {
 export interface Spoils {
   gold: number;
   heroes: { slot: number; xp: number; from: number; to: number; fell: boolean }[];
+  /** XP each standing hero earned (the same for everyone). */
+  xp: number;
+  /** Extra gold from a golden node (included in `gold`). */
+  goldBonus: number;
   pick: boolean;
   actCleared: boolean;
   won: boolean;
@@ -162,7 +180,9 @@ export function freshPicks(cls: HeroClass, b: HeroBuild): Reward[] {
 
 /** Named upgrades for abilities the hero has, then general ones. Only upgrades that do something are offered. */
 function upgrades(cls: HeroClass, b: HeroBuild): { masteries: Reward[]; general: Reward[] } {
-  const masteries: Reward[] = b.abilities.filter((a) => !a.mastery && ABILITIES[a.id].mastery.name).map((a) => ({ kind: 'mastery' as const, id: a.id }));
+  // Named upgrades only once a hero has a few abilities to choose between.
+  const masteries: Reward[] =
+    b.abilities.length >= 3 ? b.abilities.filter((a) => !a.mastery && ABILITIES[a.id].mastery.name).map((a) => ({ kind: 'mastery' as const, id: a.id })) : [];
   const general: Reward[] = [];
   for (const a of b.abilities) {
     if (ABILITIES[a.id].scales) general.push({ kind: 'power', id: a.id });
@@ -174,8 +194,40 @@ function upgrades(cls: HeroClass, b: HeroBuild): { masteries: Reward[]; general:
   return { masteries, general };
 }
 
+/** Levels gained from this much XP: the first costs xpPerLevel, each after xpGrowth more. */
+export function levelsFor(xp: number): number {
+  let levels = 0;
+  let cost = ECONOMY.xpPerLevel;
+  while (xp >= cost) {
+    xp -= cost;
+    levels += 1;
+    cost += ECONOMY.xpGrowth;
+  }
+  return levels;
+}
+
 /**
- * Three upgrades for the party (chests, elites, bosses): named upgrades first,
+ * An elite's or boss's pick for the party: while any hero has a free slot, two
+ * new abilities or passives (for different heroes, those with the fewest
+ * first) and one upgrade; once everyone is full, three upgrades.
+ */
+export function partyPickOptions(run: RunState, salt: number): PartyReward[] {
+  const rng = nodeRng(run, salt);
+  const open = shuffle(rng, run.team.map((_, i) => i)).filter((i) => freshPicks(run.team[i], run.builds[i]).length);
+  if (!open.length) return partyUpgradeOptions(run, salt);
+  open.sort((a, b) => slotsUsed(run.builds[a]) - slotsUsed(run.builds[b]));
+  const fresh: PartyReward[] = [];
+  for (let k = 0; fresh.length < 2 && k < 4; k++)
+    for (const slot of open) {
+      if (fresh.length >= 2) break;
+      const options = shuffle(rng, freshPicks(run.team[slot], run.builds[slot])).filter((r) => !fresh.some((f) => f.slot === slot && JSON.stringify(f.reward) === JSON.stringify(r)));
+      if (options.length && (k > 0 || !fresh.some((f) => f.slot === slot))) fresh.push({ slot, reward: options[0] });
+    }
+  return [...fresh, ...partyUpgradeOptions(run, salt + 1, 3 - fresh.length)];
+}
+
+/**
+ * Upgrades for the party (shops, and elites and bosses once everyone is full): named upgrades first,
  * spread across different heroes where possible.
  */
 export function partyUpgradeOptions(run: RunState, salt: number, count = 3): PartyReward[] {
@@ -214,11 +266,14 @@ export function partyUpgradeOptions(run: RunState, salt: number, count = 3): Par
  */
 export function trainOptions(run: RunState, slot: number): Reward[] {
   const rng = nodeRng(run, 11 + slot);
+  // A golden chest offers four.
+  const node = currentNode(run);
+  const count = run.pending?.kind === 'train' && run.pending.source === 'chest' && node?.rich ? 4 : 3;
   const fresh = freshPicks(run.team[slot], run.builds[slot]);
-  if (fresh.length) return shuffle(rng, fresh).slice(0, 3);
+  if (fresh.length) return shuffle(rng, fresh).slice(0, count);
   const u = upgrades(run.team[slot], run.builds[slot]);
   const masteries = shuffle(rng, u.masteries).slice(0, 2);
-  return [...masteries, ...shuffle(rng, u.general)].slice(0, 3);
+  return [...masteries, ...shuffle(rng, u.general)].slice(0, count);
 }
 
 /** Heroes with a free slot (who can learn something new). */
@@ -235,13 +290,15 @@ function shopStock(run: RunState, rerolls: number): ShopItem[] {
   );
   const items: ShopItem[] = [];
   const heroes = new Set<number>();
+  // Act 1 shops lean toward new abilities.
+  const abilityCount = run.act === 1 ? 4 : 3;
   for (const a of abilities) {
-    if (items.length >= 3) break;
+    if (items.length >= abilityCount) break;
     if (heroes.has(a.slot) && abilities.some((b) => !heroes.has(b.slot))) continue;
     items.push(a);
     heroes.add(a.slot);
   }
-  const ups = partyUpgradeOptions(run, 70 + rerolls, 2).map((u) => ({ ...u, price: price(ECONOMY.prices.upgrade) }));
+  const ups = partyUpgradeOptions(run, 70 + rerolls, 5 - items.length).map((u) => ({ ...u, price: price(ECONOMY.prices.upgrade) }));
   return [...items, ...ups];
 }
 
@@ -267,7 +324,7 @@ export function enterNode(run: RunState, id: string): MapNode {
       break;
     case 'campsite':
       run.campsites += 1;
-      if (run.campsites <= RECRUIT_CAMPSITES && run.team.length < MAX_PARTY) run.pending = { kind: 'recruit' };
+      if (isRecruitCampsite(run, node)) run.pending = { kind: 'recruit' };
       else run.pending = { kind: 'train', source: 'campsite', left: run.team.map((_, i) => i) };
       break;
     case 'chest': {
@@ -311,14 +368,33 @@ export function averageLevel(run: RunState): number {
  * level), and an upgrade pick after an elite or a boss. Beating an act's boss
  * moves on to the next act; beating the last one wins the run.
  */
+/** One line for a fight's rewards: "Victory: +14 gold (golden +7) · +4 XP · Level up: Mage 3 · Camp: 3 Spoils". */
+export function spoilsLine(run: RunState, spoils: Spoils, campLoot?: string): string {
+  const name = (slot: number) => {
+    const cls = run.team[slot];
+    const same = run.team.slice(0, slot).filter((c) => c === cls).length;
+    return `${cls[0].toUpperCase() + cls.slice(1)}${same ? ` ${same + 1}` : ''}`;
+  };
+  const ups = spoils.heroes.filter((h) => h.to > h.from).map((h) => `${name(h.slot)} ${h.to}`);
+  return [
+    `+${spoils.gold} gold${spoils.goldBonus ? ` (golden +${spoils.goldBonus})` : ''}`,
+    `+${spoils.xp} XP`,
+    ups.length ? `Level up: ${ups.join(', ')}` : '',
+    campLoot ? `Camp: ${campLoot}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 export function finishFight(run: RunState, won: boolean, fallen: number[], kills: { kind: EnemyKind; summoned?: boolean }[]): Spoils {
   const node = currentNode(run)!;
-  const spoils: Spoils = { gold: 0, heroes: [], pick: false, actCleared: false, won: false };
+  const spoils: Spoils = { gold: 0, heroes: [], xp: 0, goldBonus: 0, pick: false, actCleared: false, won: false };
   if (!won) {
     if (run.wishes > 0) {
       // A wish: everyone rises again and the fight starts over (with a new seed).
       run.wishes -= 1;
       run.attempt += 1;
+      run.wishBoost = true;
       spoils.wished = true;
       return spoils;
     }
@@ -326,24 +402,25 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
     return spoils;
   }
   run.status = 'map';
+  run.wishBoost = undefined;
   run.stats.fights += 1;
   if (node.type === 'elite') run.stats.elites += 1;
   if (node.type === 'boss') run.stats.bosses += 1;
-  const gold = Math.round(kills.reduce((a, k) => a + (k.summoned ? 0 : goldFor(k.kind)), 0) * ECONOMY.actGold[run.act - 1] * (node.rich ? ECONOMY.richBonus : 1));
+  const plain = Math.round(kills.reduce((a, k) => a + (k.summoned ? 0 : goldFor(k.kind)), 0) * ECONOMY.actGold[run.act - 1]);
+  const gold = Math.round(plain * (node.rich ? ECONOMY.richBonus : 1));
   run.gold += gold;
   run.stats.gold += gold;
   spoils.gold = gold;
-  // Catch-up is by XP (levels come slowly): more than half a level behind the party's average earns double.
-  const avgXp = run.xp.reduce((a, x) => a + x, 0) / Math.max(1, run.xp.length);
-  const base = ECONOMY.xp[node.type] ?? 0;
+  spoils.goldBonus = gold - plain;
+  const gained = Math.round((ECONOMY.xp[node.type] ?? 0) * (node.rich ? ECONOMY.richXp : 1));
+  spoils.xp = gained;
   run.team.forEach((_, slot) => {
     const b = run.builds[slot];
     const fell = fallen.includes(slot);
-    const gained = fell ? 0 : Math.round(base * (run.xp[slot] < avgXp - ECONOMY.xpPerLevel / 2 ? ECONOMY.catchUp : 1));
     const from = b.level;
-    run.xp[slot] += gained;
-    b.level = run.baseLevel + Math.floor(run.xp[slot] / ECONOMY.xpPerLevel);
-    spoils.heroes.push({ slot, xp: gained, from, to: b.level, fell });
+    if (!fell) run.xp[slot] += gained;
+    b.level = run.baseLevel + levelsFor(run.xp[slot]);
+    spoils.heroes.push({ slot, xp: fell ? 0 : gained, from, to: b.level, fell });
   });
   if (node.type === 'boss' && run.act >= FINAL_ACT) {
     run.status = 'won';
@@ -351,7 +428,7 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
     return spoils;
   }
   if (node.type === 'elite' || node.type === 'boss') {
-    run.pending = { kind: 'upgrade', source: node.type, options: partyUpgradeOptions(run, 5) };
+    run.pending = { kind: 'upgrade', source: node.type, options: partyPickOptions(run, 5) };
     spoils.pick = true;
   }
   spoils.actCleared = node.type === 'boss';
@@ -360,9 +437,14 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
 
 /** After the current choice: if it was the act's boss, move on to the next act. */
 function finishPending(run: RunState): void {
+  run.lastSpoils = undefined;
   const wasBoss = run.pending?.kind === 'upgrade' && run.pending.source === 'boss';
   run.pending = undefined;
-  if (wasBoss) nextAct(run);
+  if (wasBoss) {
+    nextAct(run);
+    // A new hero joins right after the Act 1 boss.
+    if (run.act === 2 && run.team.length < MAX_PARTY) run.pending = { kind: 'recruit' };
+  }
 }
 
 export function nextAct(run: RunState): void {

@@ -6,7 +6,9 @@
 > **2026-11-03:** rounds were replaced by a Slay the Spire-style **map run**
 > (§2), and Camp Mode became the camp between runs (§2b). Later the same day:
 > a party of 4, a pick for every hero at chests and training, chance
-> encounters (the Wishing Well), and a harder start with slower XP.
+> encounters (the Wishing Well), and a harder start with slower XP. Then:
+> recruits spread across the run, richer golden nodes, new spells before
+> upgrades, a damage meter, and a damage boost from a used wish.
 > **Platform:** Mobile browser (tested on Android), portrait, 540x960 canvas.
 > **Play it:** https://koldeone.github.io/FightwithFriends/
 
@@ -82,17 +84,19 @@ economy), `src/sim/run.ts` (run state, rewards, Auto).
 | **Elite** | A tougher fight around the act's elite (×1.15 strength). More gold and XP, then an **upgrade pick**. |
 | **Chest** | Gold (20, or 34 if golden), then **every hero picks 1 of 3**: a new ability or passive from their pool, or an upgrade once their slots are full. |
 | **Shop** | 3 abilities and 2 upgrades for specific heroes, bought with gold; reroll for 10 (rising). Prices rise each act. |
-| **Campsite** | The **first 3 campsites you reach** are **recruits**: pick any class (repeats allowed) and its first ability, until the party is 4. Later campsites are **training**: **every hero picks 1 of 3** (new abilities or passives, or upgrades once full). |
-| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). So far only the **Wishing Well**: make a wish (hold at most one), or fish out 25 gold if you already hold one. |
+| **Campsite** | Two campsite floors are **recruits** (pick any class, repeats allowed, and its first ability): **mid-Act 1 (floor 6)** and **mid-Act 2 (floor 6)**. A third hero joins **right after the Act 1 boss**, so the party is 4 by the middle of the run. Every other campsite is **training**: **every hero picks 1 of 3** (new abilities or passives, or upgrades once full). |
+| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). So far only the **Wishing Well**: make a wish (hold at most one), or fish out 25 gold if you already hold one. A used wish brings the party back and gives every hero **+20% damage** for the restarted fight (a "Wished" buff). |
 | **Boss** | The act's boss; then an upgrade pick and the next act. |
 
-Some fights, elites and chests are **golden**: their gold is ×1.6.
+Some fights, elites and chests are **golden** (a gold ring): **2× gold, 1.5× XP
+and 2× camp loot**, and a golden chest offers every hero **4** options
+instead of 3. The rewards say how much the golden bonus was.
 
 **Map rules** (so every route has a good mix): floors 1–2 are fights; no elite
 or shop before floor 4; no two of the same special node in a row on a path;
 every map has at least one shop, two chests and one chance encounter. Act 1's
-campsite floors are 3, 6, 9 and 12 (the first three are usually the recruits,
-the last trains everyone just before the boss); Acts 2 and 3 have
+campsite floors are 3, 6, 9 and 12 (floor 6 recruits, the others train);
+Acts 2 and 3 have
 training campsites on floors 6 and 12. Each map also has a **flavor** that
 tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
 (more elites) or merchant (more shops).
@@ -104,9 +108,11 @@ tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
    its signature move are shown at the top.
 2. **Fight nodes** start straight away with an intro banner ("Act 1, floor 4 —
    The Goblin Woods"). No ready or "round cleared" screens.
-3. **Spoils.** After a win, a short flashy panel: gold counting up, XP and
-   level-ups per hero, and the camp loot sent home. It closes on its own (or
-   tap), then the map or the next choice.
+3. **Spoils.** After an ordinary win, a short flashy panel: gold counting up
+   (and any golden bonus), the XP everyone standing earned (shown once), any
+   level-ups in one line, and the camp loot sent home. It closes on its own
+   (or tap). After an **elite or boss** there's no panel: the same rewards
+   line sits at the top of the pick screen instead.
 4. **Choices** (recruit, training, upgrade, shop, events) open as overlays on
    the map. At chests and training campsites each hero picks in turn (Skip
    allowed).
@@ -118,16 +124,17 @@ tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
 
 - **Enemy count:** one per hero, plus one from floor 7 on (a lone hero always
   meets one enemy at a time), up to 5.
-- **Strength** (enemy HP and damage): Act 1 1.35 + 0.09 a floor; Act 2 2.9 +
-  0.14; Act 3 4.9 + 0.2. Smaller parties meet weaker enemies (×0.6 for 1 hero,
-  then 0.78, 0.9, and 1 for 4). Bosses ×1.2 / 1 / 0.95 by act.
+- **Strength** (enemy HP and damage): Act 1 1.3 + 0.09 a floor; Act 2 2.55 +
+  0.14; Act 3 4.2 + 0.2. Smaller parties meet weaker enemies (×0.6 for 1 hero,
+  then 0.62, 0.8, and 1 for 4). Bosses ×1.05 / 1 / 0.95 by act.
 - **Gold:** 3 per regular enemy, 14 per elite, 40 per boss, × 1 / 1.4 / 1.8 by
   act (raised minions pay nothing).
-- **XP, per hero (slow on purpose):** a fight gives 4, an elite 7, a boss 12;
-  **10 XP = 1 level** (+6% stats a level), so a run is worth about 6–8 levels.
-  Heroes who fell in that fight get none. **Recruits** join at the run's
-  starting level and earn **double XP** while more than half a level's XP
-  behind the party average.
+- **XP, per hero (slow on purpose):** a fight gives 4, an elite 7, a boss 12
+  (×1.5 golden), the same for everyone standing; heroes who fell in that fight
+  get none. Each level costs a little more than the last (10 XP, then 11, 12,
+  ...; +6% stats a level), so a hero who is ahead slows down and the party
+  levels out over time, while the starting hero stays ahead. **Recruits** join
+  at the run's starting level; there is no catch-up bonus.
 
 ---
 
@@ -190,16 +197,17 @@ on the cheapest upgrade).
 Target (decided 2026-11-03): you have to earn the win. Beat Act 1 after about
 1–2 failed runs, Act 2 by about run 4–6, the whole run around run 8–12.
 
-Result (20 guilds × 15 runs, 2026-11-03): the first run that beat Act 1 was
-run 2 (median), Act 2 run 6, the whole run run 9.
+Result (20 guilds × 15 runs, 2026-11-03, after the recruit, XP and golden
+changes): the first run that beat Act 1 was run 2 (median), Act 2 run 7, the
+whole run run 10.
 
 | Runs | Beat Act 1 | Beat Act 2 | Won |
 |---|---|---|---|
-| 1 | 45% | 5% | 0% |
-| 2–3 | 58% | 13% | 3% |
-| 4–6 | 70% | 37% | 12% |
-| 7–10 | 86% | 54% | 23% |
-| 11–15 | 96% | 82% | 68% |
+| 1 | 35% | 10% | 0% |
+| 2–3 | 53% | 5% | 0% |
+| 4–6 | 73% | 22% | 3% |
+| 7–10 | 73% | 34% | 16% |
+| 11–15 | 95% | 64% | 45% |
 
 ---
 
@@ -353,8 +361,11 @@ Polymorph exist as ability definitions but are only used by the passives.
   campsites**, where **every hero** picks 1 of 3 from their class pool (or 1
   of 3 upgrades once all 5 slots are full), and from **shops**. Picked
   abilities stay for the run (no swapping).
-- **Upgrade picks** (elites, bosses): **1 of 3** upgrades, each for a named
-  hero in the party. You can skip.
+- **Elite and boss picks:** 1 of 3 for one named hero. While anyone has a free
+  slot, two are **new abilities or passives** (for the heroes with the fewest)
+  and one is an upgrade; once everyone is full, three upgrades. You can skip.
+- **New spells first:** named upgrades are only offered to a hero with at
+  least 3 abilities, and Act 1 shops stock 4 abilities and 1 upgrade.
 - **Upgrades:**
   - **Named upgrade** (one per ability, e.g. Fireball: *Searing Fire*). Offered
     first.
@@ -515,6 +526,10 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   fight name, gold, enemies left and the fight clock underneath. Buttons:
   Speed, Sound, **Auto** and Pause. **Auto** picks the route and every choice
   for you after a short pause.
+- **Damage meter** (bottom-right of the field during a fight): each hero's
+  damage this fight, highest first; the **DMG ⇄ / HEAL ⇄** button switches to
+  healing (healing that landed, plus shield absorbs). Hover or tap a bar for
+  that hero's breakdown by source, auto-attacks and damage over time included.
 - **Title screen:** continue a saved run, best and wins, **The Camp**, then
   choose a class and its first ability.
 - **Map** (§2): node icons, golden rings for golden nodes, pulsing reachable
@@ -625,9 +640,10 @@ art and more) are in [IDEAS.md](IDEAS.md).
   every hero a pick.
 - **Geared guilds:** once the camp is built up, runs get easy again. The
   difficulty ladder (IDEAS.md, later design phase) is the planned answer.
-- **First run:** the AI beats Act 1 on its first run more often than the ~25%
-  we aimed for; making the Act 1 boss tougher stalled progress for the next
-  runs instead. Worth checking in real play.
+- **First run:** the AI beats Act 1 on about a third of first runs (aim ~25%).
+  Worth checking in real play.
+- **Late recruits:** the hero joining mid-Act 2 starts at level 1 with one
+  ability, well behind the rest (to revisit, as decided 2026-11-03).
 - **Camp numbers:** loot rates, gear bonuses and costs are placeholders.
 
 **Arena**

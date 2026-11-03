@@ -67,11 +67,11 @@ export function actDef(act: number): ActDef {
  * own, tougher units on top.
  */
 export const STRENGTH = {
-  base: [1.35, 2.9, 4.9],
+  base: [1.3, 2.55, 4.2],
   perFloor: [0.09, 0.14, 0.2],
   /** Elites are a real risk (for a better reward); bosses stand out. */
   elite: 1.15,
-  boss: [1.2, 1, 0.95],
+  boss: [1.05, 1, 0.95],
 };
 
 export function strengthAt(act: number, floor: number): number {
@@ -80,7 +80,7 @@ export function strengthAt(act: number, floor: number): number {
 }
 
 /** Smaller parties meet weaker enemies (a lone starting hero, 60%), so every class can start solo. */
-export const PARTY_SCALE = [0.6, 0.78, 0.9, 1];
+export const PARTY_SCALE = [0.6, 0.62, 0.8, 1];
 
 /**
  * How many enemies a fight has: one per hero, plus one from the middle of the
@@ -139,14 +139,16 @@ export function goldFor(kind: EnemyKind): number {
 /** Gold, XP and costs. Gold and prices rise a little each act. */
 export const ECONOMY = {
   actGold: [1, 1.4, 1.8],
-  /** A golden (rich) node pays this much more. */
-  richBonus: 1.6,
+  /** A golden (rich) node pays this much more gold, XP and camp loot (a golden chest also offers 4 options per hero). */
+  richBonus: 2,
+  richXp: 1.5,
+  richLoot: 2,
   chestGold: [20, 34],
   /** XP for a won fight, by node type (10 XP = a level): slow, so the camp's gear is what carries you further. */
   xp: { fight: 4, elite: 7, boss: 12 } as Partial<Record<NodeType, number>>,
+  /** XP for the first level-up; each level after costs xpGrowth more, so a hero who's ahead slows down and the party levels out over time. */
   xpPerLevel: 10,
-  /** Heroes below the party's average level earn this much more XP. */
-  catchUp: 2,
+  xpGrowth: 1,
   prices: { ability: 45, upgrade: 30, reroll: 10 },
   actPrice: [1, 1.3, 1.6],
 };
