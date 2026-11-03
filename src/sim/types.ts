@@ -141,7 +141,9 @@ export interface Effect {
     /** Cursed Shrine: takes `amount` more damage this fight. */
     | 'cursed'
     /** Feast: `amount` more max health this fight. */
-    | 'fed';
+    | 'fed'
+    /** Blood Altar: `amount` less max health until the end of the act. */
+    | 'wounded';
   /** Seconds left. */
   remaining: number;
   /** For hot/dot: seconds between ticks, time to next tick, amount per tick. */

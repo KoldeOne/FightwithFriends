@@ -28,15 +28,21 @@ export class HeroPicker {
   /** Start of a run: continue a saved run, or choose your first hero. */
   showStart(): void {
     this.s.state = 'title';
+    const start = (cls: HeroClass, first: AbilityId) => {
+      sound.unlock();
+      const camp = loadCamp();
+      const run = newRun(cls, first, undefined, startLevel(camp));
+      camp.runs += 1;
+      saveCamp(camp);
+      saveRun(run);
+      this.s.scene.restart({ run });
+    };
     this.chooseClass('Choose your hero', 'You start alone. More heroes join mid-Act 1, after the Act 1 boss and mid-Act 2 (a party of 4).', (cls) =>
       this.chooseAbility(cls, 'start', (first) => {
-        sound.unlock();
-        const camp = loadCamp();
-        const run = newRun(cls, first, undefined, startLevel(camp));
-        camp.runs += 1;
-        saveCamp(camp);
-        saveRun(run);
-        this.s.scene.restart({ run });
+        // Starting over replaces a saved run: ask first.
+        const saved = loadRun();
+        if (saved) this.s.confirm('Start a new run?', `Your saved run (Act ${saved.act}) will be lost. Its camp loot is already safe at the camp.`, 'Start new', () => start(cls, first));
+        else start(cls, first);
       }),
     );
   }

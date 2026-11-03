@@ -7,7 +7,8 @@ import { loadCamp, lootText, saveCamp } from '../../sim/camp';
 import { settleFight } from '../../sim/settle';
 import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
-import { ICON_PX } from '../theme';
+import { abilityIcon, COLORS, cssColor, ICON_PX, traitIcon } from '../theme';
+import { meterSource } from '../meter';
 
 /** With Auto on: how long the spoils stay up before moving on. */
 const SPOILS_MS = 2400;
@@ -167,42 +168,118 @@ export class Results {
   /** The party fell: the run is over. */
   showGameOver(floor: number, type: string): void {
     const run = this.s.run!;
-    this.s.state = 'over';
     sound.play('heroDown');
-    const cx = WORLD.width / 2;
     const act = actDef(run.act);
-    this.s.overlay = this.s.add
-      .container(0, 0, [
-        this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
-        this.s.text(cx, 300, 'Your party has fallen', 32, '#ff6b6b').setOrigin(0.5).setFontStyle('bold'),
-        this.s.text(cx, 352, `Act ${run.act}, ${act.name} — floor ${floor} (${type})`, 16, '#ffffff').setOrigin(0.5),
-        this.s.text(cx, 384, `${run.stats.fights} fights won · ${run.stats.elites} elites · ${run.stats.bosses} bosses · ${run.stats.gold} gold`, 14, '#c9d1e0').setOrigin(0.5),
-        this.s.text(cx, 412, `Best: ${describeProgress(bestProgress())}`, 14, '#ffd166').setOrigin(0.5),
-        this.s.text(cx, 440, `Sent home to the camp: ${lootText(run.loot)}`, 13, '#e0b878').setOrigin(0.5).setAlign('center').setWordWrapWidth(480),
-        // Pass {} — restart() with no data would reuse the finished run's data.
-        this.s.button(cx - 90, 510, '⛺ The Camp', 20, '#6b4f2a', () => this.s.campScreen.show()),
-        this.s.button(cx + 90, 510, 'New run', 20, '#2e86de', () => this.s.scene.restart({})),
-      ])
-      .setDepth(100);
+    // What killed you: the toughest enemy still standing.
+    const killer = this.s.battle.units
+      .filter((u) => u.side === 'enemy' && u.alive)
+      .sort((a, b) => Number(!!b.isBoss) - Number(!!a.isBoss) || Number(!!b.isElite) - Number(!!a.isElite) || b.maxHp - a.maxHp)[0];
+    this.showEnd({
+      title: 'Your party has fallen',
+      color: '#ff6b6b',
+      lines: [`Act ${run.act}, ${act.name}: floor ${floor} (${type})${killer ? `, beaten by a ${killer.label}` : ''}`, `Best: ${describeProgress(bestProgress())}`],
+    });
   }
 
   /** The last boss fell: the run is won. */
   showVictory(wins: number): void {
+    this.s.cameras.main.flash(400, 255, 240, 200);
+    this.showEnd({
+      title: 'Victory!',
+      color: '#ffd166',
+      lines: ['The rift is closed. Your guild is legend.', `Wins: ${wins}. Something new will unlock here soon.`],
+    });
+  }
+
+  /** You gave up on the run (from the map). */
+  showAbandoned(): void {
+    this.showEnd({ title: 'Run abandoned', color: '#c9d1e0', lines: [`Best: ${describeProgress(bestProgress())}`] });
+  }
+
+  /**
+   * The end of a run: what happened, the party, and a big damage and healing
+   * chart for the whole run (tap a hero for what their numbers were made of).
+   */
+  private showEnd(o: { title: string; color: string; lines: string[] }): void {
     const run = this.s.run!;
     this.s.state = 'over';
     const cx = WORLD.width / 2;
-    this.s.cameras.main.flash(400, 255, 240, 200);
-    this.s.overlay = this.s.add
-      .container(0, 0, [
-        this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
-        this.s.text(cx, 290, 'Victory!', 48, '#ffd166').setOrigin(0.5).setFontStyle('bold'),
-        this.s.text(cx, 344, 'The rift is closed. Your guild is legend.', 16, '#ffffff').setOrigin(0.5),
-        this.s.text(cx, 376, `${run.stats.fights} fights · ${run.stats.elites} elites · ${run.stats.bosses} bosses · ${run.stats.gold} gold`, 14, '#c9d1e0').setOrigin(0.5),
-        this.s.text(cx, 404, `Wins: ${wins}. Something new will unlock here soon.`, 14, '#7dff9b').setOrigin(0.5),
-        this.s.text(cx, 432, `Sent home to the camp: ${lootText(run.loot)}`, 13, '#e0b878').setOrigin(0.5).setAlign('center').setWordWrapWidth(480),
-        this.s.button(cx - 90, 500, '⛺ The Camp', 20, '#6b4f2a', () => this.s.campScreen.show()),
-        this.s.button(cx + 90, 500, 'New run', 20, '#2e86de', () => this.s.scene.restart({})),
-      ])
-      .setDepth(100);
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14, 0.97).setOrigin(0, 0).setInteractive(),
+      this.s.add.rectangle(12, 56, WORLD.width - 24, 800, 0x111723).setOrigin(0, 0).setStrokeStyle(2, 0x3a4660),
+      this.s.text(cx, 78, o.title, 30, o.color).setOrigin(0.5, 0).setFontStyle('bold'),
+      this.s.text(cx, 122, o.lines.join('\n'), 14, '#ffffff').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(490).setLineSpacing(4),
+      this.s.text(cx, 172, `${plural(run.stats.fights, 'fight')} won · ${plural(run.stats.elites, 'elite')} · ${plural(run.stats.bosses, 'boss', 'bosses')} · ${run.stats.gold} gold`, 13, '#c9d1e0').setOrigin(0.5, 0),
+      this.s.text(30, 206, 'The party, over the whole run', 15, '#ffd166').setFontStyle('bold'),
+      this.s.text(WORLD.width - 30, 210, 'damage / healing', 11, '#8f9bb3').setOrigin(1, 0),
+    ];
+    // One row per hero: portrait, name and level, abilities, then a damage bar and a healing bar.
+    const totals = run.team.map((_, slot) => {
+      const m = run.meter?.[slot] ?? { damage: {}, healing: {} };
+      const sum = (r: Record<string, number>) => Object.values(r).reduce((a, v) => a + v, 0);
+      return { slot, damage: sum(m.damage), healing: sum(m.healing), m };
+    });
+    const maxDamage = Math.max(1, ...totals.map((t) => t.damage));
+    const maxHealing = Math.max(1, ...totals.map((t) => t.healing));
+    const rowH = 66;
+    const top = 236;
+    const barX = 250;
+    const barW = WORLD.width - 30 - barX - 56;
+    const rows: Phaser.GameObjects.Rectangle[] = [];
+    const detail = this.s.text(30, top + run.team.length * rowH + 18, '', 12, '#c9d1e0').setLineSpacing(3);
+    const showDetail = (slot: number) => {
+      rows.forEach((r, i) => r.setStrokeStyle(2, i === slot ? 0xffd166 : 0x2b3445));
+      const t = totals[slot];
+      const line = (r: Record<string, number>, total: number) =>
+        Object.entries(r)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 4)
+          .map(([k, v]) => `${meterSource(k).name} ${formatTotal(v)} (${Math.round((100 * v) / Math.max(1, total))}%)`)
+          .join(' · ') || 'none';
+      detail.setText(`${heroLabel(run, slot)}\nDamage: ${line(t.m.damage, t.damage)}\nHealing: ${line(t.m.healing, t.healing)}`).setWordWrapWidth(WORLD.width - 60);
+    };
+    totals.forEach((t, i) => {
+      const y = top + i * rowH;
+      const cls = run.team[t.slot];
+      const b = run.builds[t.slot];
+      const bg = this.s.add.rectangle(24, y, WORLD.width - 48, rowH - 6, 0x161c28).setOrigin(0, 0).setStrokeStyle(2, 0x2b3445).setInteractive({ useHandCursor: true });
+      bg.on('pointerdown', () => showDetail(i));
+      rows.push(bg);
+      items.push(bg, ...this.s.heroPicker.portrait(cls, 50, y + rowH - 12, 1.1));
+      items.push(this.s.text(76, y + 6, `${heroLabel(run, t.slot)}  Lv ${b.level}`, 13, cssColor(COLORS[cls])).setFontStyle('bold'));
+      [...b.abilities.map((a) => abilityIcon(a.id)), ...b.traits.map((tr) => traitIcon(tr))].forEach((key, j) =>
+        items.push(this.s.add.image(76 + j * 22, y + 28, key).setOrigin(0, 0).setScale(20 / ICON_PX)),
+      );
+      const dw = Math.max(2, (barW * t.damage) / maxDamage);
+      const hw = Math.max(2, (barW * t.healing) / maxHealing);
+      items.push(
+        this.s.add.rectangle(barX, y + 10, barW, 16, 0x0b0e14).setOrigin(0, 0),
+        this.s.add.rectangle(barX, y + 10, dw, 16, 0xe0644a).setOrigin(0, 0),
+        this.s.text(barX + barW + 6, y + 10, formatTotal(t.damage), 12, '#ffb3a3').setFontStyle('bold'),
+        this.s.add.rectangle(barX, y + 32, barW, 16, 0x0b0e14).setOrigin(0, 0),
+        this.s.add.rectangle(barX, y + 32, t.healing ? hw : 0, 16, 0x4ac27a).setOrigin(0, 0),
+        this.s.text(barX + barW + 6, y + 32, formatTotal(t.healing), 12, '#a8f0c2').setFontStyle('bold'),
+      );
+    });
+    items.push(detail);
+    const lootY = top + run.team.length * rowH + 100;
+    items.push(
+      this.s.text(cx, lootY, `Sent home to the camp: ${lootText(run.loot)}`, 13, '#e0b878').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(480),
+      // Pass {} — restart() with no data would reuse the finished run's data.
+      this.s.button(cx - 100, WORLD.height - 150, '⛺ The Camp', 20, '#6b4f2a', () => this.s.campScreen.show()),
+      this.s.button(cx + 100, WORLD.height - 150, 'New run', 20, '#2e86de', () => this.s.scene.restart({})),
+    );
+    this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
+    // The top damage dealer's breakdown to start with.
+    const best = totals.reduce((a, t) => (t.damage > a.damage ? t : a), totals[0]);
+    if (best) showDetail(totals.indexOf(best));
   }
+}
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function formatTotal(n: number): string {
+  return n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
 }

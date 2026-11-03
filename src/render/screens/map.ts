@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { actDef } from '../../sim/acts';
 import { BOSS_INFO, ENEMY_STATS, WORLD } from '../../sim/content';
 import { MAP_COLS, MAP_FLOORS, type MapNode, type NodeType } from '../../sim/map';
-import { autoPath, availableNodes, eliteTwist, enterNode, isRecruitCampsite, saveRun, TWISTS } from '../../sim/run';
+import { autoPath, availableNodes, clearRun, eliteTwist, enterNode, isRecruitCampsite, recordProgress, saveRun, TWISTS } from '../../sim/run';
 import { sound } from '../sound';
 import { ICON_PX } from '../theme';
 
@@ -118,6 +118,22 @@ export class MapScreen {
     items.push(this.s.add.circle(WORLD.width - 30, 770, 9, 0xffd166, 0.25).setStrokeStyle(2, 0xffd166, 0.9), this.s.text(WORLD.width - 44, 784, 'golden', 9, '#ffd166').setOrigin(0.5, 0));
     this.tip = this.s.text(WORLD.width / 2, 152, '', 12, '#7dff9b').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500);
     items.push(this.tip);
+    // Give up on this run (with a check first).
+    items.push(
+      this.s.text(14, WORLD.height - 20, '✕ Abandon run', 12, '#ffffff')
+        .setOrigin(0, 0.5)
+        .setPadding(8, 3, 8, 3)
+        .setBackgroundColor('#5a2a2a')
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () =>
+          this.s.confirm('Abandon this run?', 'The run ends here. Your best progress is kept, and its camp loot is already at the camp.', 'Abandon', () => {
+            recordProgress(run);
+            clearRun();
+            this.hide();
+            this.s.results.showAbandoned();
+          }),
+        ),
+    );
     this.ui = this.s.add.container(0, 0, items).setDepth(40);
 
     // Auto chooses the route too.

@@ -403,7 +403,11 @@ export class Battle {
       outOfCombat: 0,
       traits: [...(build?.traits ?? [])],
       comboPoints: 0,
-      effects: kit.passive === 'stealth' ? [this.stealthEffect()] : [],
+      effects: [
+        ...(kit.passive === 'stealth' ? [this.stealthEffect()] : []),
+        // A Blood Altar wound shows as a debuff (it already lowered max health above).
+        ...(build?.wound ? [{ kind: 'wounded' as const, remaining: Infinity, tickEvery: 0, tickTimer: 0, amount: build.wound, sourceId: 0 }] : []),
+      ],
     });
   }
 

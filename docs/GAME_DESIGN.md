@@ -81,27 +81,24 @@ economy), `src/sim/run.ts` (run state, rewards, Auto).
 | Node | What happens |
 |---|---|
 | **Fight** | The act's regulars. Gold and XP. |
-| **Elite** | A tougher fight around the act's elite (×1.15 strength). More gold and XP, then an **upgrade pick**. |
+| **Elite** | A tougher fight around the act's elite (×1.15 strength). More gold and XP, then **one reward for one hero** (1 of 3, mostly new abilities). About 40% of elites carry a **twist**, shown under the node: *Enraged* (enemies deal 30% more damage), *No Rest* (heroes heal 50% less) or *Swarm* (two extra enemies); those are a little tougher, give 2 more XP and offer **4** rewards. |
 | **Chest** | Gold (20–34, ×2 if golden), then **one reward for one hero**: 1 of 3 (4 if golden), mostly new abilities while anyone has a free slot. |
-| **Challenge** | An optional, tougher fight around the act's elite (×1.2 strength) with a **twist**, shown under the node: *Enraged* (enemies deal 30% more damage), *No Rest* (heroes heal 50% less) or *Swarm* (two extra enemies). More XP, then **one reward from four**. |
-| **Feast** | The party eats: every hero has **15% more max health** for the next two fights (a "Well fed" buff; "fed (n)" in the top bar). |
 | **Shop** | 3 abilities and 2 upgrades for specific heroes, bought with gold; reroll for 10 (rising). Prices rise each act. |
 | **Campsite** | Two campsite floors are **recruits** (pick any class, repeats allowed, and its first ability): **mid-Act 1 (floor 6)** and **mid-Act 2 (floor 6)**. A third hero joins **right after the Act 1 boss**, so the party is 4 by the middle of the run. Every other campsite is **training**: **every hero picks 1 of 3** (new abilities or passives, or upgrades once full). |
-| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). Picked at random from: the **Wishing Well** (make a wish, holding at most one, or fish out 25 gold if you already hold one; a used wish brings the party back and gives every hero **+20% damage** for the restarted fight, a "Wished" buff); the **Cursed Shrine** (no way out: every hero takes **25% more damage** in the next fight, a "Cursed" debuff, shown as "☠ cursed" in the top bar); **The Gambler** (bet 20 gold on a coin flip: win 40 back or lose it); **A Wounded Traveller** (pay 15 gold; they catch up at the start of the next act with 60); **The Blood Altar** (the hero with the fewest abilities loses 20% max health until the end of the act and gets an extra pick); and **A Visit from Camp** (the camp's helper drops by with 25 gold; placeholder writing for Bailey). |
+| **? (chance encounter)** | A random event (`src/sim/events.ts`; text kept as data). Picked at random from: the **Wishing Well** (make a wish, holding at most one, or fish out 25 gold if you already hold one; a used wish brings the party back and the fight starts over); the **Cursed Shrine** (take 40 gold and every hero takes **25% more damage** in the next fight, "☠ cursed" in the top bar, or walk on); **A Feast** (every hero has **15% more max health** for the next two fights, "fed (n)"); **A Wounded Traveller** (pay 15 gold; they catch up at the start of the next act with 60, "a traveller owes you" meanwhile); **The Blood Altar** (the hero with the fewest abilities loses 20% max health until the end of the act, shown as a "Blood price" debuff, and gets an extra pick); and **A Visit from Camp** (the camp's helper drops by with 25 gold; placeholder writing for Bailey). |
 | **Boss** | The act's boss; then **every hero picks 1 of 4** (new abilities, or upgrades once full), all on one screen, and the next act. |
 
 Some fights, elites and chests are **golden** (a gold ring): **2× gold, 1.5× XP
 and 2× camp loot**, and a golden chest offers **4** options instead of 3. The rewards say how much the golden bonus was.
 
 **Map rules** (so every route has a good mix): floors 1–2 are fights; no elite
-or shop (or challenge) before floor 4; no two of the same special node in a
+or shop before floor 4; no two of the same special node in a
 row on a path; every map has at least one shop, two chests and one chance
 encounter. Act 1's
 campsite floors are 3, 6, 9 and 12 (floor 6 recruits, the others train);
 Acts 2 and 3 have
-training campsites on floors 6 and 12. Each map also has a **flavor** that
-tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
-(more elites) or merchant (more shops).
+training campsites on floors 6 and 12. Every map uses the same odds for the
+other floors (2026-11-03: the hidden "flavours" were removed).
 
 ### Flow
 
@@ -114,7 +111,7 @@ tilts the odds: balanced, treasure (more chests and golden nodes), dangerous
 3. **Spoils.** After an ordinary win, a short flashy panel: gold counting up
    (and any golden bonus), the XP everyone standing earned (shown once), any
    level-ups in one line, and the camp loot sent home. It stays up until you
-   press the big **Next Wave** button (**Continue** after the last boss); with
+   press the big **Continue** button; with
    **Auto** on it moves on by itself. After an **elite or boss** there's no
    panel: the same rewards line sits at the top of the pick screen instead.
 4. **Choices** (recruit, training, upgrade, shop, events) open as overlays on
@@ -369,8 +366,8 @@ Polymorph exist as ability definitions but are only used by the passives.
   once all 4 slots are full), and from **shops**. Picked abilities stay for the
   run (no swapping).
 - **Boss picks:** every hero picks 1 of 4, on one screen.
-- **Chest, elite and challenge picks:** one reward for one named hero (1 of 3;
-  4 for a golden chest or a challenge). While anyone has a free
+- **Chest and elite picks:** one reward for one named hero (1 of 3; 4 for a
+  golden chest or an elite with a twist). While anyone has a free
   slot, two are **new abilities or passives** (for the heroes with the fewest)
   and one is an upgrade; once everyone is full, three upgrades. You can skip.
 - **New spells first:** named upgrades are only offered to a hero with at
@@ -387,7 +384,8 @@ Polymorph exist as ability definitions but are only used by the passives.
   shows **Now:** and **After:** lines.
 - **Auto:** recruits fill a missing tank, then a healer, then damage; training
   takes abilities in the class's preference order; upgrades take named
-  upgrades first, then Empowered, then Might.
+  upgrades first (one on a hero's first ability, then any), otherwise the
+  first offered.
 - Offers are seeded by the run's seed and the node, so they're the same if you
   reload.
 - **Camp gear and Drills** (§2b) apply on top, and carry between runs.
@@ -441,8 +439,7 @@ Polymorph exist as ability definitions but are only used by the passives.
   - Shield Block when taking hits
   - Enfeeble on the most dangerous enemy; Wither spread across enemies
 - **Mana discipline:** cheap filler spells (Renew, Power Shield, Ice Lance,
-  Judgement, Hex Bolt) keep enough mana for the hero's big spells. Heal waits
-  when a ready Prayer of Healing would do more.
+  Judgement, Hex Bolt) keep enough mana for the hero's big spells.
 
 ### Enemy AI
 
@@ -536,7 +533,7 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   Speed, Sound, **Auto** and Pause (square pixel-bevel buttons: a light
   top-left edge and a dark bottom-right that swap when pressed; every big
   screen button uses the same style), always visible (on top of reward, pick and
-  camp screens too). **Auto** picks the route and every choice for you after a
+  camp screens too). Speed and Pause only appear in fights. **Auto** picks the route and every choice for you after a
   short pause.
 - **Damage meter** (bottom-right of the field during a fight): each hero's
   damage this fight, highest first; the **DMG ⇄ / HEAL ⇄** button switches to
@@ -560,13 +557,24 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   next upgrade's cost underneath, and a tap buys it. **Reset upgrades
   (testing)** gives back everything spent. **New run** is bottom center, as is
   **The Camp** on the Choose your hero screen.
-- **Inspect window:** for a hero, Passive, Abilities, Upgrades and Effects
-  sections, each with its label.
 - **Hero panels** (bottom): one per hero: name and level, health and resource
   bars, a row of **buff/debuff icons** (tap one for what it does and how long
   is left; buffs first), then the **ability icons** with cooldown shading
   (passive picks have a purple frame, abilities with their named upgrade a
-  gold one). Tap a panel to inspect that hero.
+  gold one), and a thin purple **XP bar** along the bottom. Tap a panel to
+  inspect that hero.
+- **End of a run** (game over, victory or abandoned): what happened (and what
+  beat you), the run's stats, and the party over the **whole run**: each hero
+  with level and abilities, and a **damage bar and a healing bar** for the run
+  (tap a hero for what their numbers were made of). Then the camp loot sent
+  home, The Camp and New run.
+- **Map:** **✕ Abandon run** (bottom left, with a check first) ends the run
+  from the map. Starting a new run from the title screen while one is saved
+  asks first.
+- **Fights:** cast names sit above units, one at a time, and damage numbers
+  fan out; spells are coloured by school (frost, fire, holy, shadow, nature,
+  arcane, physical) with an impact ring and sparks; zones are tinted with a
+  pulsing edge; projectiles have a short trail.
 - **Reward cards** show the icon, and the numbers: a new ability shows its
   numbers; an upgrade shows **Now:** and **After:** lines (see §5).
 - **Ability tooltips:** hover over or tap an ability to see its damage or
@@ -580,8 +588,9 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 - **Inspect window:** tap any unit, hero or enemy, to see:
   - HP, resource, attack, auto-heal and move speed
   - tank threat
-  - passive, abilities (with cost, cooldown and effect text), traits and active
-    effects, each with its icon on the left
+  - for heroes, labelled sections: Passive, Abilities (cost, cooldown, effect
+    text), Upgrades (run upgrades, camp gear, Drills) and Effects, each with
+    its icon on the left
   - for enemies: whether it's an elite or caster, and its current cast
   - for bosses: their moves and the boss rules
 
@@ -637,7 +646,7 @@ These come from the original castle-gate design (see
 | Idea | Status | Why / note |
 |---|---|---|
 | Castle gate, enemies marching in waves, flank spawns | **Dropped** | Replaced by the arena |
-| 4x3 placement grid for heroes | **Dropped** (2026-11-02) | Heroes line up by role; the pre-fight screen shows the line-up and boss info |
+| 4x3 placement grid for heroes | **Dropped** (2026-11-02) | Heroes line up by role on their own |
 | Swapping abilities after round 20 | **Decided against** (2026-11-02) | Abilities stay once picked |
 | Prayer of Healing, Inner Focus | **Replaced** (2026-11-02) | Holy Nova / Chain of Light; Blessed Hands |
 | Player-controlled hero, ability buttons, focus target, Full Auto toggle | **Dropped** | The game is fully AI. Only the sim's test path remains. |
@@ -667,7 +676,8 @@ art and more) are in [IDEAS.md](IDEAS.md).
   difficulty ladder (IDEAS.md, later design phase) is the planned answer.
 - **First run:** the AI beats Act 1 on about a third of first runs (aim ~25%).
   Worth checking in real play.
-- **Late recruits:** the hero joining mid-Act 2 starts at level 1 with one
+- **Late recruits:** the hero joining mid-Act 2 starts at the run's starting
+  level (1 plus Drills) with one
   ability, well behind the rest (to revisit, as decided 2026-11-03).
 - **Camp numbers:** loot rates, gear bonuses and costs are placeholders.
 

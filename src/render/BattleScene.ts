@@ -352,6 +352,26 @@ export class BattleScene extends Phaser.Scene {
     return new PixelButton(this, x, y, label, size, bg, onTap);
   }
 
+  /** A yes/no question over everything else (e.g. before throwing away a run). */
+  confirm(title: string, body: string, yes: string, onYes: () => void): void {
+    const cx = WORLD.width / 2;
+    const text = this.text(cx, 400, body, 14, '#e6e9f0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(400);
+    const bottom = text.y + text.height + 90;
+    const box: Phaser.GameObjects.Container = this.add
+      .container(0, 0, [
+        this.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.7).setOrigin(0, 0).setInteractive(),
+        this.add.rectangle(cx, (340 + bottom) / 2, 440, bottom - 340, 0x161c28).setStrokeStyle(2, 0xff8a8a),
+        this.text(cx, 356, title, 20, '#ffffff').setOrigin(0.5, 0).setFontStyle('bold'),
+        text,
+        this.button(cx - 90, bottom - 40, 'Cancel', 16, '#3a4660', () => box.destroy()),
+        this.button(cx + 90, bottom - 40, yes, 16, '#a33a3a', () => {
+          box.destroy();
+          onYes();
+        }),
+      ])
+      .setDepth(180);
+  }
+
   text(x: number, y: number, str: string, size: number, color: string): Phaser.GameObjects.Text {
     return this.add.text(x, y, str, { fontFamily: FONT, fontSize: `${size}px`, color }).setResolution(DPR);
   }

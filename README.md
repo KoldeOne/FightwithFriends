@@ -18,7 +18,8 @@ A playable arena auto-battler with a Slay the Spire-style map:
 - **Climb a branching map** through three acts (The Goblin Woods, The Sunken
   Crypt, The Burning Rift), 12 floors and a boss each: fights, elites, chests,
   shops, campsites and ? chance encounters (a Wishing Well can give your party
-  a second chance). Golden nodes pay more. The way you came is dotted.
+  a second chance; a Feast, a cursed shrine, a traveller...). Some elites carry
+  a twist for a bigger reward. Golden nodes pay more. The way you came is dotted.
 - **Party:** new heroes join mid-Act 1, after the Act 1 boss and mid-Act 2
   (any class, you choose its first ability), for a party of 4. Other
   campsites train every hero.
@@ -26,7 +27,8 @@ A playable arena auto-battler with a Slay the Spire-style map:
   give one reward for one hero (new spells first); training campsites and
   bosses give every hero a pick. Heroes earn XP
   slowly, and each level costs a bit more. Everyone heals fully between fights.
-- **Damage meter** in fights (toggle to healing; hover a bar for the breakdown).
+- **Damage meter** in fights (toggle to healing; hover a bar for the breakdown),
+  and a whole-run damage and healing chart at the end of every run.
 - **One life:** a party wipe ends the run (unless you hold a wish). It's meant
   to take a few runs, and camp upgrades, to beat the Act 3 boss.
 - **The camp** (from Bailey's Camp Mode): every fight's loot goes home, win or

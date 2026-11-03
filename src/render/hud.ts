@@ -4,6 +4,7 @@ import { ABILITIES, MAX_ABILITY_SLOTS, PASSIVES, RESOURCES, TRAITS, WORLD } from
 import { sound } from './sound';
 import { PixelButton } from './button';
 import { actDef } from '../sim/acts';
+import { xpProgress } from '../sim/run';
 import { type Effect, type Unit } from '../sim/types';
 import { COLORS, cssColor, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, effectInfo, effectIcon, abilityIcon, traitIcon, ICON_PX } from './theme';
 
@@ -155,12 +156,12 @@ export class Hud {
       this.hudText.setText('');
     } else if (this.s.state === 'map' || this.s.state === 'choice') {
       this.waveText.setText(`ACT ${run.act}`).setColor('#ffd166');
-      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${run.feast ? ` · fed (${run.feast})` : ""}`);
+      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${run.feast ? ` · fed (${run.feast})` : ""}${run.traveller ? " · a traveller owes you" : ""}`);
     } else {
       this.waveText.setText(`ACT ${run.act} · FLOOR ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
       const ramp = this.s.battle.damageRamp;
       const sudden = ramp > 1 ? ` · SUDDEN DEATH x${ramp.toFixed(1)}` : '';
-      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${run.feast ? ` · fed (${run.feast})` : ""}${sudden}`);
+      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${run.cursed ? " · ☠ cursed" : ""}${run.feast ? ` · fed (${run.feast})` : ""}${run.traveller ? " · a traveller owes you" : ""}${sudden}`);
     }
 
     this.speedButton.setText(`Speed ${this.s.speed}x`);
@@ -210,6 +211,13 @@ export class Hud {
       if (h.resourceKind) {
         g.fillStyle(0x2b3445).fillRect(x + 5, y + 39, bw, 8);
         g.fillStyle(RESOURCE_COLORS[h.resourceKind]).fillRect(x + 5, y + 39, bw * ((h.resource ?? 0) / (h.maxResource ?? 1)), 8);
+      }
+      // XP toward the next level: a thin bar along the bottom of the panel.
+      const xp = this.s.run?.xp[h.slot ?? 0];
+      if (xp !== undefined) {
+        const pr = xpProgress(xp);
+        g.fillStyle(0x1c2433).fillRect(x + 5, y + this.s.party.frameH - 6, bw, 3);
+        g.fillStyle(0x9b7bff).fillRect(x + 5, y + this.s.party.frameH - 6, bw * (pr.into / pr.need), 3);
       }
       // Ability boxes (traits in purple), with cooldown shading.
       f.boxes.forEach((b, j) => {

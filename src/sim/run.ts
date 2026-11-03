@@ -215,6 +215,16 @@ export function levelsFor(xp: number): number {
   return levels;
 }
 
+/** XP into the current level and what the next level costs (for the XP bar). */
+export function xpProgress(xp: number): { into: number; need: number } {
+  let cost = ECONOMY.xpPerLevel;
+  while (xp >= cost) {
+    xp -= cost;
+    cost += ECONOMY.xpGrowth;
+  }
+  return { into: xp, need: cost };
+}
+
 /**
  * One pick for the party (chests, elites): while any hero has a
  * free slot, all but one are new abilities or passives (for different heroes,
@@ -885,5 +895,5 @@ export function winsSoFar(): number {
 export function describeProgress(value: number): string {
   if (value >= 999) return 'a win';
   if (!value) return 'none yet';
-  return `Act ${Math.floor(value / 100)}, floor ${value % 100}`;
+  return value % 100 ? `Act ${Math.floor(value / 100)}, floor ${value % 100}` : `the start of Act ${Math.floor(value / 100)}`;
 }
