@@ -1,6 +1,6 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
-import { ABILITIES, TRAITS, WORLD } from '../../sim/content';
+import { WORLD } from '../../sim/content';
 import { EVENTS } from '../../sim/events';
 import {
   autoChoose,
@@ -10,6 +10,7 @@ import {
   chooseUpgrade,
   eventChoices,
   describeReward,
+  heroLabel,
   leaveShop,
   reroll,
   rerollPrice,
@@ -22,7 +23,7 @@ import {
   type RunState,
 } from '../../sim/run';
 import { sound } from '../sound';
-import { abilityIcon, COLORS, ICON_PX, traitIcon } from '../theme';
+import { abilityIcon, COLORS, cssColor, ICON_PX, traitIcon } from '../theme';
 
 /** The icon for a reward: the ability it adds or upgrades, the passive, or a stat. */
 export function rewardIcon(r: Reward): string {
@@ -43,11 +44,7 @@ export function rewardIcon(r: Reward): string {
   }
 }
 
-const heroName = (run: RunState, slot: number) => {
-  const cls = run.team[slot];
-  const same = run.team.slice(0, slot).filter((c) => c === cls).length;
-  return `${cls[0].toUpperCase() + cls.slice(1)}${same ? ` ${same + 1}` : ''}`;
-};
+const heroName = heroLabel;
 
 /** Campsite training, upgrade picks (chests, elites, bosses) and shops. */
 export class Choices {
@@ -164,7 +161,7 @@ export class Choices {
       const options = trainOptions(run, slot);
       const learns = options.some((o) => o.kind === 'ability' || o.kind === 'trait');
       items.push(...this.s.heroPicker.portrait(run.team[slot], 34, y + rowH - 22, 1.2));
-      items.push(this.s.text(64, y, `${heroName(run, slot)} — level ${b.level} · ${learns ? 'learn something new' : 'all slots full: an upgrade'}`, 12, '#' + COLORS[run.team[slot]].toString(16).padStart(6, '0')).setFontStyle('bold'));
+      items.push(this.s.text(64, y, `${heroName(run, slot)} — level ${b.level} · ${learns ? 'learn something new' : 'all slots full: an upgrade'}`, 12, cssColor(COLORS[run.team[slot]])).setFontStyle('bold'));
       const left = 64;
       const gap = 6;
       const w = Math.floor((WORLD.width - 12 - left - gap * (options.length - 1)) / options.length);

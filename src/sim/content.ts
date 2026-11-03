@@ -153,8 +153,8 @@ export interface AbilityDef {
 
 /**
  * Every ability in the game. Each class starts with one; the rest are earned
- * from the class pool (pick 1 of 3 every 5 rounds; there are more than you can
- * take, so builds differ run to run). Names are working names.
+ * from the class pool at training campsites, bosses, chests and shops (there
+ * are more than you can take, so builds differ run to run). Names are working names.
  */
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
   // --- Warrior ---------------------------------------------------------------

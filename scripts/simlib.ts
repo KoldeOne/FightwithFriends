@@ -3,8 +3,8 @@
  * runs with the same rules as the game (Auto's choices, or random ones) and
  * records what happened. Pure: no Phaser, no DOM.
  */
-import { addLoot, bankLoot, lootFor, scaleLoot, startLevel, withGear, type CampState } from '../src/sim/camp';
-import { ECONOMY } from '../src/sim/acts';
+import { startLevel, withGear, type CampState } from '../src/sim/camp';
+import { settleFight } from '../src/sim/settle';
 import { Battle, STEP } from '../src/sim/battle';
 import { ARENA, HERO_KIT, WORLD } from '../src/sim/content';
 import {
@@ -24,7 +24,6 @@ import {
   encounterFor,
   enterNode,
   fightSeed,
-  finishFight,
   firstAbilityOptions,
   leaveShop,
   newRun,
@@ -306,12 +305,7 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
     // A fight.
     const r = playRound(run, rec.violations, camp);
     rec.rounds.push(r);
-    finishFight(run, r.won, r.fallen, r.kills);
-    if (camp) {
-      const loot = scaleLoot(lootFor(r.kills, run.act, fightSeed(run)), currentNode(run)?.rich ? ECONOMY.richLoot : 1);
-      bankLoot(camp, loot);
-      addLoot(run.loot, loot);
-    }
+    settleFight(run, camp, r);
     if (!r.won) rec.losses.push(r.round);
   }
   rec.won = run.status === 'won';

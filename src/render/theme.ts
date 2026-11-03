@@ -175,8 +175,12 @@ export const RESOURCE_COLORS: Record<ResourceKind, number> = {
   energy: 0xf1c40f,
 };
 
+/** A colour number as a CSS string ("#c0392b"), for text. */
+export function cssColor(n: number): string {
+  return '#' + n.toString(16).padStart(6, '0');
+}
+
 export const GOLD = 0xffd166;
-export const OUT_OF_RANGE = 0xff3b3b;
 export const ENEMY_STROKE = 0x8b1a1a;
 export const SLOW_STROKE = 0x5dade2;
 
@@ -223,11 +227,9 @@ export function effectInfo(e: Effect): (typeof EFFECT_INFO)[Effect['kind']] {
   }
   return base;
 }
-export const MAX_BUFF_ICONS = 12;
 /** Buff icons on units: up to this many, this size (px). */
 export const UNIT_ICONS = 4;
 export const UNIT_ICON = 12;
-export const BUFF_ICON = 22;
 export const TARGET_BAR_X = 200;
 /** Party panel layout (bottom of the screen): one frame per hero, sized to fit 3-5 heroes. */
 export function partyLayout(n: number): { x: number; frameW: number; gap: number; frameH: number; box: number } {
@@ -242,7 +244,7 @@ export interface PartyFrame {
   bg: Phaser.GameObjects.Rectangle;
   name: Phaser.GameObjects.Text;
   hpText: Phaser.GameObjects.Text;
-  boxes: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; icon: Phaser.GameObjects.Image }[];
+  boxes: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; icon: Phaser.GameObjects.Image; bevel: Phaser.GameObjects.Graphics }[];
   /** Buff/debuff icons between the bars and the abilities. */
   buffs: Phaser.GameObjects.Image[];
 }
@@ -287,27 +289,3 @@ export type SceneState = 'title' | 'camp' | 'map' | 'choice' | 'playing' | 'paus
 export const DPR = Math.min(window.devicePixelRatio || 1, 3);
 export const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 
-/** Size and position of the ability button and AUTO button. */
-/** HUD layout (offsets from WORLD.hudTop). */
-export const HUD = {
-  // Big ability buttons first, right under the gate, using the full width.
-  slotY: 8,
-  slotSize: 88,
-  slotGap: 8,
-  slotX: 34,
-  barX: 16,
-  barW: 290,
-  healthY: 102,
-  resourceY: 121,
-  barH: 16,
-  buffX: 318,
-  targetY: 142,
-};
-
-export interface SlotView {
-  bg: Phaser.GameObjects.Rectangle;
-  name: Phaser.GameObjects.Text;
-  sub: Phaser.GameObjects.Text;
-  plus: Phaser.GameObjects.Text;
-  cdText: Phaser.GameObjects.Text;
-}

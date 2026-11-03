@@ -151,7 +151,7 @@ export class MapScreen {
     const act = actDef(run.act);
     const text: Record<NodeType, string> = {
       fight: `Fight: ${act.name} regulars. Gold and XP.`,
-      elite: `Elite: a tougher fight with a ${ENEMY_STATS[act.elite].label}. More gold, more XP and an upgrade.`,
+      elite: `Elite: a tougher fight with a ${ENEMY_STATS[act.elite].label}. More gold, more XP and a reward (usually a new ability).`,
       chest: 'Chest: gold, and a reward for one hero.',
       campsite: isRecruitCampsite(run, n) ? 'Campsite: a new hero joins your party.' : 'Campsite: every hero trains (a new ability, or an upgrade once full).',
       shop: 'Shop: buy abilities and upgrades with gold.',

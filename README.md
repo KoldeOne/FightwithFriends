@@ -22,8 +22,9 @@ A playable arena auto-battler with a Slay the Spire-style map:
 - **Party:** new heroes join mid-Act 1, after the Act 1 boss and mid-Act 2
   (any class, you choose its first ability), for a party of 4. Other
   campsites train every hero.
-- **Gold** from enemies buys abilities and upgrades in shops; chests give every
-  hero a pick, elites and bosses a pick (new spells first). Heroes earn XP
+- **Gold** from enemies buys abilities and upgrades in shops; chests and elites
+  give one reward for one hero (new spells first); training campsites and
+  bosses give every hero a pick. Heroes earn XP
   slowly, and each level costs a bit more. Everyone heals fully between fights.
 - **Damage meter** in fights (toggle to healing; hover a bar for the breakdown).
 - **One life:** a party wipe ends the run (unless you hold a wish). It's meant

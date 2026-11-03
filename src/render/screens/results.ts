@@ -1,9 +1,10 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
-import { actDef, ECONOMY } from '../../sim/acts';
+import { actDef } from '../../sim/acts';
 import { WORLD } from '../../sim/content';
-import { bestProgress, clearRun, currentNode, describeProgress, finishFight, fightSeed, recordProgress, recordWin, saveRun, spoilsLine, type Spoils } from '../../sim/run';
-import { addLoot, bankLoot, loadCamp, lootFor, lootText, saveCamp, scaleLoot } from '../../sim/camp';
+import { bestProgress, clearRun, currentNode, describeProgress, heroLabel, recordProgress, recordWin, saveRun, spoilsLine, type Spoils } from '../../sim/run';
+import { loadCamp, lootText, saveCamp } from '../../sim/camp';
+import { settleFight } from '../../sim/settle';
 import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
 import { ICON_PX } from '../theme';
@@ -22,13 +23,9 @@ export class Results {
     const fallen = this.s.battle.heroes.filter((h) => !h.alive).map((h) => h.slot ?? 0);
     const node = currentNode(run)!;
     // Camp loot goes home straight away, win or lose.
-    const golden = !!node.rich;
-    const loot = scaleLoot(lootFor(this.s.battle.kills, run.act, fightSeed(run)), golden ? ECONOMY.richLoot : 1);
     const camp = loadCamp();
-    bankLoot(camp, loot);
+    const { spoils, loot } = settleFight(run, camp, { won, fallen, kills: this.s.battle.kills });
     saveCamp(camp);
-    addLoot(run.loot, loot);
-    const spoils = finishFight(run, won, fallen, this.s.battle.kills);
     if (spoils.wished) {
       saveRun(run);
       this.showWish();
@@ -101,8 +98,7 @@ export class Results {
     items.push(this.s.text(cx, y, `+${spoils.xp} XP`, 18, '#9ad1ff').setOrigin(0.5).setFontStyle('bold'));
     if (ups.length) {
       y += 30;
-      const name = (slot: number) => run.team[slot][0].toUpperCase() + run.team[slot].slice(1);
-      const up = this.s.text(cx, y, `Level up! ${ups.map((r) => `${name(r.slot)} ${r.to}`).join(', ')}`, 15, '#7dff9b').setOrigin(0.5).setFontStyle('bold');
+      const up = this.s.text(cx, y, `Level up! ${ups.map((r) => `${heroLabel(run, r.slot)} ${r.to}`).join(', ')}`, 15, '#7dff9b').setOrigin(0.5).setFontStyle('bold');
       up.setStroke('#000000', 3).setScale(0.2);
       this.s.tweens.add({ targets: up, scale: 1, duration: 380, delay: 350, ease: 'Back.easeOut' });
       items.push(up);

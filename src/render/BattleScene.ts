@@ -5,7 +5,7 @@ import { ARENA, ENEMY_LAYOUT, HERO_LINES, SUDDEN_DEATH, WORLD } from '../sim/con
 import { sound } from './sound';
 import { encounterFor, fightMods, fightSeed, type RunState } from '../sim/run';
 import { type Unit } from '../sim/types';
-import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, DPR, FONT, HUD } from './theme';
+import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, DPR, FONT } from './theme';
 import { Hud } from './hud';
 import { PixelButton } from './button';
 import { Inspect } from './inspect';
@@ -174,7 +174,7 @@ export class BattleScene extends Phaser.Scene {
     if (on && this.run && (this.state === 'map' || this.state === 'choice')) this.scene.restart({ run: this.run });
   }
 
-  /** "Round 3 — The Shaman": a short banner as the fight begins. */
+  /** "Act 1, floor 4 — The Goblin Woods": a short banner as the fight begins. */
   showWaveIntro(): void {
     const w = this.battle.wave;
     this.introLeft = 1.4;

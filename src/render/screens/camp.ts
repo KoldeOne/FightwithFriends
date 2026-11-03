@@ -21,7 +21,7 @@ import {
   type GearSlot,
 } from '../../sim/camp';
 import type { HeroClass, Loot } from '../../sim/types';
-import { COLORS, spriteKey, spriteOriginY } from '../theme';
+import { COLORS, cssColor, spriteKey, spriteOriginY } from '../theme';
 
 const name = (cls: HeroClass) => cls[0].toUpperCase() + cls.slice(1);
 
@@ -103,7 +103,7 @@ export class CampScreen {
         .setStrokeStyle(2, 0x3a4660)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => this.select(cls));
-      const title = s.text(x + 50, y + 8, name(cls), 14, '#' + COLORS[cls].toString(16).padStart(6, '0')).setFontStyle('bold');
+      const title = s.text(x + 50, y + 8, name(cls), 14, cssColor(COLORS[cls])).setFontStyle('bold');
       const gear = s.text(x + 50, y + 28, '', 10, '#c9d1e0').setLineSpacing(1);
       this.profiles.set(cls, { bg, gear });
       items.push(bg, ...s.heroPicker.portrait(cls, x + 24, y + 62, 1.35), title, gear);
@@ -140,7 +140,6 @@ export class CampScreen {
 
   /** Update every number on the screen (after a purchase or a new hero is chosen). */
   private refresh(): void {
-    const s = this.s;
     const camp = this.camp;
     this.loot?.setText(`${lootLine(camp.loot)}   ·   Runs: ${camp.runs}`);
     for (const b of BUILDINGS) {

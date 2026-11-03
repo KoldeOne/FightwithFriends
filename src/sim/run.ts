@@ -46,8 +46,7 @@ export interface ShopItem extends PartyReward {
 /** A choice waiting at the current node (saved, so a reload comes back to it). */
 export type Pending =
   | { kind: 'recruit' }
-  /** Chest or training campsite: every hero in `left` still gets their own pick (a new ability, or an upgrade once full). */
-  /** Training campsite or boss: every hero in `left` still gets their own pick (a new ability, or an upgrade once full). */
+  /** Training campsite, boss or Blood Altar: every hero in `left` still gets their own pick (a new ability, or an upgrade once full). */
   | { kind: 'train'; source: 'campsite' | 'boss' | 'altar'; left: number[] }
   /** A chest's, elite's or challenge's pick: one reward for one hero. */
   | { kind: 'upgrade'; source: 'chest' | 'elite' | 'challenge'; options: PartyReward[]; gold?: number }
@@ -278,7 +277,6 @@ export function partyUpgradeOptions(run: RunState, salt: number, count = 3): Par
  */
 export function trainOptions(run: RunState, slot: number): Reward[] {
   const rng = nodeRng(run, 11 + slot);
-  const node = currentNode(run);
   // A boss offers four.
   const p = run.pending;
   const count = p?.kind === 'train' && p.source === 'boss' ? 4 : 3;
@@ -406,16 +404,6 @@ export function fightMods(run: RunState): { wishBoost?: number; curse?: number; 
   };
 }
 
-export function averageLevel(run: RunState): number {
-  return run.builds.reduce((a, b) => a + b.level, 0) / Math.max(1, run.builds.length);
-}
-
-/**
- * A fight is over. Lost: the run ends. Won: gold for every enemy killed, XP for
- * every hero still standing (double for heroes below the party's average
- * level), and an upgrade pick after an elite or a boss. Beating an act's boss
- * moves on to the next act; beating the last one wins the run.
- */
 /** One line for a fight's rewards: "Victory: +14 gold (golden +7) · +4 XP · Level up: Mage 3 · Camp: 3 Spoils". */
 /** "Mage", or "Mage 2" for a second Mage. */
 export function heroLabel(run: RunState, slot: number): string {
@@ -425,12 +413,7 @@ export function heroLabel(run: RunState, slot: number): string {
 }
 
 export function spoilsLine(run: RunState, spoils: Spoils, campLoot?: string): string {
-  const name = (slot: number) => {
-    const cls = run.team[slot];
-    const same = run.team.slice(0, slot).filter((c) => c === cls).length;
-    return `${cls[0].toUpperCase() + cls.slice(1)}${same ? ` ${same + 1}` : ''}`;
-  };
-  const ups = spoils.heroes.filter((h) => h.to > h.from).map((h) => `${name(h.slot)} ${h.to}`);
+  const ups = spoils.heroes.filter((h) => h.to > h.from).map((h) => `${heroLabel(run, h.slot)} ${h.to}`);
   return [
     `+${spoils.gold} gold${spoils.goldBonus ? ` (golden +${spoils.goldBonus})` : ''}`,
     `+${spoils.xp} XP`,
@@ -441,6 +424,12 @@ export function spoilsLine(run: RunState, spoils: Spoils, campLoot?: string): st
     .join(' · ');
 }
 
+/**
+ * A fight is over. Lost: the run ends (unless a wish restarts the fight). Won:
+ * gold for every enemy killed, the same XP for every hero still standing, and a
+ * pick after an elite or a boss. Beating an act's boss moves on to the next
+ * act; beating the last one wins the run.
+ */
 export function finishFight(run: RunState, won: boolean, fallen: number[], kills: { kind: EnemyKind; summoned?: boolean }[]): Spoils {
   const node = currentNode(run)!;
   const spoils: Spoils = { gold: 0, heroes: [], xp: 0, goldBonus: 0, pick: false, actCleared: false, won: false };
@@ -534,7 +523,7 @@ export function nextAct(run: RunState): void {
   }
 }
 
-/** Recruit site: a new hero joins at the run's starting level with the first ability you chose (they earn double XP until they catch up). */
+/** Recruit site: a new hero joins at the run's starting level with the first ability you chose. */
 export function recruit(run: RunState, cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting): void {
   if (run.pending?.kind !== 'recruit' || run.team.length >= MAX_PARTY) throw new Error('no recruit here');
   run.team.push(cls);

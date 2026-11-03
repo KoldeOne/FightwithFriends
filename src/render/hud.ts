@@ -5,7 +5,7 @@ import { sound } from './sound';
 import { PixelButton } from './button';
 import { actDef } from '../sim/acts';
 import { type Effect, type Unit } from '../sim/types';
-import { COLORS, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, HUD, effectInfo, effectIcon, abilityIcon, traitIcon, ICON_PX } from './theme';
+import { COLORS, cssColor, DARK_LETTER, RESOURCE_COLORS, TARGET_BAR_X, HUD_TARGET_Y, type PartyFrame, initials, effectInfo, effectIcon, abilityIcon, traitIcon, ICON_PX } from './theme';
 
 /** Hero panel rows: buff icons just under the bars, abilities under them. */
 const BUFF_TOP = 51;
@@ -60,7 +60,7 @@ export class Hud {
     this.s.add.rectangle(0, top, WORLD.width, WORLD.height - top, 0x0b0e14).setOrigin(0, 0);
     this.s.add.rectangle(0, top, WORLD.width, 2, 0x2b3445).setOrigin(0, 0);
 
-    // Big round number at the top center, with the line-up name, lives and time underneath.
+    // The act and floor at the top center, with the fight's name, gold and time underneath.
     this.waveText = this.s.text(WORLD.width / 2, 44, '', 30, '#ffd166').setOrigin(0.5, 0).setDepth(50).setFontStyle('bold');
     this.waveText.setStroke('#000000', 5);
     this.hudText = this.s.text(WORLD.width / 2, 80, '', 13, '#c9d1e0').setOrigin(0.5, 0).setDepth(50);
@@ -116,7 +116,7 @@ export class Hud {
         const label = this.s.text(bx, by, '', 9, '#ffffff').setOrigin(0.5).setFontStyle('bold').setDepth(5);
         // Ability icon (the box underneath shows the cooldown sweep on top of it).
         const icon = this.s.add.image(bx, by, 'icon-ab-fireball').setScale((this.s.party.box - 2) / ICON_PX).setDepth(3).setVisible(false);
-        boxes.push({ bg: box, label, icon });
+        boxes.push({ bg: box, label, icon, bevel });
       }
       // Buffs and debuffs: a row of small icons between the bars and the abilities. Tap one for details.
       const buffs: Phaser.GameObjects.Image[] = [];
@@ -190,11 +190,11 @@ export class Hud {
         f.name.setText('');
         f.hpText.setText('');
         for (const img of f.buffs) img.setVisible(false);
-        for (const b of f.boxes) b.bg.setVisible(false), b.label.setText(''), b.icon.setVisible(false);
+        for (const b of f.boxes) b.bg.setVisible(false), b.bevel.setVisible(false), b.label.setText(''), b.icon.setVisible(false);
         return;
       }
       f.bg.setVisible(true).setStrokeStyle(h.id === this.s.battle.focusId ? 2 : 1, h.id === this.s.battle.focusId ? 0x7dff9b : 0x2b3445);
-      f.name.setText(`${h.label}  Lv ${h.level ?? 1}`).setColor(h.alive ? '#' + COLORS[h.kind].toString(16).padStart(6, '0') : '#666');
+      f.name.setText(`${h.label}  Lv ${h.level ?? 1}`).setColor(h.alive ? cssColor(COLORS[h.kind]) : '#666');
       // Health and resource.
       const bw = w - 10;
       g.fillStyle(0x2b3445).fillRect(x + 5, y + 21, bw, 14);
@@ -209,6 +209,7 @@ export class Hud {
         const a = h.abilities?.[j];
         const trait = !a ? h.traits?.[j - (h.abilities?.length ?? 0)] : undefined;
         b.bg.setVisible(true);
+        b.bevel.setVisible(true);
         const iconKey = a ? abilityIcon(a.id) : trait ? traitIcon(trait) : '';
         const hasIcon = !!iconKey && this.s.textures.exists(iconKey);
         b.icon.setVisible(hasIcon);
@@ -254,7 +255,9 @@ export class Hud {
       this.drawTargetFrame(focus, TARGET_BAR_X, ty, WORLD.width - 16 - TARGET_BAR_X);
     } else {
       this.clearTargetFrame();
-      this.focusText.setText('Tap a hero or enemy to inspect it. Tap a hero panel for its abilities.');
+      // The hint only makes sense in a fight.
+      const fighting = this.s.state === 'playing' || this.s.state === 'paused';
+      this.focusText.setText(fighting ? 'Tap a hero or enemy to inspect it. Tap a hero panel for its abilities.' : '');
     }
   }
 
@@ -280,7 +283,7 @@ export class Hud {
     } else if (trait) {
       this.showTooltip(`${h.label}: ${TRAITS[trait].name}`, TRAITS[trait].description, 'Passive — always on', 0xb57bff, true);
     } else {
-      this.showTooltip('Empty slot', 'Earn new abilities from rewards every 5 rounds.', '', 0x3a4660, true);
+      this.showTooltip('Empty slot', 'Learn new abilities at training campsites, after bosses, and from chests and shops.', '', 0x3a4660, true);
     }
   }
 

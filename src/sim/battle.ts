@@ -86,8 +86,8 @@ export interface BattleOptions {
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
 
 /**
- * Pure combat simulation for one arena round. Knows nothing about rendering:
- * the renderer reads `units` and drained events each frame. The round is won
+ * Pure combat simulation for one fight. Knows nothing about rendering:
+ * the renderer reads `units` and drained events each frame. The fight is won
  * when every enemy is down and lost when every hero is.
  */
 export class Battle {
@@ -1191,11 +1191,6 @@ export class Battle {
     if (this.isCareful(h)) inRange = inRange.filter((u) => !this.wouldPull(h, u, hitSize));
     if (!inRange.length) return null;
     return inRange.find((u) => u.id === h.targetId) ?? nearest(h, inRange);
-  }
-
-  /** An enemy within Judgement's range: the current target if possible, else the nearest. */
-  private judgementTarget(h: Unit): Unit | null {
-    return this.rangedTarget(h, ABILITY_TUNING.judgement.range, 0);
   }
 
   /** An enemy in reach that isn't already withering from this hero. */

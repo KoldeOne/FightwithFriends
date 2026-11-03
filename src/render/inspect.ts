@@ -1,9 +1,9 @@
 import type { BattleScene } from './BattleScene';
 import Phaser from 'phaser';
 import { BOSS_INFO, BOSS_RULES, ABILITIES, HERO_MOVE, PASSIVES, RESOURCES, TRAITS, UPGRADE, WORLD } from '../sim/content';
-import { type EnemyKind, type HeroClass, type Unit } from '../sim/types';
+import { type EnemyKind, type HeroClass } from '../sim/types';
 import { gearLines } from '../sim/camp';
-import { COLORS, effectInfo, effectIcon, abilityIcon, traitIcon, passiveIcon, ICON_PX } from './theme';
+import { COLORS, cssColor, effectInfo, effectIcon, abilityIcon, traitIcon, passiveIcon, ICON_PX } from './theme';
 
 /** The inspect window: stats, abilities and effects of one unit. */
 export class Inspect {
@@ -114,7 +114,7 @@ export class Inspect {
     }
     ui.title
       .setText(`${u.label}${u.side === 'hero' ? ` — level ${u.level ?? 1}` : ''}`)
-      .setColor(u.side === 'hero' ? '#' + COLORS[u.kind].toString(16).padStart(6, '0') : '#ff8a8a');
+      .setColor(u.side === 'hero' ? cssColor(COLORS[u.kind]) : '#ff8a8a');
 
     // Lay the rows out top to bottom.
     ui.rows.removeAll(true);

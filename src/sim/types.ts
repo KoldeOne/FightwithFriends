@@ -1,20 +1,20 @@
 export type Side = 'hero' | 'enemy';
 export type HeroClass = 'warrior' | 'priest' | 'mage' | 'rogue' | 'paladin' | 'warlock';
 export type EnemyKind =
-  // Goblins (rounds 1-10)
+  // Goblins (Act 1)
   | 'grunt'
   | 'archer'
   | 'shaman'
   | 'brute'
   | 'warchief'
-  // Undead (rounds 11-20)
+  // Undead (Act 2)
   | 'skeleton'
   | 'boneArcher'
   | 'cultist'
   | 'ghoul'
   | 'abomination'
   | 'boneKing'
-  // Demons (rounds 21+)
+  // Demons (Act 3)
   | 'imp'
   | 'hellhound'
   | 'fiend'
@@ -287,7 +287,7 @@ export interface WaveDef {
   spawns: SpawnDef[];
   /** Enemy health and damage multiplier (1 = base). */
   strength?: number;
-  /** A boss round (every 10th). */
+  /** A boss fight. */
   boss?: boolean;
 }
 

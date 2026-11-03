@@ -1,8 +1,7 @@
 import { createRng } from './rng';
 
-/** What's at a map node. */
 /**
- * 'event' is a chance encounter (a "?" on the map; see events.ts); 'challenge'
+ * What's at a map node. 'event' is a chance encounter (a "?" on the map; see events.ts); 'challenge'
  * an optional harder fight with a twist and a better reward; 'feast' a meal
  * that buffs the next two fights.
  */
@@ -38,9 +37,9 @@ export const MAP_COLS = 7;
 const PATHS = 6;
 
 /**
- * Floors where every node is a campsite. In Act 1 the first three are the
- * recruit sites (so the party of 4 is full before the boss) and the fourth
- * trains, just before the boss; later acts get two each, for training. Floor numbers are 0-based (floor 2 = the third floor).
+ * Floors where every node is a campsite (0-based: floor 2 = the third floor).
+ * Floor 5 in Acts 1 and 2 is a recruit site (RECRUIT_FLOORS in run.ts); the
+ * others train.
  */
 export const CAMPSITE_FLOORS: Record<number, number[]> = { 1: [2, 5, 8, 11], 2: [5, 11], 3: [5, 11] };
 
@@ -110,7 +109,7 @@ export function generateActMap(seed: number, act: number): ActMap {
       if (f === 0 || f === 1) n.type = 'fight';
       else if (fixed.includes(f)) n.type = 'campsite';
       else {
-        // Act 1's only campsites are the recruit floors; no campsite right before a campsite floor.
+        // Act 1 has campsites only on its fixed floors; no campsite right next to a campsite floor.
         const allowed = (Object.entries(weights) as [NodeType, number][]).filter(([t]) => {
           if ((t === 'elite' || t === 'shop' || t === 'challenge') && f < 3) return false;
           if (t === 'campsite' && (act === 1 || fixed.includes(f + 1) || fixed.includes(f - 1))) return false;
