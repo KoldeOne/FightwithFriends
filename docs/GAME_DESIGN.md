@@ -10,7 +10,7 @@ This document describes the game **as it is built today**. Numbers come from
 `src/sim/content.ts` and `src/sim/run.ts`. When the code and this doc disagree,
 the code wins; please update the doc.
 
-- Items marked **(proposed)** are ideas we haven't built.
+- Ideas we haven't built are in [IDEAS.md](IDEAS.md).
 - Ideas from the original castle-gate design that we dropped or set aside are in
   §12. The full original doc is in
   [archive/GAME_DESIGN_v1.md](archive/GAME_DESIGN_v1.md).
@@ -137,7 +137,8 @@ the station's material, and every 5th level also a Trophy):
 | Training station (whole guild, placeholder) | Drills, 0–5 | Heroes start each run +1 level; 60(n+1) Spoils and a Trophy |
 
 The Training station is a placeholder until Kolde and Bailey design progression
-together. Real item drops are also still to be designed.
+together. Real item drops are also still to be designed (see
+[IDEAS.md](IDEAS.md)).
 
 **Balance check** (`npm run camp-sim`: the AI plays one guild's runs back to back
 with a tank/healer/mage trio and spends all loot on the cheapest upgrade):
@@ -543,19 +544,9 @@ all include a tank.
 
 ---
 
-## 11. Future directions (proposed)
+## 11. Future directions
 
-Ideas that fit the arena game and haven't been built yet:
-
-- **More classes and synergies**, for example a Hunter, Druid or Shaman.
-  Possibly party bonuses for class or role combinations.
-- **Gear** found during a run: weapon, armor and trinket, picked from 1 of 3.
-- **Meta progression between runs**, a lighter version of the old castle idea
-  (§12).
-- **Final enemy and boss art** (the current sprites are temporary).
-- **Unique boss abilities** beyond the heavy slam.
-- **Multiplayer:** the sim still supports a player-controlled hero (tests use
-  it), so a friend could take a hero later.
+All ideas that haven't been built yet now live in **[IDEAS.md](IDEAS.md)**.
 
 ---
 
@@ -573,14 +564,9 @@ These come from the original castle-gate design (see
 | Player-controlled hero, ability buttons, focus target, Full Auto toggle | **Dropped** | The game is fully AI. Only the sim's test path remains. |
 | 30-wave runs with a win at wave 30 | **Dropped** | Runs are now endless, with 3 lives |
 | Revives | **Dropped** | Lives and round retries cover this |
-| Castle professions (Blacksmithing, Enchanting, Alchemy, Engineering, Tailoring, Inscription) | **Parked** | Possible base for meta progression |
-| Tokens (the only currency) | **Parked** | Goes with meta progression |
-| Banners (1 per run) | **Parked** | |
-| Difficulty tiers (5-tier ladder with rules) | **Parked** | Endless rounds plus a best-round score cover this for now |
-| Starting-ability unlocks (3 options per class) | **Parked** | |
-| Gear and loot | **Parked** | See §11 |
+| Professions, Tokens, Banners, Difficulty tiers, Starting-ability unlocks, Druid, Shaman, Hunter | **Parked** | Moved to [IDEAS.md](IDEAS.md) |
+| Gear and loot | **Built (Camp Mode)** | 2026-11-02, gear upgrades at camp; real items are in [IDEAS.md](IDEAS.md) |
 | Paladin, Warlock | **Built** | 2026-11-02, new designs for the arena |
-| Druid, Shaman, Hunter | **Parked** | See §11 |
 | ~8 abilities per class pool | **Built (smaller)** | 6–7 per class, of which 4 can be picked |
 | Out-of-range red outline on ability buttons | **Dropped** | There are no ability buttons |
 
@@ -588,31 +574,21 @@ These come from the original castle-gate design (see
 
 ## 13. Open questions
 
+Ideas (recruit choices, a bench, race per class, later classes, boss moves,
+art and more) are in [IDEAS.md](IDEAS.md).
+
 **Arena**
 
-1. **Recruits:** keep free picks, or offer a choice of 1 from 3?
-2. **Bench:** allow more than 5 heroes, with a bench?
-3. **Bosses (built 2026-11-02):** each boss has a signature move (War Cry,
-   Raise Dead, Rain of Fire). Later bosses could get more.
-4. **Enemy and boss art:** replace the temporary sprites? Bailey's setting
-   work may change how enemies should look.
-5. **Rogue reach (decided, 2026-11-02):** shortened to a real melee range (30)
+1. **Rogue reach (decided, 2026-11-02):** shortened to a real melee range (30)
    and Kick to 300, now that heroes move. Revisit if the Rogue feels bad.
-6. **Pool size (decided 2026-11-02):** 6–7 per class, 4 picks, no swapping.
+2. **Pool size (decided 2026-11-02):** 6–7 per class, 4 picks, no swapping.
    Upgrades fill the late game. More abilities can be added to pools later.
-7. **Placement (decided 2026-11-02):** the grid was removed; heroes line up by
-   role. A formation choice (e.g. "spread out" vs "huddle") could come back
-   later if it would add something.
-8. **Tankless teams (largely resolved):** after the ability overhaul, every
+3. **Placement (decided 2026-11-02):** the grid was removed; heroes line up by
+   role.
+4. **Tankless teams (largely resolved):** after the ability overhaul, every
    top starting team includes a tank. Priest + Priest + Rogue is still fine.
-9. **Names and lore:** the new abilities and upgrades (2026-11-02) have
-   generic working names. Bailey may want to rename them to fit the setting.
 
 **Carried over**
 
-10. **Exact numbers:** damage, HP, threat and costs, to be tuned in playtests.
-11. **Final ability names and art:** rename the working names taken from WoW
-   before any public release. Use original or properly licensed art only.
-12. **Later classes:** full designs.
-13. **Race per class (parked for later):** let players change the race of each
-    class. Set aside on 2026-11-01 to revisit later.
+5. **Exact numbers:** damage, HP, threat and costs, to be tuned in playtests.
+6. **Final ability names and art:** use original or properly licensed art only.

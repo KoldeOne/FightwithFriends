@@ -5,6 +5,7 @@ round in an arena. Built to play on a phone.
 
 - **Design:** [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)
 - **Heroes and monsters:** [docs/ROSTER.md](docs/ROSTER.md)
+- **Ideas not built yet:** [docs/IDEAS.md](docs/IDEAS.md)
 - **Old castle-gate design and plan:** [docs/archive/](docs/archive/)
 - **Play:** https://koldeone.github.io/FightwithFriends/ (once GitHub Pages is enabled)
 
