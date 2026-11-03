@@ -10,6 +10,7 @@ import {
   GEAR_SLOTS,
   gearCost,
   loadCamp,
+  gearShort,
   LOOT_NAMES,
   saveCamp,
   STATIONS,
@@ -70,6 +71,7 @@ export class CampScreen {
         ...s.heroPicker.portrait(cls, x - 100, y + 30, 1.5),
         s.text(x - 70, y - 36, name(cls), 16, '#ffffff').setFontStyle('bold'),
         s.text(x - 70, y - 14, `Weapon ${g.weapon} · Armor ${g.armor} · Trinket ${g.trinket}`, 11, '#c9d1e0'),
+        s.text(x - 70, y + 2, gearShort(g), 10, '#9ad1ff').setWordWrapWidth(185),
       );
     });
 

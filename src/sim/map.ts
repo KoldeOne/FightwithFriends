@@ -1,7 +1,8 @@
 import { createRng } from './rng';
 
 /** What's at a map node. */
-export type NodeType = 'fight' | 'elite' | 'chest' | 'campsite' | 'shop' | 'boss';
+/** 'event' is a chance encounter (a "?" on the map; see events.ts). */
+export type NodeType = 'fight' | 'elite' | 'chest' | 'campsite' | 'shop' | 'event' | 'boss';
 
 export interface MapNode {
   id: string;
@@ -33,9 +34,9 @@ export const MAP_COLS = 7;
 const PATHS = 6;
 
 /**
- * Floors where every node is a campsite. In Act 1 these are the four recruit
- * sites (so the party is full for the first boss); later acts get two each, for
- * training. Floor numbers are 0-based (floor 2 = the third floor).
+ * Floors where every node is a campsite. In Act 1 the first three are the
+ * recruit sites (so the party of 4 is full before the boss) and the fourth
+ * trains, just before the boss; later acts get two each, for training. Floor numbers are 0-based (floor 2 = the third floor).
  */
 export const CAMPSITE_FLOORS: Record<number, number[]> = { 1: [2, 5, 8, 11], 2: [5, 11], 3: [5, 11] };
 
@@ -127,7 +128,7 @@ export function generateActMap(seed: number, act: number): ActMap {
       if (['fight', 'elite', 'chest'].includes(n.type) && rng() < (flavor === 'treasure' ? 0.22 : 0.12)) n.rich = true;
     }
   }
-  // 3. Guarantees: at least one shop and two chests on every map.
+  // 3. Guarantees: at least one shop and two chests on every map, and one chance encounter.
   const middle = Object.values(nodes).filter((n) => n.type === 'fight' && n.floor >= 3 && n.floor < MAP_FLOORS - 1 && !fixed.includes(n.floor));
   const ensure = (type: NodeType, count: number) => {
     let have = Object.values(nodes).filter((n) => n.type === type).length;
@@ -140,6 +141,7 @@ export function generateActMap(seed: number, act: number): ActMap {
   };
   ensure('shop', 1);
   ensure('chest', 2);
+  ensure('event', 1);
   return { act, flavor, floors, nodes };
 }
 

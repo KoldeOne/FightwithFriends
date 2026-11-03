@@ -28,7 +28,7 @@ export class HeroPicker {
   /** Start of a run: continue a saved run, or choose your first hero. */
   showStart(): void {
     this.s.state = 'title';
-    this.chooseClass('Choose your hero', 'You start alone. The first four campsites you reach each bring a new hero to your party.', (cls) =>
+    this.chooseClass('Choose your hero', 'You start alone. The first three campsites you reach each bring a new hero to your party (up to 4).', (cls) =>
       this.chooseAbility(cls, 'start', (first) => {
         sound.unlock();
         const camp = loadCamp();

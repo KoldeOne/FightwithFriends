@@ -6,7 +6,6 @@
  *   npx vite-node scripts/camp-sim.ts -- [guilds=4] [maxRuns=30]
  */
 import { canAfford, drillsCost, GEAR_SLOTS, gearCost, newCamp, upgradeDrills, upgradeGear, type CampState } from '../src/sim/camp';
-import { describeProgress } from '../src/sim/run';
 import type { HeroClass } from '../src/sim/types';
 import { playRun } from './simlib';
 
@@ -43,27 +42,42 @@ function progress(rec: ReturnType<typeof playRun>): number {
   return last ? last.act * 100 + last.floor + 1 : 100;
 }
 
-const totals: { first: number[]; win: number[]; wins: number[] } = { first: [], win: [], wins: [] };
+/** Per guild: the run number that first cleared Act 1, Act 2, and won (Infinity if never). */
+const firsts: { act1: number; act2: number; win: number }[] = [];
+const QUIET = process.env.QUIET === '1';
+const byRun: number[][] = []; // progress per run number, across guilds
 for (let g = 0; g < GUILDS; g++) {
   const camp = newCamp();
   const line: string[] = [];
-  let wins = 0;
+  const first = { act1: Infinity, act2: Infinity, win: Infinity };
   for (let r = 1; r <= MAX_RUNS; r++) {
     camp.runs++;
     const rec = playRun(ORDER[(g + r) % ORDER.length], 1000 * g + r, 'ai', camp);
     const p = progress(rec);
-    if (r === 1) totals.first.push(p);
+    (byRun[r - 1] ??= []).push(p);
     line.push(p === 999 ? 'WIN' : `${Math.floor(p / 100)}-${p % 100}`);
-    if (rec.won && !wins) totals.win.push(r);
-    if (rec.won) wins++;
+    if (p >= 200) first.act1 = Math.min(first.act1, r);
+    if (p >= 300) first.act2 = Math.min(first.act2, r);
+    if (p === 999) first.win = Math.min(first.win, r);
     // Spend on every class: the next run may start or recruit any of them.
     spend(camp, ORDER);
   }
-  totals.wins.push(wins);
-  const gear = ORDER.map((c) => `${c[0]}:${GEAR_SLOTS.map((s) => camp.gear[c][s]).join('/')}`).join(' ');
-  console.log(`guild ${g}: ${line.join(' ')}\n  gear ${gear} drills ${camp.drills} left ${JSON.stringify(camp.loot)}`);
+  firsts.push(first);
+  if (!QUIET) {
+    const gear = ORDER.map((c) => `${c[0]}:${GEAR_SLOTS.map((s) => camp.gear[c][s]).join('/')}`).join(' ');
+    console.log(`guild ${g}: ${line.join(' ')}\n  gear ${gear} drills ${camp.drills} left ${JSON.stringify(camp.loot)}`);
+  }
 }
-const avg = (xs: number[]) => (xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : '-');
-console.log(`\nfirst run reached: ${totals.first.map(describeProgress).join('; ')}`);
-console.log(`runs to the first win: ${totals.win.join(', ')} (avg ${avg(totals.win)}; ${totals.win.length} of ${GUILDS} guilds won within ${MAX_RUNS})`);
-console.log(`wins per guild: ${totals.wins.join(', ')} of ${MAX_RUNS} runs`);
+const median = (xs: number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s[Math.floor(s.length / 2)];
+  return Number.isFinite(m) ? String(m) : `>${MAX_RUNS}`;
+};
+const pctOf = (xs: number[], f: (x: number) => boolean) => `${Math.round((100 * xs.filter(f).length) / xs.length)}%`;
+console.log(`\nfirst run that beat Act 1: median ${median(firsts.map((f) => f.act1))}; Act 2: median ${median(firsts.map((f) => f.act2))}; the whole run: median ${median(firsts.map((f) => f.win))} (${GUILDS} guilds, ${MAX_RUNS} runs)`);
+const windows: [number, number][] = [[1, 1], [2, 3], [4, 6], [7, 10], [11, 15], [16, 20], [21, 30]];
+for (const [a, b] of windows) {
+  if (a > MAX_RUNS) break;
+  const xs = byRun.slice(a - 1, Math.min(b, MAX_RUNS)).flat();
+  console.log(`runs ${a}-${Math.min(b, MAX_RUNS)}: beat Act 1 ${pctOf(xs, (x) => x >= 200)}, beat Act 2 ${pctOf(xs, (x) => x >= 300)}, win ${pctOf(xs, (x) => x === 999)}`);
+}

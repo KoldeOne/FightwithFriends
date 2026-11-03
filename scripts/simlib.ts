@@ -12,6 +12,8 @@ import {
   autoRecruit,
   autoShop,
   autoTrain,
+  chooseEvent,
+  eventChoices,
   autoUpgrade,
   availableNodes,
   buy,
@@ -26,7 +28,6 @@ import {
   newRun,
   recruit,
   train,
-  trainableSlots,
   trainOptions,
   type Reward,
   type RunState,
@@ -240,8 +241,13 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
   const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed, camp ? startLevel(camp) : 1);
   const rec: RunRecord = { team: [start], seed, reached: 0, act: 1, won: false, gold: 0, losses: [], rounds: [], violations: [], picks: [], path: [] };
   const log = (slot: number, r: Reward | string) => rec.picks.push({ cls: run.team[slot], round: position(run), pick: typeof r === 'string' ? r : rewardKey(r) });
-  for (let guard = 0; guard < 200 && (run.status === 'map' || run.status === 'fight'); guard++) {
+  for (let guard = 0; guard < 2000 && (run.status === 'map' || run.status === 'fight'); guard++) {
     const p = run.pending;
+    if (p?.kind === 'event') {
+      const n = eventChoices(run).length;
+      chooseEvent(run, policy === 'ai' ? 0 : Math.floor(rng() * n));
+      continue;
+    }
     if (p) {
       if (policy === 'ai') {
         // Log what the AI takes, then let it choose.
@@ -251,13 +257,13 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
           rec.team.push(r.cls);
         } else if (p.kind === 'train') {
           const t = autoTrain(run);
-          log(t.slot, t.reward);
+          if (t.reward) log(t.slot, t.reward);
           train(run, t.slot, t.reward);
         } else if (p.kind === 'upgrade') {
           const u = autoUpgrade(run, p.options);
           if (u) log(u.slot, u.reward);
           chooseUpgrade(run, u);
-        } else {
+        } else if (p.kind === 'shop') {
           const before = run.builds.map((b) => JSON.stringify(b));
           autoShop(run);
           run.builds.forEach((b, i) => JSON.stringify(b) !== before[i] && log(i, 'shop'));
@@ -267,15 +273,16 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
         recruit(run, cls, pick(firstAbilityOptions(cls)));
         rec.team.push(cls);
       } else if (p.kind === 'train') {
-        const slot = pick(trainableSlots(run));
-        const r = pick(trainOptions(run, slot));
-        log(slot, r);
+        const slot = p.left[0];
+        const options = trainOptions(run, slot);
+        const r = options.length ? pick(options) : null;
+        if (r) log(slot, r);
         train(run, slot, r);
       } else if (p.kind === 'upgrade') {
         const u = p.options.length ? pick(p.options) : null;
         if (u) log(u.slot, u.reward);
         chooseUpgrade(run, u);
-      } else {
+      } else if (p.kind === 'shop') {
         // Random shopper: buys one random affordable thing, then leaves.
         const affordable = p.stock.map((item, i) => ({ item, i })).filter(({ item }) => !item.sold && item.price <= run.gold);
         if (affordable.length) {

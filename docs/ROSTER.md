@@ -14,8 +14,8 @@ there change, update this page too.
 
 ## Heroes
 
-Start with 1; the first four campsites on the map each add one (classes can
-repeat), for a party of 5. Heroes line up by role on their own: tanks and melee in
+Start with 1; the first three campsites on the map each add one (classes can
+repeat), for a party of 4. Heroes line up by role on their own: tanks and melee in
 front, ranged behind, the Priest at the back.
 
 | Hero | Role | Health | Damage | Hits every | Range | Armor | Resource |

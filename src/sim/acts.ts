@@ -67,7 +67,7 @@ export function actDef(act: number): ActDef {
  * own, tougher units on top.
  */
 export const STRENGTH = {
-  base: [1.25, 2.9, 4.9],
+  base: [1.35, 2.9, 4.9],
   perFloor: [0.09, 0.14, 0.2],
   /** Elites are a real risk (for a better reward); bosses stand out. */
   elite: 1.15,
@@ -80,7 +80,7 @@ export function strengthAt(act: number, floor: number): number {
 }
 
 /** Smaller parties meet weaker enemies (a lone starting hero, 60%), so every class can start solo. */
-export const PARTY_SCALE = [0.6, 0.75, 0.88, 0.95, 1];
+export const PARTY_SCALE = [0.6, 0.78, 0.9, 1];
 
 /**
  * How many enemies a fight has: one per hero, plus one from the middle of the
@@ -142,8 +142,8 @@ export const ECONOMY = {
   /** A golden (rich) node pays this much more. */
   richBonus: 1.6,
   chestGold: [20, 34],
-  /** XP for a won fight, by node type (10 XP = a level). */
-  xp: { fight: 10, elite: 15, boss: 22 } as Partial<Record<NodeType, number>>,
+  /** XP for a won fight, by node type (10 XP = a level): slow, so the camp's gear is what carries you further. */
+  xp: { fight: 4, elite: 7, boss: 12 } as Partial<Record<NodeType, number>>,
   xpPerLevel: 10,
   /** Heroes below the party's average level earn this much more XP. */
   catchUp: 2,

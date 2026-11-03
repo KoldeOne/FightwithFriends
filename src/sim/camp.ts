@@ -145,6 +145,21 @@ export function upgradeDrills(camp: CampState): boolean {
   return true;
 }
 
+/** A class's camp gear in numbers, e.g. "Weapon 3 (+12% damage and healing)" (levels above 0 only). */
+export function gearLines(gear: Gear): string[] {
+  return GEAR_SLOTS.filter((slot) => gear[slot] > 0).map((slot) => `${STATIONS[slot].item} ${gear[slot]} (${STATIONS[slot].effect(gear[slot])})`);
+}
+
+/** Short form for small cards: "+12% dmg · +8% HP · +4% regen". */
+export function gearShort(gear: Gear): string {
+  const parts = [
+    gear.weapon ? `+${pct(GEAR_BONUS.weapon * gear.weapon)} dmg` : '',
+    gear.armor ? `+${pct(GEAR_BONUS.armor * gear.armor)} HP` : '',
+    gear.trinket ? `+${pct(GEAR_BONUS.trinketRegen * gear.trinket)} regen, ${pct(GEAR_BONUS.trinketCooldown * gear.trinket)} CDR` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'No upgrades yet';
+}
+
 // --- runs -------------------------------------------------------------------
 
 /** The run's builds with each hero's camp gear on (read fresh, so a recruit gets theirs too). */

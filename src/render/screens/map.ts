@@ -13,7 +13,7 @@ const BOTTOM = 742;
 const LEFT = 58;
 const RIGHT = WORLD.width - 58;
 
-const NODE_NAMES: Record<NodeType, string> = { fight: 'Fight', elite: 'Elite', chest: 'Chest', campsite: 'Campsite', shop: 'Shop', boss: 'Boss' };
+const NODE_NAMES: Record<NodeType, string> = { fight: 'Fight', elite: 'Elite', chest: 'Chest', campsite: 'Campsite', shop: 'Shop', event: 'Event', boss: 'Boss' };
 
 /** Map colours per act. */
 const LOOK = {
@@ -100,9 +100,9 @@ export class MapScreen {
     }
 
     // Legend.
-    const types: NodeType[] = ['fight', 'elite', 'chest', 'campsite', 'shop'];
+    const types: NodeType[] = ['fight', 'elite', 'chest', 'campsite', 'shop', 'event'];
     types.forEach((t, i) => {
-      const x = 40 + i * 98;
+      const x = 30 + i * 80;
       items.push(this.s.add.image(x, 770, `icon-nd-${t}`).setScale(18 / ICON_PX), this.s.text(x + 13, 763, NODE_NAMES[t], 11, '#c9d1e0'));
     });
     items.push(this.s.add.circle(WORLD.width - 30, 770, 9, 0xffd166, 0.25).setStrokeStyle(2, 0xffd166, 0.9), this.s.text(WORLD.width - 44, 784, 'golden', 9, '#ffd166').setOrigin(0.5, 0));
@@ -144,9 +144,10 @@ export class MapScreen {
     const text: Record<NodeType, string> = {
       fight: `Fight: ${act.name} regulars. Gold and XP.`,
       elite: `Elite: a tougher fight with a ${ENEMY_STATS[act.elite].label}. More gold, more XP and an upgrade.`,
-      chest: 'Chest: gold and an upgrade.',
-      campsite: recruitsLeft ? 'Campsite: a new hero joins your party.' : 'Campsite: train a hero (learn a new ability).',
+      chest: 'Chest: gold, and a pick for every hero.',
+      campsite: recruitsLeft ? 'Campsite: a new hero joins your party.' : 'Campsite: every hero trains (a new ability, or an upgrade once full).',
       shop: 'Shop: buy abilities and upgrades with gold.',
+      event: 'Chance encounter: something unexpected. Who knows?',
       boss: `Boss: ${ENEMY_STATS[act.boss].label}. Beat it to finish the act.`,
     };
     this.tip?.setText(`${text[n.type]}${n.rich ? ' Golden: better loot.' : ''}`).setColor('#ffffff');

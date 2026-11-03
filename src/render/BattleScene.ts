@@ -14,7 +14,7 @@ import { MapScreen } from './screens/map';
 import { Choices } from './screens/choices';
 import { Results } from './screens/results';
 import { CampScreen } from './screens/camp';
-import { loadCamp, withGear } from '../sim/camp';
+import { loadCamp, withGear, type CampState } from '../sim/camp';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
 export class BattleScene extends Phaser.Scene {
@@ -37,6 +37,8 @@ export class BattleScene extends Phaser.Scene {
   careful = true;
   auto = false;
 
+  /** The camp (gear and Drills), read when the scene starts. */
+  camp!: CampState;
   /** The current run (null while choosing a hero). */
   run: RunState | null = null;
   /** Round intro banner time left; the fight starts when it ends. */
@@ -71,6 +73,7 @@ export class BattleScene extends Phaser.Scene {
     this.overlay = undefined;
     this.pauseBanner = undefined;
     this.run = data?.run ?? null;
+    this.camp = loadCamp();
     this.suddenDeathShown = false;
     const run = this.run;
     const fighting = run?.status === 'fight';
@@ -81,7 +84,7 @@ export class BattleScene extends Phaser.Scene {
       carefulAI: this.careful,
       team: run?.team ?? [],
       // Camp gear goes with every hero (read fresh: it may have been upgraded since the run began).
-      builds: run ? withGear(run.team, run.builds, loadCamp()) : undefined,
+      builds: run ? withGear(run.team, run.builds, this.camp) : undefined,
     });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
 

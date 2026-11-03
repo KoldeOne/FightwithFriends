@@ -23,6 +23,10 @@ import {
   train,
   trainOptions,
   type RunState,
+  MAX_PARTY,
+  chooseEvent,
+  eventChoices,
+  fightSeed,
 } from '../src/sim/run';
 
 /** Walk to the next node of a given type (or any node), on the run's own map. */
@@ -111,17 +115,17 @@ describe('A map run', () => {
     expect(spoils.gold).toBeGreaterThan(0);
     expect(run.gold).toBe(spoils.gold);
     expect(spoils.heroes[0].xp).toBeGreaterThan(0);
-    expect(run.builds[0].level).toBe(2);
+    expect(run.builds[0].level).toBe(1 + Math.floor(run.xp[0] / 10));
     expect(run.status).toBe('map');
     step(run);
     const again = win(run, [0]);
     expect(again.heroes[0]).toMatchObject({ xp: 0, fell: true });
   });
 
-  it('the first four campsites you reach recruit (class and first ability); the next ones train', () => {
+  it('the first three campsites you reach recruit (class and first ability); the next ones train', () => {
     const run = newRun('warrior', undefined, 8);
     let guard = 0;
-    while ((run.campsites < 4 || run.pending?.kind === 'recruit') && guard++ < 200) {
+    while ((run.campsites < 3 || run.pending?.kind === 'recruit') && guard++ < 200) {
       if (run.pending?.kind === 'recruit') {
         const before = run.team.length;
         recruit(run, 'priest', 'renew');
@@ -129,39 +133,60 @@ describe('A map run', () => {
         expect(run.builds[before]).toMatchObject({ level: 1, abilities: [{ id: 'renew' }] });
       } else advance(run);
     }
-    expect(run.team).toHaveLength(5);
-    // On to the next campsite: training.
-    while (run.pending?.kind !== 'train' && guard++ < 400) advance(run);
-    expect(run.pending?.kind).toBe('train');
+    expect(run.team).toHaveLength(MAX_PARTY);
+    // On to the next campsite: training, a pick for every hero.
+    while (!(run.pending?.kind === 'train' && run.pending.source === 'campsite') && guard++ < 600) advance(run);
+    const p = run.pending;
+    expect(p?.kind).toBe('train');
+    if (p?.kind !== 'train') return;
+    expect(p.source).toBe('campsite');
+    expect(p.left).toEqual([0, 1, 2, 3]);
+    const before = run.builds.map((b) => b.abilities.length + b.traits.length);
+    for (const slot of [0, 1, 2, 3]) {
+      const opts = trainOptions(run, slot);
+      expect(opts.length).toBe(3);
+      train(run, slot, opts[0]);
+    }
+    expect(run.pending).toBeUndefined();
+    run.builds.forEach((b, i) => expect(b.abilities.length + b.traits.length).toBe(before[i] + 1));
+  });
+
+  it('a hero with every slot full is offered upgrades instead', () => {
+    const run = newRun('mage', undefined, 21);
+    const b = run.builds[0];
+    while (trainOptions(run, 0).some((r) => r.kind === 'ability' || r.kind === 'trait')) {
+      const r = trainOptions(run, 0).find((o) => o.kind === 'ability' || o.kind === 'trait')!;
+      applyReward(b, r);
+    }
     const opts = trainOptions(run, 0);
-    expect(opts.length).toBeGreaterThan(0);
-    train(run, 0, opts[0]);
-    expect(run.builds[0].abilities.length + run.builds[0].traits.length).toBe(2);
+    expect(opts).toHaveLength(3);
+    expect(opts.every((r) => r.kind !== 'ability' && r.kind !== 'trait')).toBe(true);
   });
 
   it('recruits start at level 1 and earn double XP until they catch up', () => {
     const run = newRun('warrior', undefined, 9);
     while (run.pending?.kind !== 'recruit') advance(run);
     recruit(run, 'mage');
+    run.xp[0] = 30; // the veteran is three levels ahead
     while (run.status !== 'fight') advance(run);
     const spoils = win(run);
     const [veteran, rookie] = spoils.heroes;
     expect(rookie.xp).toBe(veteran.xp * 2);
   });
 
-  it('chests give gold and an upgrade; shops sell for gold', () => {
+  it('chests give gold and a pick for every hero', () => {
     for (const seed of [10, 11, 12, 13]) {
       const run = newRun('mage', undefined, seed);
       let guard = 0;
-      while (!(run.pending?.kind === 'upgrade' && run.pending.source === 'chest') && guard++ < 300) {
+      while (!(run.pending?.kind === 'train' && run.pending.source === 'chest') && guard++ < 300) {
         if (availableNodes(run).some((n) => n.type === 'chest')) step(run, 'chest');
         else advance(run);
       }
-      if (run.pending?.kind !== 'upgrade') continue;
-      expect(run.pending.gold).toBeGreaterThan(0);
-      const pick = run.pending.options[0];
-      chooseUpgrade(run, pick);
-      expect(run.pending).toBeUndefined();
+      const p = run.pending;
+      if (p?.kind !== 'train') continue;
+      expect(p.gold).toBeGreaterThan(0);
+      expect(p.left).toEqual(run.team.map((_, i) => i));
+      while (run.pending) autoResolve(run);
       return;
     }
     throw new Error('no chest reached');
@@ -217,7 +242,7 @@ describe('A map run', () => {
       else enterNode(run, autoPath(run));
     }
     expect(run.status).toBe('won');
-    expect(run.team).toHaveLength(5);
+    expect(run.team).toHaveLength(MAX_PARTY);
   });
 
   it('saves and loads (and drops old round-based saves)', () => {
@@ -235,6 +260,43 @@ describe('A map run', () => {
     saveRun(run);
     expect(loadRun()).toEqual(run);
   });
+
+  it('every map has a chance encounter; the Wishing Well gives one wish (coins if you hold one)', () => {
+    for (let seed = 1; seed <= 20; seed++)
+      for (const act of [1, 2, 3]) expect(Object.values(generateActMap(seed, act).nodes).some((n) => n.type === 'event')).toBe(true);
+    const run = newRun('warrior', undefined, 31);
+    let guard = 0;
+    while (run.pending?.kind !== 'event' && guard++ < 600) {
+      if (availableNodes(run).some((n) => n.type === 'event')) step(run, 'event');
+      else advance(run);
+    }
+    expect(run.pending).toMatchObject({ kind: 'event', id: 'wishingWell' });
+    expect(eventChoices(run).map((c) => c.label)).toEqual(['Make a wish', 'Walk on']);
+    chooseEvent(run, 0);
+    expect(run.wishes).toBe(1);
+    expect(run.pending).toBeUndefined();
+    // Holding a wish already: the well pays coins instead.
+    run.pending = { kind: 'event', id: 'wishingWell' };
+    expect(eventChoices(run)[0].label).toBe('Fish out some coins');
+    const gold = run.gold;
+    chooseEvent(run, 0);
+    expect(run.gold).toBe(gold + 25);
+    expect(run.wishes).toBe(1);
+  });
+
+  it('a wish brings the party back after a wipe and restarts the fight with a new seed', () => {
+    const run = newRun('mage', undefined, 32);
+    while (run.status !== 'fight') advance(run);
+    run.wishes = 1;
+    const seed = fightSeed(run);
+    const spoils = finishFight(run, false, [0], []);
+    expect(spoils.wished).toBe(true);
+    expect(run.status).toBe('fight');
+    expect(run.wishes).toBe(0);
+    expect(fightSeed(run)).not.toBe(seed);
+    finishFight(run, false, [0], []);
+    expect(run.status).toBe('lost');
+  });
 });
 
 describe('Encounters', () => {
@@ -243,7 +305,7 @@ describe('Encounters', () => {
     expect(enemyCount(1, 8, 'fight')).toBe(1);
     expect(enemyCount(3, 2, 'fight')).toBe(3);
     expect(enemyCount(3, 7, 'fight')).toBe(4);
-    expect(enemyCount(5, 10, 'boss')).toBe(5);
+    expect(enemyCount(4, 10, 'boss')).toBe(5);
     const solo = makeEncounter(1, 1, 0, 'fight', 1, 'a');
     const full = makeEncounter(1, 1, 0, 'fight', 5, 'a');
     expect(solo.strength! / full.strength!).toBeCloseTo(PARTY_SCALE[0]);

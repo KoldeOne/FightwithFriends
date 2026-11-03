@@ -682,4 +682,4 @@ export const LOOT = {
 };
 
 /** Per gear level: Blacksmith (weapon), Armorer (armor), Jeweler (trinket). */
-export const GEAR_BONUS = { weapon: 0.04, armor: 0.04, trinketRegen: 0.04, trinketCooldown: 0.02 };
+export const GEAR_BONUS = { weapon: 0.08, armor: 0.08, trinketRegen: 0.08, trinketCooldown: 0.04 };

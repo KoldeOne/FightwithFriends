@@ -150,12 +150,12 @@ export class Hud {
       this.hudText.setText('');
     } else if (this.s.state === 'map' || this.s.state === 'choice') {
       this.waveText.setText(`ACT ${run.act}`).setColor('#ffd166');
-      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold`);
+      this.hudText.setText(`${actDef(run.act).name} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}`);
     } else {
       this.waveText.setText(`ACT ${run.act} · FLOOR ${w.number}`).setColor(w.boss ? '#ff6b6b' : '#ffd166');
       const ramp = this.s.battle.damageRamp;
       const sudden = ramp > 1 ? ` · SUDDEN DEATH x${ramp.toFixed(1)}` : '';
-      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${sudden}`);
+      this.hudText.setText(`${w.name ?? ''} · ${this.s.battle.enemiesRemaining} left · ${clock} · ${run.gold} gold${run.wishes ? " · ✦ wish" : ""}${sudden}`);
     }
 
     this.speedButton.setText(`Speed ${this.s.speed}x`);

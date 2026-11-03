@@ -28,6 +28,11 @@ export class Results {
     saveCamp(camp);
     addLoot(run.loot, loot);
     const spoils = finishFight(run, won, fallen, this.s.battle.kills);
+    if (spoils.wished) {
+      saveRun(run);
+      this.showWish();
+      return;
+    }
     if (!won) {
       recordProgress(run);
       clearRun();
@@ -120,6 +125,32 @@ export class Results {
     veil.on('pointerdown', end);
     panel.setInteractive().on('pointerdown', end);
     this.s.time.delayedCall(SPOILS_MS, end);
+  }
+
+  /** The party fell, but they held a wish: everyone rises again and the fight starts over. */
+  showWish(): void {
+    const run = this.s.run!;
+    this.s.state = 'spoils';
+    sound.play('levelUp');
+    const cx = WORLD.width / 2;
+    this.s.cameras.main.flash(500, 220, 200, 255);
+    const box = this.s.add
+      .container(0, 0, [
+        this.s.add.rectangle(0, 0, WORLD.width, WORLD.hudTop, 0x000000, 0.55).setOrigin(0, 0).setInteractive(),
+        this.s.add.rectangle(cx, 380, 400, 170, 0x161c28, 0.95).setStrokeStyle(2, 0xb57bff),
+        this.s.text(cx, 330, '✦ The wish is spent ✦', 26, '#e0c3ff').setOrigin(0.5).setFontStyle('bold'),
+        this.s.text(cx, 380, 'Your party rises again.\nThe fight starts over.', 16, '#ffffff').setOrigin(0.5).setAlign('center'),
+      ])
+      .setDepth(120);
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      box.destroy();
+      this.s.scene.restart({ run });
+    };
+    box.list[0].on('pointerdown', go);
+    this.s.time.delayedCall(2200, go);
   }
 
   /** The party fell: the run is over. */

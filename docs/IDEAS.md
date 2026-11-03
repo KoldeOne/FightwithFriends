@@ -29,14 +29,18 @@ design doc).
 | Idea | From | Notes |
 |---|---|---|
 | **Split gear from gear upgrades** | Bailey | Two separate things: **gear drops on its own** (actual weapons, armor and trinkets), and **upgrade items** improve the gear you have. Today the camp only has upgrade levels per slot, paid with Spoils and materials. |
-| **See your gear and upgrades** | Bailey | A clear way to see what you have: each hero's equipped gear, the spare gear you've collected, and the upgrades on each piece (plus the upgrade items you're holding). Needs a design for how you get there, e.g. a button at the camp, on the map, or by tapping a hero. Today the camp screen only shows each slot's upgrade level for one hero at a time. |
-| **Real loot items** | Bailey + Kolde | Today there are only Spoils, Ore, Hide, Gems and Trophies. Bailey wants to design actual items with Kolde first. |
+| **See your gear and upgrades** | Bailey | **Partly built (2026-11-03):** tap a hero to see its upgrade numbers (run upgrades, camp gear, Drills); the camp cards show the gear bonuses. Still to come with real gear: equipped and spare gear, and upgrade items. |
+| **Real loot items** | Bailey + Kolde | Today there are only Spoils, Ore, Hide, Gems and Trophies. Bailey wants to design actual items with Kolde first. **Decided 2026-11-03: a future phase**; for now the camp upgrades stay as they are. |
+| **Professions upgrade gear?** | Kolde | Open. Suggestion: upgrades stay on the gear *slot* (e.g. the Warrior's weapon slot), so finding better gear never wastes upgrades; the stations are the professions. |
 | **Gear found during a run** | Design | Item drops in the run (weapon, armor, trinket, picked 1 of 3), alongside the camp's gear. Could be how gear drops on its own. |
 
 ## Map run and camp
 
 (Camp Mode became the camp between map runs on 2026-11-03; its 1-hero-start
-idea is now built, and the round 30 cap is gone.)
+idea is now built, and the round 30 cap is gone. Also built on 2026-11-03 and
+moved to the design doc: chance encounters with the Wishing Well, a pick for
+every hero at chests and training, much slower XP with a harder start, and a
+party of at most 4.)
 
 | Idea | From | Notes |
 |---|---|---|
@@ -44,11 +48,9 @@ idea is now built, and the round 30 cap is gone.)
 | **Jeweler's real effect** | Kolde | Still undecided; the placeholder (+4% regen, 2% faster cooldowns a level) is there to get a feel for it. |
 | **Harder levels pay more, in more detail** | Kolde | Act 2 and 3 already pay 2× and 3× Spoils. He thinks progression needs a more detailed design. |
 | **Cloud saves** | Design | Saves are per device today. Kolde didn't answer this one yet. |
-| **What a win unlocks** | Kolde | Beating Act 3 should unlock something (to be designed). |
-| **Difficulty ladder** | Design | Harder tiers unlocked by wins, so a geared guild still has a challenge (the AI wins ~95% of runs after about 7 runs with gear). Could be what a win unlocks. |
-| **Chance encounters (? nodes)** | Bailey | Question-mark spots on the map that lead to a random event instead of a known fight, chest, shop or campsite. The events themselves still need designing (good, bad, or a choice). |
-| **Much lower XP per fight, harder monsters** | Bailey | So you have to grind to beat the first boss. Open question: where the grinding happens. A run is one life on a fixed map, so it could mean many runs building camp gear, or adding fights you can repeat. |
-| **More ways to learn abilities** | Design | Today only training campsites (after the 4 recruits) and shops teach abilities. More training sites, or abilities in chests? |
+| **Difficulty ladder (what a win unlocks)** | Kolde | **Decided 2026-11-03, for a later design phase:** winning a full run on a difficulty unlocks a specific character (all characters stay unlocked during testing). Suggestion: tiers 1–5, each adding one rule (stronger enemies, more elites, less gold, a second boss move) and +25% camp loot. Open: which classes start locked, or new classes to unlock. |
+| **Chance encounter content** | Bailey + Kolde | The ? nodes are built (2026-11-03) with one event, the **Wishing Well** (an extra life). Still to do: more events (good, bad, or a choice), their story, art on the pop-up window, and the helper's lines. The text lives in `src/sim/events.ts`. |
+| **Progression design (Training station, Jeweler, harder pays more)** | Kolde | Suggestions waiting on a decision: the Training station sells perks for Trophies (start with gold, an extra reroll, more first-ability choices) instead of +1 level; the Jeweler gives faster cooldowns only; harder difficulty tiers pay more loot. |
 
 ## Heroes
 
@@ -57,7 +59,7 @@ idea is now built, and the round 30 cap is gone.)
 | **Race per class** | Bailey | Let players change the race of each class. Parked on 2026-11-01. |
 | **More classes** | Design | Hunter, Druid, Shaman (from the old castle design). Need full designs. |
 | **Party synergies** | Design | Bonuses for class or role combinations. |
-| **Recruit as 1 of 3** | Design | Instead of a free pick, choose the new hero from 3 offers. |
+| **Recruit as 1 of 3** | Design | Instead of a free pick of any class, a recruit campsite offers 3 random classes. Coming back to this later. |
 | **Bench** | Design | Allow more than 5 heroes, with a bench. |
 | **Formation choice** | Design | E.g. "spread out" vs "huddle", if it would add something now that the grid is gone. |
 | **Rename abilities to fit the setting** | Design | The new abilities have working names; the WoW-derived names must change before any public release. |
@@ -66,8 +68,8 @@ idea is now built, and the round 30 cap is gone.)
 
 | Idea | From | Notes |
 |---|---|---|
-| **Tappable ultimates** | Bailey | Each hero gets an ultimate ability with a button on screen you tap to fire it. Today the heroes fight entirely on their own and the old ability buttons were dropped, so this would be the one thing the player controls during a fight. |
-| **More boss moves** | Design | Each boss has one signature move (War Cry, Raise Dead, Rain of Fire); later bosses could get more. |
+| **Tappable ultimates** (coming back to this later) | Bailey | Each hero gets an ultimate ability with a button on screen you tap to fire it. Today the heroes fight entirely on their own and the old ability buttons were dropped, so this would be the one thing the player controls during a fight. |
+| **More boss moves** (coming back to this later; could be a difficulty-tier rule) | Design | Each boss has one signature move (War Cry, Raise Dead, Rain of Fire); later bosses could get more. |
 | **Final enemy and boss art** | Design | The current enemy sprites are temporary. Bailey's setting work may change how enemies look. |
 | **Multiplayer** | Design | The sim still supports a player-controlled hero, so a friend could take a hero later. |
 

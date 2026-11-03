@@ -1,10 +1,13 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
 import { ABILITIES, TRAITS, WORLD } from '../../sim/content';
+import { EVENTS } from '../../sim/events';
 import {
   autoResolve,
   buy,
+  chooseEvent,
   chooseUpgrade,
+  eventChoices,
   describeReward,
   leaveShop,
   reroll,
@@ -12,7 +15,6 @@ import {
   rewardPreview,
   saveRun,
   train,
-  trainableSlots,
   trainOptions,
   type PartyReward,
   type Reward,
@@ -59,9 +61,10 @@ export class Choices {
     if (p.kind === 'recruit') this.s.heroPicker.showRecruit();
     else if (p.kind === 'train') this.showTrain();
     else if (p.kind === 'upgrade') this.showUpgrade();
+    else if (p.kind === 'event') this.showEvent();
     else this.showShop();
     // Auto makes the choice after a moment (enough to see what it was).
-    if (this.s.auto && p.kind !== 'recruit') {
+    if (this.s.auto && p.kind !== 'recruit' && p.kind !== 'event') {
       const token = this.s.overlay;
       this.s.time.delayedCall(1100, () => {
         if (this.s.overlay !== token || !this.s.auto || run.pending !== p) return;
@@ -115,43 +118,105 @@ export class Choices {
     return out;
   }
 
-  // --- campsite training ------------------------------------------------------
+  // --- chests and training: every hero picks ---------------------------------
 
-  /** Training: choose a hero, then one of three new abilities for them. */
-  showTrain(slot?: number): void {
+  /** Chest or training campsite: each hero in turn picks one of three (new abilities, or upgrades once full). */
+  showTrain(): void {
+    const run = this.s.run!;
+    const p = run.pending;
+    if (p?.kind !== 'train') return;
+    this.s.overlay?.destroy();
+    const cx = WORLD.width / 2;
+    const slot = p.left[0];
+    const b = run.builds[slot];
+    const n = run.team.length - p.left.length + 1;
+    const title = p.source === 'chest' ? `Chest opened!${p.gold ? ` +${p.gold} gold` : ''}` : 'Campsite: training';
+    const options = trainOptions(run, slot);
+    const learns = options.some((o) => o.kind === 'ability' || o.kind === 'trait');
+    const items = this.frame(title, `Every hero gets a pick. ${heroName(run, slot)} (${n} of ${run.team.length}): ${learns ? 'learn something new' : 'all slots full, choose an upgrade'}.`);
+    // Who's picking, with what they have.
+    items.push(...this.s.heroPicker.portrait(run.team[slot], cx - 215, 236, 1.4));
+    items.push(this.s.text(cx - 185, 196, `${heroName(run, slot)} — level ${b.level}`, 15, '#' + COLORS[run.team[slot]].toString(16).padStart(6, '0')).setFontStyle('bold'));
+    [...b.abilities.map((a) => abilityIcon(a.id)), ...b.traits.map((t) => traitIcon(t))].forEach((key, j) =>
+      items.push(this.s.add.image(cx - 185 + j * 24, 216, key).setOrigin(0, 0).setScale(20 / ICON_PX)),
+    );
+    const names = [...b.abilities.map((a) => ABILITIES[a.id].name), ...b.traits.map((t) => TRAITS[t].name)].join(', ');
+    items.push(this.s.text(cx - 185 + Math.max(1, b.abilities.length + b.traits.length) * 24 + 6, 220, names, 11, '#8f9bb3').setWordWrapWidth(260));
+    options.forEach((r, k) => {
+      items.push(
+        ...this.card(run, slot, r, 252 + k * 140, 128, () => {
+          train(run, slot, r);
+          this.done();
+        }),
+      );
+    });
+    items.push(
+      this.s.button(cx, 252 + options.length * 140 + 24, 'Skip', 14, '#2b3445', () => {
+        train(run, slot, null);
+        this.done();
+      }),
+    );
+    this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
+  }
+
+  // --- chance encounters ------------------------------------------------------
+
+  /** A "?" node: the event's text and choices, then what happened. (Art and more story come later.) */
+  showEvent(): void {
+    const run = this.s.run!;
+    const p = run.pending;
+    if (p?.kind !== 'event') return;
+    this.s.overlay?.destroy();
+    const cx = WORLD.width / 2;
+    const def = EVENTS[p.id];
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
+      this.s.add.rectangle(cx, 380, 470, 420, 0x161c28).setStrokeStyle(2, 0xb57bff),
+      this.s.add.image(cx, 214, 'icon-nd-event').setScale(40 / ICON_PX),
+      this.s.text(cx, 252, def.title, 24, '#e0c3ff').setOrigin(0.5, 0).setFontStyle('bold'),
+      this.s.text(cx, 292, def.text, 14, '#e6e9f0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(420),
+    ];
+    const choose = (i: number) => {
+      const result = chooseEvent(run, i);
+      saveRun(run);
+      this.showEventResult(def.title, result);
+    };
+    eventChoices(run).forEach((c, i) => {
+      items.push(
+        this.s.button(cx, 400 + i * 58, c.label, 17, i === 0 ? '#6d3fb5' : '#2b3445', () => {
+          sound.play('click');
+          choose(i);
+        }),
+      );
+    });
+    this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
+    if (this.s.auto) {
+      const token = this.s.overlay;
+      this.s.time.delayedCall(1400, () => {
+        if (this.s.overlay === token && this.s.auto && run.pending === p) choose(0);
+      });
+    }
+  }
+
+  private showEventResult(title: string, result: string): void {
     const run = this.s.run!;
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
-    const items = this.frame('Campsite: training', slot === undefined ? 'Choose a hero to train. They learn one new ability.' : `Choose what ${heroName(run, slot)} learns.`);
-    if (slot === undefined) {
-      trainableSlots(run).forEach((i, k) => {
-        const y = 200 + k * 92;
-        const b = run.builds[i];
-        const bg = this.s.add.rectangle(cx, y + 40, 480, 82, 0x1c2433).setStrokeStyle(2, COLORS[run.team[i]]).setInteractive({ useHandCursor: true });
-        bg.on('pointerdown', () => {
-          sound.play('click');
-          this.showTrain(i);
-        });
-        items.push(bg, ...this.s.heroPicker.portrait(run.team[i], cx - 205, y + 72, 1.6));
-        items.push(this.s.text(cx - 170, y + 10, `${heroName(run, i)} — level ${b.level}`, 16, '#ffffff').setFontStyle('bold'));
-        [...b.abilities.map((a) => abilityIcon(a.id)), ...b.traits.map((t) => traitIcon(t))].forEach((key, j) =>
-          items.push(this.s.add.image(cx - 170 + j * 26, y + 38, key).setOrigin(0, 0).setScale(22 / ICON_PX)),
-        );
-        const names = [...b.abilities.map((a) => ABILITIES[a.id].name), ...b.traits.map((t) => TRAITS[t].name)].join(', ');
-        items.push(this.s.text(cx - 30, y + 42, names, 11, '#8f9bb3').setWordWrapWidth(250));
-      });
-    } else {
-      trainOptions(run, slot).forEach((r, k) => {
-        items.push(
-          ...this.card(run, slot, r, 200 + k * 140, 128, () => {
-            train(run, slot, r);
-            this.done();
-          }),
-        );
-      });
-      items.push(this.s.button(cx, 640, '← Another hero', 15, '#2b3445', () => this.showTrain()));
+    sound.play('levelUp');
+    const go = () => this.s.scene.restart({ run });
+    this.s.overlay = this.s.add
+      .container(0, 0, [
+        this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.82).setOrigin(0, 0).setInteractive(),
+        this.s.add.rectangle(cx, 380, 470, 300, 0x161c28).setStrokeStyle(2, 0xb57bff),
+        this.s.text(cx, 262, title, 22, '#e0c3ff').setOrigin(0.5, 0).setFontStyle('bold'),
+        this.s.text(cx, 306, result, 15, '#ffffff').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(420),
+        this.s.button(cx, 470, 'Continue', 18, '#2e86de', go),
+      ])
+      .setDepth(100);
+    if (this.s.auto) {
+      const token = this.s.overlay;
+      this.s.time.delayedCall(1600, () => this.s.overlay === token && go());
     }
-    this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }
 
   // --- upgrade picks ------------------------------------------------------------
@@ -162,8 +227,8 @@ export class Choices {
     if (p?.kind !== 'upgrade') return;
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
-    const titles = { chest: 'Chest opened!', elite: 'Elite spoils', boss: 'Boss spoils', campsite: 'Campsite' };
-    const sub = p.source === 'chest' ? `+${p.gold ?? 0} gold. Choose an upgrade.` : 'Choose an upgrade for one of your heroes.';
+    const titles = { elite: 'Elite spoils', boss: 'Boss spoils' };
+    const sub = 'Choose an upgrade for one of your heroes.';
     const items = this.frame(titles[p.source], sub);
     p.options.forEach((o: PartyReward, k) => {
       items.push(
