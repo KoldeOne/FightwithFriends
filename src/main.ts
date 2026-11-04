@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import '@fontsource/jersey-10/400.css';
+import '@fontsource/vt323/400.css';
 import { BattleScene } from './render/BattleScene';
 import { WORLD } from './sim/content';
 import { ZOOM } from './render/theme';
@@ -12,7 +12,7 @@ import { ZOOM } from './render/theme';
 async function boot(): Promise<void> {
   // Text is drawn once into textures: wait for the pixel font first (but not forever).
   await Promise.race([
-    document.fonts.load('16px "Jersey 10"'),
+    document.fonts.load('16px "VT323"'),
     new Promise((r) => setTimeout(r, 2500)),
   ]).catch(() => undefined);
   const game = new Phaser.Game({

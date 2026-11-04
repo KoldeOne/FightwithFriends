@@ -5,7 +5,8 @@ import { BOSS_INFO, ENEMY_STATS, WORLD } from '../../sim/content';
 import { MAP_COLS, MAP_FLOORS, type MapNode, type NodeType } from '../../sim/map';
 import { autoPath, availableNodes, clearRun, eliteTwist, enterNode, isRecruitCampsite, recordProgress, saveRun, TWISTS } from '../../sim/run';
 import { sound } from '../sound';
-import { ICON_PX } from '../theme';
+import { ICON_PX, spriteKey, spriteOriginY } from '../theme';
+import { drawMapTerrain, linkPoints, MAP_LOOK, NODE_RIM, strokeCurve } from '../mapArt';
 import { loadCamp, saveCamp } from '../../sim/camp';
 import { addGrave } from '../../sim/settle';
 
@@ -17,12 +18,6 @@ const RIGHT = WORLD.width - 58;
 
 const NODE_NAMES: Record<NodeType, string> = { fight: 'Fight', elite: 'Elite', chest: 'Chest', campsite: 'Campsite', shop: 'Shop', event: 'Event', boss: 'Boss' };
 
-/** Map colours per act. */
-const LOOK = {
-  forest: { bg: 0x16261a, panel: 0x1d3322, line: 0x5d7a5a, path: 0xffd166 },
-  crypt: { bg: 0x161a24, panel: 0x1e2433, line: 0x5b6680, path: 0xd9e3ff },
-  hellscape: { bg: 0x241414, panel: 0x331b1b, line: 0x7a4a40, path: 0xffb347 },
-};
 
 /**
  * The act's map: climb from the bottom to the boss at the top. The nodes you
@@ -43,7 +38,8 @@ export class MapScreen {
     const jy = (((h >> 5) % 11) - 5) * (n.type === 'boss' ? 0 : 1);
     return {
       x: LEFT + (n.col / (MAP_COLS - 1)) * (RIGHT - LEFT) + jx,
-      y: BOTTOM - (n.floor / MAP_FLOORS) * (BOTTOM - TOP) + jy,
+      // (The boss sits a little higher, clear of the last row.)
+      y: BOTTOM - (n.floor / MAP_FLOORS) * (BOTTOM - TOP) + jy - (n.type === 'boss' ? 8 : 0),
     };
   }
 
@@ -51,11 +47,21 @@ export class MapScreen {
     const run = this.s.run!;
     const map = run.map;
     const act = actDef(run.act);
-    const look = LOOK[act.look];
+    const look = MAP_LOOK[act.look];
     this.ui?.destroy();
     const items: Phaser.GameObjects.GameObject[] = [];
-    items.push(this.s.add.rectangle(0, 96, WORLD.width, WORLD.hudTop - 96, look.bg).setOrigin(0, 0).setInteractive());
-    items.push(this.s.add.rectangle(10, 104, WORLD.width - 20, WORLD.hudTop - 118, look.panel).setOrigin(0, 0).setStrokeStyle(1, look.line));
+    // The terrain first, kept clear of every node and path.
+    const links: { from: MapNode; to: MapNode; pts: { x: number; y: number }[] }[] = [];
+    for (const n of Object.values(map.nodes)) for (const id of n.next) links.push({ from: n, to: map.nodes[id], pts: linkPoints(this.pos(n), this.pos(map.nodes[id]), `${n.id}>${id}`) });
+    items.push(
+      ...drawMapTerrain(
+        this.s,
+        act.look,
+        { x: 10, y: 104, w: WORLD.width - 20, h: WORLD.hudTop - 118 },
+        Object.values(map.nodes).map((n) => this.pos(n)),
+        links.map((l) => l.pts),
+      ),
+    );
     // The act's boss, so you know what's coming.
     const bossKind = act.boss;
     const boss = BOSS_INFO[bossKind];
@@ -67,21 +73,25 @@ export class MapScreen {
     const lastFloor = !!run.at && map.nodes[run.at].floor === MAP_FLOORS - 1;
     if (special && lastFloor) items.push(this.s.text(WORLD.width / 2, 130, `${special.name}: ${special.text}`, 11, '#ffd9c2').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500));
 
-    // Links between nodes; the way you came as a dotted line.
+    // Trails between nodes: faint dashes ahead, brighter from where you stand,
+    // and the way you came as a solid trail with footprints.
     const g = this.s.add.graphics();
     items.push(g);
     const visited = new Set(run.visited);
     const steps = new Set<string>();
     for (let i = 1; i < run.visited.length; i++) steps.add(`${run.visited[i - 1]}>${run.visited[i]}`);
-    for (const n of Object.values(map.nodes)) {
-      const a = this.pos(n);
-      for (const id of n.next) {
-        const b = this.pos(map.nodes[id]);
-        if (steps.has(`${n.id}>${id}`)) continue;
-        g.lineStyle(2, look.line, 0.55).lineBetween(a.x, a.y, b.x, b.y);
-      }
+    const floorNow = run.at ? map.nodes[run.at].floor : -1;
+    for (const l of links) {
+      if (steps.has(`${l.from.id}>${l.to.id}`)) continue;
+      const fromHere = l.from.id === run.at;
+      const behind = l.to.floor <= floorNow;
+      strokeCurve(g, l.pts, fromHere ? 3 : 2, fromHere ? look.path : look.line, fromHere ? 0.85 : behind ? 0.15 : 0.45, true);
     }
-    for (let i = 1; i < run.visited.length; i++) this.dotted(g, this.pos(map.nodes[run.visited[i - 1]]), this.pos(map.nodes[run.visited[i]]), look.path);
+    for (const l of links) {
+      if (!steps.has(`${l.from.id}>${l.to.id}`)) continue;
+      strokeCurve(g, l.pts, 6, 0x000000, 0.35, false);
+      strokeCurve(g, l.pts, 3, look.path, 0.95, false);
+    }
 
     // Nodes.
     const open = new Set(availableNodes(run).map((n) => n.id));
@@ -89,21 +99,52 @@ export class MapScreen {
       const p = this.pos(n);
       const isOpen = open.has(n.id);
       const here = run.at === n.id;
-      const size = n.type === 'boss' ? 46 : 28;
-      if (n.rich && n.type !== 'boss') items.push(this.s.add.circle(p.x, p.y, size / 2 + 6, 0xffd166, 0.25).setStrokeStyle(2, 0xffd166, 0.9));
-      if (here) items.push(this.s.add.circle(p.x, p.y, size / 2 + 7).setStrokeStyle(3, look.path));
-      const icon = this.s.add.image(p.x, p.y, `icon-nd-${n.type}`).setScale(size / ICON_PX);
-      icon.setAlpha(isOpen || here ? 1 : visited.has(n.id) ? 0.55 : n.floor < (run.at ? map.nodes[run.at].floor : 0) ? 0.3 : 0.8);
-      icon.setInteractive({ useHandCursor: isOpen }).on('pointerdown', () => (isOpen ? this.go(n) : this.describe(n)));
-      if (isOpen) {
-        const ring = this.s.add.circle(p.x, p.y, size / 2 + 5).setStrokeStyle(2, 0xffffff, 0.9);
-        items.push(ring);
-        this.s.tweens.add({ targets: ring, scale: 1.25, alpha: 0.2, duration: 700, yoyo: true, repeat: -1 });
+      const boss = n.type === 'boss';
+      const size = boss ? 40 : 24;
+      const r = size / 2 + (boss ? 8 : 5);
+      const done = visited.has(n.id) && !here;
+      const missed = !visited.has(n.id) && n.floor <= floorNow;
+      const alpha = isOpen || here ? 1 : done ? 0.8 : missed ? 0.35 : 0.9;
+      // A round badge: shadow, dark disc, a rim in the node type's colour.
+      const badge = this.s.add.graphics({ x: p.x, y: p.y }).setAlpha(alpha);
+      if (boss) {
+        const glow = this.s.add.circle(p.x, p.y, r + 14, 0xff3a2a, 0.18);
+        this.s.tweens.add({ targets: glow, scale: 1.15, alpha: 0.08, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        items.push(glow);
       }
-      items.push(icon);
+      if (n.rich && !boss) badge.fillStyle(0xffd166, 0.28).fillCircle(0, 0, r + 6).lineStyle(2, 0xffd166, 0.9).strokeCircle(0, 0, r + 5);
+      badge.fillStyle(0x000000, 0.35).fillEllipse(2, r * 0.75, r * 2.1, r * 0.8);
+      badge.fillStyle(done ? 0x2a2622 : 0x15120f).fillCircle(0, 0, r);
+      badge.lineStyle(boss ? 4 : 2.5, done ? 0x8a8478 : NODE_RIM[n.type], 1).strokeCircle(0, 0, r);
+      if (boss) badge.lineStyle(1.5, 0xffd166, 0.8).strokeCircle(0, 0, r - 4);
+      badge.fillStyle(0xffffff, 0.08).fillCircle(-r * 0.25, -r * 0.3, r * 0.55);
+      items.push(badge);
+      // The boss shows itself; everything else its node icon.
+      const bossKey = spriteKey({ side: 'enemy', kind: act.boss });
+      let icon: Phaser.GameObjects.Image;
+      if (boss && this.s.textures.exists(bossKey)) {
+        this.s.textures.get(bossKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
+        icon = this.s.add.image(p.x, p.y + r - 6, bossKey).setScale(1.4);
+        icon.setOrigin(0.5, spriteOriginY(bossKey, icon.height));
+      } else icon = this.s.add.image(p.x, p.y, `icon-nd-${n.type}`).setScale(size / ICON_PX);
+      icon.setAlpha(alpha);
+      if (done) icon.setTint(0x9a9a9a);
+      // A generous tap area: the whole badge.
+      const hit = this.s.add.circle(p.x, p.y, r + 4, 0xffffff, 0.001).setInteractive({ useHandCursor: isOpen }).on('pointerdown', () => (isOpen ? this.go(n) : this.describe(n)));
+      if (isOpen) {
+        const ring = this.s.add.circle(p.x, p.y, r + 2).setStrokeStyle(2, 0xffffff, 0.9);
+        items.push(ring);
+        this.s.tweens.add({ targets: ring, scale: 1.3, alpha: 0.1, duration: 800, yoyo: true, repeat: -1 });
+      }
+      items.push(icon, hit);
+      // Your party stands on the node you're at (in place of its icon).
+      if (here) {
+        icon.setVisible(false);
+        items.push(...this.partyMarker(p.x, p.y + r - 4));
+      }
       // Fights you've won leave a little skull and crossbones beside the node.
-      if (visited.has(n.id) && !here && (n.type === 'fight' || n.type === 'elite')) {
-        const m = this.s.add.graphics({ x: p.x + size / 2 - 2, y: p.y + size / 2 - 4 });
+      if (done && (n.type === 'fight' || n.type === 'elite')) {
+        const m = this.s.add.graphics({ x: p.x + r - 3, y: p.y + r - 5 });
         m.lineStyle(2, 0xe8e0cc, 0.9).lineBetween(-5, -3, 5, 5).lineBetween(-5, 5, 5, -3);
         m.fillStyle(0xe8e0cc, 0.95).fillCircle(0, -2, 4);
         m.fillStyle(0x1a1410, 1).fillCircle(-1.5, -2.5, 1).fillCircle(1.5, -2.5, 1);
@@ -112,7 +153,7 @@ export class MapScreen {
       // An elite with a twist says what it is.
       const twist = eliteTwist(run, n);
       if (twist) {
-        const tw = this.s.text(p.x, p.y + size / 2 + 1, TWISTS[twist].name, 9, '#ff9f9f').setOrigin(0.5, 0);
+        const tw = this.s.text(p.x, p.y + r + 1, TWISTS[twist].name, 10, '#ff9f9f').setOrigin(0.5, 0);
         tw.setStroke('#000000', 3);
         items.push(tw);
       }
@@ -123,7 +164,8 @@ export class MapScreen {
     types.forEach((t, i) => {
       const x = 26 + (i % 4) * 116;
       const y = 774 + Math.floor(i / 4) * 18;
-      items.push(this.s.add.image(x, y, `icon-nd-${t}`).setScale(16 / ICON_PX), this.s.text(x + 12, y - 7, NODE_NAMES[t], 11, '#c9d1e0'));
+      const dot = this.s.add.graphics({ x, y }).fillStyle(0x15120f).fillCircle(0, 0, 9).lineStyle(1.5, NODE_RIM[t], 1).strokeCircle(0, 0, 9);
+      items.push(dot, this.s.add.image(x, y, `icon-nd-${t}`).setScale(13 / ICON_PX), this.s.text(x + 14, y - 8, NODE_NAMES[t], 12, '#c9d1e0'));
     });
     items.push(this.s.add.circle(WORLD.width - 30, 770, 9, 0xffd166, 0.25).setStrokeStyle(2, 0xffd166, 0.9), this.s.text(WORLD.width - 44, 784, 'golden', 9, '#ffd166').setOrigin(0.5, 0));
     this.tip = this.s.text(WORLD.width / 2, 152, '', 12, '#7dff9b').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500);
@@ -195,13 +237,22 @@ export class MapScreen {
     this.tip?.setText(`${text[n.type]}${n.rich ? ' Golden: better loot.' : ''}`).setColor('#ffffff');
   }
 
-  /** A dotted line between two points. */
-  private dotted(g: Phaser.GameObjects.Graphics, a: { x: number; y: number }, b: { x: number; y: number }, color: number): void {
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    const n = Math.max(1, Math.floor(len / 9));
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      g.fillStyle(color, 0.95).fillCircle(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 2.2);
-    }
+  /** The party's leader inside the current node's badge, with a little pennant. */
+  private partyMarker(x: number, feet: number): Phaser.GameObjects.GameObject[] {
+    const run = this.s.run!;
+    const key = spriteKey({ side: 'hero', kind: run.team[0] });
+    const out: Phaser.GameObjects.GameObject[] = [];
+    if (this.s.textures.exists(key)) {
+      this.s.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      const img = this.s.add.image(x, feet, key).setScale(0.95);
+      img.setOrigin(0.5, spriteOriginY(key, img.height));
+      out.push(img);
+    } else out.push(this.s.add.image(x, feet - 12, 'icon-nd-fight').setScale(24 / ICON_PX));
+    // A little gold pennant on the badge's edge: you are here.
+    const flag = this.s.add.graphics({ x: x + 14, y: feet - 6 });
+    flag.fillStyle(0x4a2f1c).fillRect(0, -22, 2, 22);
+    flag.fillStyle(0xffd166).fillTriangle(2, -22, 2, -14, 12, -18);
+    out.push(flag);
+    return out;
   }
 }

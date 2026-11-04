@@ -624,8 +624,19 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   passive picks.
 - **Title screen:** continue a saved run, best and wins, **The Camp**, then
   choose a class and its first ability.
-- **Map** (§2): node icons, golden rings for golden nodes, pulsing reachable
-  nodes, the dotted path, a legend, and the boss's move at the top.
+- **Map** (§2; drawing in `src/render/mapArt.ts`):
+  - Each act's terrain in a framed panel: forest trees and ponds; crypt
+    tombstones, pillars, candles and bones; hellscape spikes, lava pools and
+    seams. Scenery is kept clear of every node, path, the header and the legend.
+  - Paths are gentle curves: faint dashes ahead, bright gold dashes from where
+    you stand, and the way you came as a solid trail.
+  - Nodes are round badges with a rim in their type's colour (fight steel,
+    elite red, chest gold, campsite orange, shop green, event purple). Nodes
+    you've done are greyed; ones you passed by are faded. Golden nodes have a
+    gold halo. The whole badge is the tap area.
+  - Your party leader stands in the current node with a gold pennant.
+  - The boss's badge shows the boss itself, with a slow red glow.
+  - A legend, and the boss's move at the top on the floor before it.
 - **Spoils panel** after each win; **game over / victory** screens show the
   run's stats and the loot sent home, with buttons to the camp and a new run.
 - **Camp screen** (§2b): a profile card per hero at the top (gear levels and
@@ -691,8 +702,9 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   shapes and text are drawn at the screen's real resolution. Game code works
   in world units; taps use `pointer.worldX/worldY`. Text is drawn at least
   2x (`TEXT_RES`).
-- **Font:** Jersey 10 (SIL Open Font License, `@fontsource/jersey-10`), a
-  pixel font for all text. It runs small, so `s.text()` and buttons scale
+- **Font:** VT323 (SIL Open Font License, `@fontsource/vt323`), a pixel
+  font for all text. It has no bold; small outlined labels (unit names) stay
+  regular so they don't smudge. It runs small, so `s.text()` and buttons scale
   every size by `FONT_SCALE` (1.25). The game waits for it to load (up to
   2.5 s) before starting.
 - `src/sim` holds the pure, deterministic simulation: a seeded RNG and no

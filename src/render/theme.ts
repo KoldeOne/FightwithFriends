@@ -303,8 +303,8 @@ export const DPR = Math.min(window.devicePixelRatio || 1, 3);
 export const ZOOM = Math.max(1, Math.min(2, Math.round(DPR)));
 /** Text is drawn at least 2x, so the pixel font stays smooth on 1x screens too. */
 export const TEXT_RES = Math.max(2, DPR);
-/** One pixel font everywhere (Jersey 10, SIL Open Font License), with fallbacks. */
-export const FONT = '"Jersey 10", system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-/** Jersey 10 is small for its size: every font size is scaled by this so layouts keep their look. */
+/** One pixel font everywhere (VT323, SIL Open Font License), with fallbacks. */
+export const FONT = '"VT323", system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+/** VT323 is small for its size: every font size is scaled by this so layouts keep their look. */
 export const FONT_SCALE = 1.25;
 

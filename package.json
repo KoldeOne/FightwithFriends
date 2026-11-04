@@ -13,7 +13,7 @@
     "camp-sim": "vite-node scripts/camp-sim.ts --"
   },
   "dependencies": {
-    "@fontsource/jersey-10": "^5.3.0",
+    "@fontsource/vt323": "^5.3.0",
     "phaser": "^3.90.0"
   },
   "devDependencies": {

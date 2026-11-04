@@ -71,7 +71,8 @@ export class UnitLayer {
     container.setDepth(u.side === 'hero' ? 10 : 20);
     let name: Phaser.GameObjects.Text | undefined;
     if (u.side === 'hero') {
-      name = this.s.text(0, u.radius + 4, u.label, 11, '#ffffff').setOrigin(0.5, 0).setFontStyle('bold');
+      // Not bold: the pixel font has no bold, and a fake one smudges at this size.
+      name = this.s.text(0, u.radius + 4, u.label, 12, '#ffffff').setOrigin(0.5, 0);
       name.setStroke('#0b1020', 3);
       container.add(name);
     }
