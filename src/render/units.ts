@@ -95,12 +95,12 @@ export class UnitLayer {
       container.add(img);
       effectIcons.push(img);
     }
-    this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, effectIcons, dead: false, baseScale, walk: Math.random() * 6, lastX: u.x, lastY: u.y, busyUntil: 0, side: u.side, kind: u.kind, radius: u.radius, boss: !!u.isBoss });
+    this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, effectIcons, dead: false, baseScale, lastX: u.x, lastY: u.y, busyUntil: 0, side: u.side, kind: u.kind, radius: u.radius, boss: !!u.isBoss });
   }
 
   /**
-   * Life in the figures: a sway while walking, slow breathing while standing,
-   * and facing the way they move. Attack and cast animations take over the
+   * Life in the figures: a very slight breath while standing, and facing the
+   * way they move. Attack and cast animations take over the
    * tilt and scale for a moment (busyUntil).
    */
   private animate(v: UnitView, u: Unit): void {
@@ -115,15 +115,10 @@ export class UnitLayer {
     const moving = Math.hypot(dx, dy) > 0.15;
     if (Math.abs(dx) > 0.2 && !this.s.battle.isSheep(u)) sp.setFlipX(dx < 0);
     if (this.s.time.now < v.busyUntil) return;
-    if (moving) {
-      v.walk += 0.32;
-      sp.setRotation(Math.sin(v.walk) * 0.09);
-      sp.setScale(v.baseScale, v.baseScale * (1 + Math.abs(Math.sin(v.walk)) * 0.04));
-    } else {
-      sp.setRotation(sp.rotation * 0.8);
-      const breath = Math.sin(this.s.time.now / 420 + u.id) * 0.025;
-      sp.setScale(v.baseScale * (1 - breath * 0.4), v.baseScale * (1 + breath));
-    }
+    // No sway while walking (it looked wobbly): upright, with a very slight breath when standing.
+    sp.setRotation(sp.rotation * 0.7);
+    const breath = moving ? 0 : Math.sin(this.s.time.now / 520 + u.id) * 0.012;
+    sp.setScale(v.baseScale, v.baseScale * (1 + breath));
   }
 
   /** Attack wind-up and follow-through: tilt toward the target, squash, then stretch back. */

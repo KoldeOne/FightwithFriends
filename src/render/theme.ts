@@ -282,8 +282,7 @@ export interface UnitView {
   dead: boolean;
   /** The sprite's resting scale (animations squash and stretch around it). */
   baseScale: number;
-  /** Walking sway phase, and where the unit was last frame. */
-  walk: number;
+  /** Where the unit was last frame (to face the way it moves). */
   lastX: number;
   lastY: number;
   /** An attack or cast animation owns the sprite's tilt and scale until this time (ms). */
