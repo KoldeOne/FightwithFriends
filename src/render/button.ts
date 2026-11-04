@@ -23,6 +23,8 @@ export class PixelButton extends Phaser.GameObjects.Container {
   private readonly label: Phaser.GameObjects.Text;
   private readonly gfx: Phaser.GameObjects.Graphics;
   private pad = { x: 24, y: 12 };
+  /** At least this wide (so a row of buttons can match). */
+  private minW = 0;
   private origin = { x: 0.5, y: 0.5 };
   private color: string;
   private pressed = false;
@@ -56,7 +58,7 @@ export class PixelButton extends Phaser.GameObjects.Container {
 
   /** Size everything around the label (after changing text, padding or origin). */
   private layout(): void {
-    const w = Math.ceil(this.label.width + this.pad.x * 2);
+    const w = Math.max(this.minW, Math.ceil(this.label.width + this.pad.x * 2));
     const h = Math.ceil(this.label.height + this.pad.y * 2);
     this.box = { left: -w * this.origin.x, top: -h * this.origin.y, w, h };
     this.setSize(w, h);
@@ -107,6 +109,13 @@ export class PixelButton extends Phaser.GameObjects.Container {
 
   setPadding(x: number, y: number, _right?: number, _bottom?: number): this {
     this.pad = { x, y };
+    this.layout();
+    return this;
+  }
+
+  /** Make the button at least this wide (e.g. to match its neighbours). */
+  setMinWidth(w: number): this {
+    this.minW = w;
     this.layout();
     return this;
   }

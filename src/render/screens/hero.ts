@@ -23,6 +23,10 @@ import type { AbilityId, HeroClass } from '../../sim/types';
 import { loadCamp, saveCamp } from '../../sim/camp';
 import { dailyBest, dailySetup, lockedAbilities, TIER_LOOT, TIERS, today } from '../../sim/progress';
 
+/** Hero slots on the select screen: the playable classes, then silhouettes for heroes still to come. */
+const ROSTER = 12;
+const GRID = { top: 226, cols: 3, w: 160, h: 100, gap: 6 };
+
 /** The difficulty tier you last chose (kept between visits). */
 const TIER_KEY = 'fightwithfriends.tier';
 function chosenTier(max: number): number {
@@ -57,17 +61,72 @@ export class HeroPicker {
     );
   }
 
-  /** Today's daily run: the same map, enemies and starting class for everyone, with no camp gear or perks. */
+  /**
+   * Today's daily run: the same map, enemies and starting class for everyone,
+   * with no camp gear or perks. The class is drawn like a slot machine: the
+   * heroes flick past fast, slow down, and stop on today's pick.
+   */
   showDaily(): void {
+    const s = this.s;
     const date = today();
     const { seed, cls } = dailySetup(date);
     const best = dailyBest(date);
-    this.s.confirm(
-      `Daily run · ${date}`,
-      `Everyone gets the same map and enemies today, starting as a ${cls[0].toUpperCase() + cls.slice(1)}. No camp gear or perks; camp loot still comes home.${best ? `\nYour best today: ${describeProgress(best.reached)}.` : ''}`,
-      'Play',
-      () => this.chooseAbility(cls, 'daily', [], (first) => this.begin(newRun(cls, first, seed, { daily: date }))),
-    );
+    const cx = WORLD.width / 2;
+    const cy = 420;
+    const box = s.add.container(0, 0).setDepth(170);
+    box.add([
+      s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
+      s.add.rectangle(cx, cy, 440, 420, 0x111723).setStrokeStyle(2, 0x9a7ad6),
+      s.text(cx, cy - 186, `Daily run · ${date}`, 22, '#d7c2ff').setOrigin(0.5).setFontStyle('bold'),
+      s.add.rectangle(cx, cy - 50, 150, 150, 0x0b0e14).setStrokeStyle(3, 0x5a3f8a),
+    ]);
+    const status = s.text(cx, cy - 158, 'Drawing your starting hero…', 12, '#c9d1e0').setOrigin(0.5);
+    box.add(status);
+    const nameText = s.text(cx, cy + 40, '', 20, '#ffffff').setOrigin(0.5).setFontStyle('bold');
+    box.add(nameText);
+    let shown: Phaser.GameObjects.GameObject[] = [];
+    const showHero = (c: HeroClass) => {
+      for (const o of shown) o.destroy();
+      shown = this.portrait(c, cx, cy + 10, 3.2);
+      box.add(shown);
+      nameText.setText(c[0].toUpperCase() + c.slice(1)).setColor(cssColor(COLORS[c]));
+    };
+    // The delays grow until the draw stops; start where it will land on today's class.
+    const delays: number[] = [];
+    for (let d = 45; d < 420; d *= 1.12) delays.push(d);
+    const pool = ALL_CLASSES;
+    let i = (pool.indexOf(cls) - delays.length + pool.length * 10) % pool.length;
+    showHero(pool[i]);
+    let step = 0;
+    const next = () => {
+      if (!box.active) return;
+      if (step >= delays.length) return reveal();
+      s.time.delayedCall(delays[step++], () => {
+        if (!box.active) return;
+        i = (i + 1) % pool.length;
+        showHero(pool[i]);
+        sound.play('click');
+        next();
+      });
+    };
+    const reveal = () => {
+      sound.play('levelUp');
+      status.setText("Today's hero").setColor('#ffd166');
+      s.cameras.main.flash(160, 220, 200, 255);
+      for (const o of shown) s.tweens.add({ targets: o, scale: (o as Phaser.GameObjects.Image).scale * 1.15, duration: 160, yoyo: true });
+      box.add([
+        s.text(cx, cy + 74, `Everyone starts as a ${cls[0].toUpperCase() + cls.slice(1)} today, on the same map against the same enemies. No camp gear or perks; camp loot still comes home.${best ? `\nYour best today: ${describeProgress(best.reached)}.` : ''}`, 12, '#c9d1e0')
+          .setOrigin(0.5, 0)
+          .setAlign('center')
+          .setWordWrapWidth(400),
+        s.button(cx - 90, cy + 170, 'Back', 16, '#3a4660', () => box.destroy()),
+        s.button(cx + 90, cy + 170, 'Play ▶', 16, '#5a3f8a', () => {
+          box.destroy();
+          this.chooseAbility(cls, 'daily', [], (first) => this.begin(newRun(cls, first, seed, { daily: date })));
+        }),
+      ]);
+    };
+    next();
   }
 
   /** Start a fresh run (asking first if it would replace a saved one). */
@@ -127,17 +186,18 @@ export class HeroPicker {
         const names = saved.team.map((c) => LETTERS[c]).join(' ');
         items.push(this.s.button(cx, 68, `▶ Continue: ${names} — Act ${saved.act}`, 16, '#1e6f50', () => this.s.scene.restart({ run: saved })));
       }
+      // The Camp and the Daily run, side by side and the same size.
       items.push(
-        this.s.button(cx, WORLD.height - 62, '⛺ The Camp', 22, '#6b4f2a', () => {
+        this.s.button(cx - 104, WORLD.height - 62, '⛺ The Camp', 18, '#6b4f2a', () => {
           sound.unlock();
           sound.play('click');
           this.s.campScreen.show();
-        }),
-        this.s.button(WORLD.width - 74, WORLD.height - 62, '☀ Daily', 15, '#5a3f8a', () => {
+        }).setMinWidth(190),
+        this.s.button(cx + 104, WORLD.height - 62, '☀ Daily run', 18, '#5a3f8a', () => {
           sound.unlock();
           sound.play('click');
           this.showDaily();
-        }),
+        }).setMinWidth(190),
         ...this.tierPicker(),
       );
       const wins = winsSoFar();
@@ -145,14 +205,15 @@ export class HeroPicker {
     }
     items.push(
       ...this.classCards(
-        270,
+        GRID.top,
         (cls) => {
           sound.play('click');
           onPick(cls);
         },
       ),
     );
-    items.push(...this.partyStrip(this.s.state === 'title' ? undefined : this.s.run!));
+    // Recruits see the party they're joining; the title screen doesn't need it.
+    if (this.s.state !== 'title') items.push(...this.partyStrip(this.s.run!));
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }
 
@@ -311,7 +372,7 @@ export class HeroPicker {
   private tierPicker(): Phaser.GameObjects.GameObject[] {
     const max = loadCamp().records.tier;
     const cx = WORLD.width / 2;
-    const y = 800;
+    const y = 690;
     let tier = chosenTier(max);
     const label = this.s.text(cx, y, '', 16, '#ffffff').setOrigin(0.5).setFontStyle('bold');
     const rule = this.s.text(cx, y + 22, '', 11, '#c9d1e0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(460);
@@ -340,29 +401,43 @@ export class HeroPicker {
     return max ? [arrow(-150, '◀'), arrow(150, '▶'), label, rule] : [label, rule];
   }
 
+  /**
+   * Every hero slot in a grid: the playable classes, then silhouettes with a
+   * question mark for the heroes still to come (ROSTER in total). Tap a hero to
+   * pick it.
+   */
   classCards(top: number, onPick: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
-    const cx = WORLD.width / 2;
-    const cardH = 68;
     const items: Phaser.GameObjects.GameObject[] = [];
-    ALL_CLASSES.forEach((cls, i) => {
-      const y = top + i * (cardH + 6);
+    const left = (WORLD.width - (GRID.cols * GRID.w + (GRID.cols - 1) * GRID.gap)) / 2;
+    for (let i = 0; i < ROSTER; i++) {
+      const x = left + (i % GRID.cols) * (GRID.w + GRID.gap);
+      const y = top + Math.floor(i / GRID.cols) * (GRID.h + GRID.gap);
+      const cls = ALL_CLASSES[i];
+      const bg = this.s.add.rectangle(x, y, GRID.w, GRID.h, cls ? 0x1c2433 : 0x121722).setOrigin(0, 0).setStrokeStyle(2, cls ? 0x3a4660 : 0x232b3a);
+      items.push(bg);
+      if (!cls) {
+        // A hero still to come.
+        const g = this.s.add.graphics({ x: x + GRID.w / 2, y: y + 46 });
+        g.fillStyle(0x2a3142).fillCircle(0, -20, 11).fillRoundedRect(-14, -8, 28, 30, 6).fillRect(-20, -4, 6, 18).fillRect(14, -4, 6, 18);
+        items.push(
+          g,
+          this.s.text(x + GRID.w / 2, y + 30, '?', 26, '#5a6680').setOrigin(0.5).setFontStyle('bold'),
+          this.s.text(x + GRID.w / 2, y + GRID.h - 18, 'Coming soon', 11, '#4a5570').setOrigin(0.5),
+        );
+        continue;
+      }
       const kit = HERO_KIT[cls];
-      const bg = this.s.add
-        .rectangle(cx, y, 470, cardH, 0x1c2433)
-        .setStrokeStyle(2, 0x3a4660)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerover', () => bg.setFillStyle(0x26314a))
-        .on('pointerout', () => bg.setFillStyle(0x1c2433))
+      bg.setInteractive({ useHandCursor: true })
+        .on('pointerover', () => bg.setFillStyle(0x26314a).setStrokeStyle(2, COLORS[cls]))
+        .on('pointerout', () => bg.setFillStyle(0x1c2433).setStrokeStyle(2, 0x3a4660))
         .on('pointerdown', () => onPick(cls));
-      const left = cx - 225;
       items.push(
-        bg,
-        ...this.portrait(cls, left + 30, y + 30, 1.65),
-        this.s.text(left + 64, y - 29, cls[0].toUpperCase() + cls.slice(1), 17, '#ffffff').setFontStyle('bold'),
-        this.s.text(left + 150, y - 26, kit.role, 11, '#c9d1e0'),
-        this.s.text(left + 64, y - 4, `Passive: ${PASSIVES[kit.passive].name} — ${PASSIVES[kit.passive].short}`, 12, '#9ad1ff').setWordWrapWidth(330),
+        ...this.portrait(cls, x + 32, y + 62, 1.6),
+        this.s.text(x + 60, y + 10, cls[0].toUpperCase() + cls.slice(1), 16, cssColor(COLORS[cls])).setFontStyle('bold'),
       );
-    });
+      const role = this.s.text(x + 60, y + 30, kit.role.split(' — ')[0], 11, '#c9d1e0').setWordWrapWidth(GRID.w - 66);
+      items.push(role, this.s.text(x + 60, y + 34 + role.height, PASSIVES[kit.passive].name, 11, '#9ad1ff').setWordWrapWidth(GRID.w - 66));
+    }
     return items;
   }
 }

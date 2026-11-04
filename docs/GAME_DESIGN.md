@@ -613,23 +613,26 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   It stays up on the spoils and end-of-run screens; on the map and pick
   screens a **📊 Last fight** button (bottom-right) opens the last fight's
   numbers.
-- **Hero select** (start and recruits): under the class list, **Your party
-  (n of 4)**: the heroes you have (portrait, level, ability icons) and the
-  empty slots, the next one marked. Hover or tap a hero for their details:
-  passive, each ability with its cost, cooldown, upgrades and numbers, and
-  passive picks.
-- **Title screen:** continue a saved run, best and wins, **The Camp**, then
-  choose a class and its first ability.
+- **Hero select** (start and recruits): a 3 x 4 grid of 12 hero slots, ready
+  for 12 classes: the 6 playable ones (portrait, name, role, passive; tap to
+  pick), then silhouettes with a "?" marked Coming soon. Recruits also see
+  **Your party (n of 4)** under the grid (hover or tap a hero for their
+  details); the title screen doesn't show it.
+- **Title screen:** continue a saved run, best and wins, the hero grid, the
+  difficulty picker, and **The Camp** and **☀ Daily run** side by side at the
+  bottom (the same size). The daily run draws its starting hero like a slot
+  machine: the heroes flick past fast, slow down and stop on today's hero
+  (the same for everyone that day), then Play or Back.
 - **Map** (§2; drawing in `src/render/mapArt.ts`):
   - **Zoomed in:** the floor you're on sits at the bottom, with the next 4
-    floors above it. Floors you've finished aren't shown, and anything
+    floors above it, and only the nodes you can still reach from where you
+    stand (roads you can no longer take are hidden). Floors you've finished aren't shown, and anything
     further up is hidden in fog ("the way ahead is hidden") until you climb
     closer; the boss comes into view 4 floors out. A "Floor N of 12" counter
     sits top right.
   - **Roads:** every link is a road in the act's style (a dirt track, worn
     flagstones, charred rock). Roads from where you stand have gold dashes;
-    the road you came in on has a solid gold trail. Other nodes on your floor
-    (the ones you didn't take) are faded.
+    the road you came in on has a solid gold trail. 
   - **Terrain** per act in a framed panel: forest trees and ponds; crypt
     tombstones, pillars, candles and bones; hellscape spikes, lava pools and
     seams. Scenery belongs to a floor, so it scrolls down as you climb, and it

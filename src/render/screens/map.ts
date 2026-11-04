@@ -73,13 +73,18 @@ export class MapScreen {
     const visited = new Set(run.visited);
     this.base = run.at ? map.nodes[run.at].floor : -1;
     const top = this.base + VIEW;
-    // Only the floor you're on and the next few: what's behind you is done, what's beyond is in fog.
-    const inView = (n: MapNode) => n.floor >= this.base && n.floor <= top;
+    // Only where you can still go: the nodes reachable from where you stand, on the next few floors
+    // (what's behind you is done, the roads you can no longer take are gone, and what's beyond is in fog).
+    const reach = new Set<string>(run.at ? [run.at] : []);
+    const queue = run.at ? [run.at] : [...map.floors[0]];
+    for (const id of queue) {
+      reach.add(id);
+      for (const nx of map.nodes[id].next) if (!reach.has(nx)) queue.push(nx);
+    }
+    const inView = (n: MapNode) => reach.has(n.id) && n.floor >= this.base && n.floor <= top;
     const nodes = Object.values(map.nodes).filter(inView);
     const links: { from: MapNode | undefined; to: MapNode; pts: { x: number; y: number }[] }[] = [];
     for (const n of nodes) {
-      // Roads from the floor you're on only start at your node.
-      if (n.floor === this.base && n.id !== run.at) continue;
       for (const id of n.next) links.push({ from: n, to: map.nodes[id], pts: linkPoints(this.pos(n), this.pos(map.nodes[id]), `${n.id}>${id}`) });
     }
     // At the start, roads lead from the camp to every first-floor node.
@@ -116,9 +121,7 @@ export class MapScreen {
       const boss = n.type === 'boss';
       const size = boss ? 40 : 26;
       const r = size / 2 + (boss ? 8 : 6);
-      // Other nodes on your floor are the ones you didn't take.
-      const missed = n.floor === this.base && !here;
-      const alpha = isOpen || here ? 1 : missed ? 0.35 : 0.9;
+      const alpha = isOpen || here ? 1 : 0.9;
       // A round badge: shadow, dark disc, a rim in the node type's colour.
       const badge = this.s.add.graphics({ x: p.x, y: p.y }).setAlpha(alpha);
       if (boss) {
@@ -154,7 +157,7 @@ export class MapScreen {
       if (here) icon.setVisible(false);
       // An elite with a twist says what it is.
       const twist = eliteTwist(run, n);
-      if (twist && !missed) {
+      if (twist) {
         const tw = this.s.text(p.x, p.y + r + 1, TWISTS[twist].name, 11, '#ff9f9f').setOrigin(0.5, 0);
         tw.setStroke('#000000', 3);
         items.push(tw);
