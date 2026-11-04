@@ -9,38 +9,44 @@ import { ICON_PX, spriteKey, spriteOriginY } from '../theme';
 import { along, drawFog, drawMapTerrain, drawRoad, drawStartCamp, linkPoints, NODE_RIM } from '../mapArt';
 
 /** Where the map is drawn (between the top bar and the hero panels). */
-const BOTTOM = 708;
-const LEFT = 58;
-const RIGHT = WORLD.width - 58;
-/** The map is zoomed in: the floor you're on at the bottom, then this many floors above it; the rest is in fog. */
-const VIEW = 4;
+const BOTTOM = 700;
+/** The map shows where you stand, your choices, the floor after, and one more faded into the fog. */
+const VIEW = 3;
 /** Height of one floor. */
-const ROW = 116;
+const ROW = 150;
+/** How far from the centre the outermost nodes of a row sit. */
+const SPREAD = 190;
 /** The map panel. */
 const BOX = { x: 10, y: 104, w: WORLD.width - 20, h: WORLD.hudTop - 118 };
 /** Roads stop at the legend strip. */
 const ROAD_BOTTOM = 752;
-/** How long the party takes to walk to the next node. */
-const WALK_MS = 650;
+/** How long the party takes to walk to the next node, and the board to slide it to the centre. */
+const WALK_MS = 600;
+const SLIDE_MS = 380;
 
 const NODE_NAMES: Record<NodeType, string> = { fight: 'Fight', elite: 'Elite', chest: 'Chest', campsite: 'Campsite', shop: 'Shop', event: 'Event', boss: 'Boss' };
 
-
 /**
- * The act's map: climb from the bottom to the boss at the top. The nodes you
- * can move to pulse; tap one to go there (fights start straight away). The way
- * you came is a dotted line.
+ * The act's map, around where you stand: your node at the bottom centre, the
+ * two places you can go next spread across the width, the floor after that,
+ * and one more fading into fog. Roads you can no longer take aren't shown.
+ * Tap a node to go there: your party walks the road, the board slides it to
+ * the centre, and the next choices appear. Fights start straight away.
  */
 export class MapScreen {
   constructor(readonly s: BattleScene) {}
 
   private ui?: Phaser.GameObjects.Container;
+  private board?: Phaser.GameObjects.Container;
+  private scenery?: Phaser.GameObjects.Graphics;
   private tip?: Phaser.GameObjects.Text;
 
   /** The floor at the bottom of the view: where you stand (-1 = the starting camp). */
   private base = -1;
   private leader?: Phaser.GameObjects.Container;
   private moving = false;
+  /** Where each node in view is drawn. */
+  private spots = new Map<string, { x: number; y: number }>();
 
   private rowY(floor: number): number {
     return BOTTOM - (floor - this.base) * ROW;
@@ -51,16 +57,59 @@ export class MapScreen {
     return { x: WORLD.width / 2, y: this.rowY(-1) };
   }
 
-  /** Screen position of a node (a little jitter so the map doesn't look like graph paper). */
+  /** Screen position of a node in view (off to the side if it isn't). */
   pos(n: MapNode): { x: number; y: number } {
-    let h = 0;
-    for (const ch of n.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    const jx = ((h % 17) - 8) * (n.type === 'boss' ? 0 : 1);
-    const jy = (((h >> 5) % 11) - 5) * (n.type === 'boss' ? 0 : 1);
-    return {
-      x: LEFT + (n.col / (MAP_COLS - 1)) * (RIGHT - LEFT) + jx,
-      y: this.rowY(n.floor) + jy * 2,
+    return this.spots.get(n.id) ?? { x: WORLD.width / 2, y: this.rowY(n.floor) };
+  }
+
+  /**
+   * Lay out what's reachable from where you stand, floor by floor: each node
+   * gets a sideways offset from its parent (one column left or right around
+   * the ring), and each row is spread across the full width in that order,
+   * so roads never cross. The boss always sits in the middle.
+   */
+  private layout(): MapNode[] {
+    const run = this.s.run!;
+    const map = run.map;
+    this.spots.clear();
+    const offset = new Map<string, number>();
+    const step = (from: number | undefined, to: MapNode, parentOffset: number) => {
+      if (offset.has(to.id)) return;
+      let d = from === undefined ? 0 : to.col - from;
+      if (map.ring) d = ((((d + MAP_COLS / 2) % MAP_COLS) + MAP_COLS) % MAP_COLS) - MAP_COLS / 2;
+      offset.set(to.id, parentOffset + d);
     };
+    const first = run.at ? [map.nodes[run.at]] : (map.start ?? map.floors[0]).map((id) => map.nodes[id]);
+    if (run.at) offset.set(run.at, 0);
+    else {
+      // From the camp: its roads spread out like any other fork.
+      const mid = first.reduce((a, n) => a + n.col, 0) / first.length;
+      for (const n of first) step(undefined, n, map.ring ? Math.sign(n.col - mid) : n.col - mid);
+    }
+    const inView: MapNode[] = [];
+    let frontier = first;
+    for (let f = this.base + (run.at ? 0 : 1); frontier.length && f <= this.base + VIEW; f++) {
+      inView.push(...frontier);
+      const next: MapNode[] = [];
+      for (const n of frontier)
+        for (const id of n.next) {
+          const k = map.nodes[id];
+          step(n.col, k, offset.get(n.id)!);
+          if (!next.includes(k)) next.push(k);
+        }
+      frontier = next;
+    }
+    // Spread each row across the width, in offset order.
+    for (let f = this.base; f <= this.base + VIEW; f++) {
+      const row = inView.filter((n) => n.floor === f).sort((a, b) => offset.get(a.id)! - offset.get(b.id)!);
+      const max = Math.max(...row.map((n) => Math.abs(offset.get(n.id)!)), 0);
+      for (const n of row) {
+        const o = offset.get(n.id)!;
+        const x = n.type === 'boss' || !max ? WORLD.width / 2 : WORLD.width / 2 + (o / max) * SPREAD;
+        this.spots.set(n.id, { x, y: this.rowY(f) });
+      }
+    }
+    return inView;
   }
 
   show(): void {
@@ -70,64 +119,52 @@ export class MapScreen {
     this.ui?.destroy();
     this.moving = false;
     const items: Phaser.GameObjects.GameObject[] = [];
-    const visited = new Set(run.visited);
     this.base = run.at ? map.nodes[run.at].floor : -1;
     const top = this.base + VIEW;
-    // Only where you can still go: the nodes reachable from where you stand, on the next few floors
-    // (what's behind you is done, the roads you can no longer take are gone, and what's beyond is in fog).
-    const reach = new Set<string>(run.at ? [run.at] : []);
-    const queue = run.at ? [run.at] : [...map.floors[0]];
-    for (const id of queue) {
-      reach.add(id);
-      for (const nx of map.nodes[id].next) if (!reach.has(nx)) queue.push(nx);
-    }
-    const inView = (n: MapNode) => reach.has(n.id) && n.floor >= this.base && n.floor <= top;
-    const nodes = Object.values(map.nodes).filter(inView);
+    const nodes = this.layout();
     const links: { from: MapNode | undefined; to: MapNode; pts: { x: number; y: number }[] }[] = [];
-    for (const n of nodes) {
-      for (const id of n.next) links.push({ from: n, to: map.nodes[id], pts: linkPoints(this.pos(n), this.pos(map.nodes[id]), `${n.id}>${id}`) });
-    }
-    // At the start, roads lead from the camp to every first-floor node.
-    if (!run.at) for (const id of map.floors[0]) links.push({ from: undefined, to: map.nodes[id], pts: linkPoints(this.camp(), this.pos(map.nodes[id]), `start>${id}`) });
+    for (const n of nodes) for (const id of n.next) if (this.spots.has(id)) links.push({ from: n, to: map.nodes[id], pts: linkPoints(this.pos(n), this.pos(map.nodes[id]), `${n.id}>${id}`) });
+    if (!run.at) for (const id of map.start ?? map.floors[0]) links.push({ from: undefined, to: map.nodes[id], pts: linkPoints(this.camp(), this.pos(map.nodes[id]), `start>${id}`) });
+    // Roads off the top of the view, into the fog.
+    const fogRoads: { x: number; y: number }[][] = [];
+    for (const n of nodes) if (n.floor === top) for (const id of n.next) fogRoads.push(linkPoints(this.pos(n), { x: this.pos(n).x + (map.nodes[id].col > n.col ? 40 : -40), y: this.rowY(top + 1) }, `${n.id}>${id}`));
     // The road you came in on, from below the view.
-    const prev = run.visited.length > 1 ? map.nodes[run.visited[run.visited.length - 2]] : undefined;
-    const cameFrom = run.at ? linkPoints(prev ? this.pos(prev) : this.camp(), this.pos(map.nodes[run.at]), `${prev?.id ?? 'start'}>${run.at}`) : undefined;
+    const cameFrom = run.at ? linkPoints({ x: WORLD.width / 2, y: this.rowY(this.base - 1) }, this.pos(map.nodes[run.at]), `in>${run.at}`) : undefined;
 
-    items.push(
-      ...drawMapTerrain(
-        this.s,
-        act.look,
-        BOX,
-        [...nodes.map((n) => this.pos(n)), ...(run.at ? [] : [this.camp()])],
-        [...links.map((l) => l.pts), ...(cameFrom ? [cameFrom] : [])],
-        { from: this.base - 1, to: top + 2, rowY: (f) => this.rowY(f), row: ROW },
-      ),
+    // Static layers (background, ground, frame), then the board that slides (scenery, roads, nodes, party).
+    const terrain = drawMapTerrain(
+      this.s,
+      act.look,
+      BOX,
+      [...nodes.map((n) => this.pos(n)), ...(run.at ? [] : [this.camp()])],
+      [...links.map((l) => l.pts), ...fogRoads, ...(cameFrom ? [cameFrom] : [])],
+      { from: this.base - 2, to: top + 2, rowY: (f) => this.rowY(f), row: ROW },
     );
-
-    // Roads: dimmer ahead, gold dashes from where you stand, a gold trail behind you.
+    items.push(...terrain.under);
+    const board: Phaser.GameObjects.GameObject[] = [];
     const g = this.s.add.graphics();
-    items.push(g);
+    board.push(g);
     const open = new Set(availableNodes(run).map((n) => n.id));
-    for (const l of links) if (l.from?.id !== run.at || !run.at) drawRoad(g, act.look, l.pts, 'ahead', ROAD_BOTTOM);
+    for (const pts of fogRoads) drawRoad(g, act.look, pts, 'ahead', ROAD_BOTTOM);
+    for (const l of links) if (run.at ? l.from?.id !== run.at : !!l.from) drawRoad(g, act.look, l.pts, 'ahead', ROAD_BOTTOM);
     for (const l of links) if (run.at ? l.from?.id === run.at : !l.from) drawRoad(g, act.look, l.pts, 'open', ROAD_BOTTOM);
     if (cameFrom) drawRoad(g, act.look, cameFrom, 'taken', ROAD_BOTTOM);
-    if (!run.at) items.push(...drawStartCamp(this.s, this.camp().x, this.camp().y));
+    if (!run.at) board.push(...drawStartCamp(this.s, this.camp().x, this.camp().y));
 
-    // Nodes.
     for (const n of nodes) {
       const p = this.pos(n);
       const isOpen = open.has(n.id);
       const here = run.at === n.id;
       const boss = n.type === 'boss';
-      const size = boss ? 40 : 26;
-      const r = size / 2 + (boss ? 8 : 6);
-      const alpha = isOpen || here ? 1 : 0.9;
-      // A round badge: shadow, dark disc, a rim in the node type's colour.
+      const size = boss ? 40 : 28;
+      const r = size / 2 + (boss ? 8 : 7);
+      // The furthest row fades into the fog.
+      const alpha = n.floor === top && !boss ? 0.55 : 1;
       const badge = this.s.add.graphics({ x: p.x, y: p.y }).setAlpha(alpha);
       if (boss) {
         const glow = this.s.add.circle(p.x, p.y, r + 14, 0xff3a2a, 0.18);
         this.s.tweens.add({ targets: glow, scale: 1.15, alpha: 0.08, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-        items.push(glow);
+        board.push(glow);
       }
       if (n.rich && !boss) badge.fillStyle(0xffd166, 0.28).fillCircle(0, 0, r + 6).lineStyle(2, 0xffd166, 0.9).strokeCircle(0, 0, r + 5);
       badge.fillStyle(0x000000, 0.35).fillEllipse(2, r * 0.75, r * 2.1, r * 0.8);
@@ -135,8 +172,7 @@ export class MapScreen {
       badge.lineStyle(boss ? 4 : 3, NODE_RIM[n.type], 1).strokeCircle(0, 0, r);
       if (boss) badge.lineStyle(1.5, 0xffd166, 0.8).strokeCircle(0, 0, r - 4);
       badge.fillStyle(0xffffff, 0.08).fillCircle(-r * 0.25, -r * 0.3, r * 0.55);
-      items.push(badge);
-      // The boss shows itself; everything else its node icon.
+      board.push(badge);
       const bossKey = spriteKey({ side: 'enemy', kind: act.boss });
       let icon: Phaser.GameObjects.Image;
       if (boss && this.s.textures.exists(bossKey)) {
@@ -145,32 +181,33 @@ export class MapScreen {
         icon.setOrigin(0.5, spriteOriginY(bossKey, icon.height));
       } else icon = this.s.add.image(p.x, p.y, `icon-nd-${n.type}`).setScale(size / ICON_PX);
       icon.setAlpha(alpha);
-      // A generous tap area: the whole badge.
-      const hit = this.s.add.circle(p.x, p.y, r + 4, 0xffffff, 0.001).setInteractive({ useHandCursor: isOpen }).on('pointerdown', () => (isOpen ? this.go(n) : this.describe(n)));
+      const hit = this.s.add.circle(p.x, p.y, r + 6, 0xffffff, 0.001).setInteractive({ useHandCursor: isOpen }).on('pointerdown', () => (isOpen ? this.go(n) : this.describe(n)));
       if (isOpen) {
         const ring = this.s.add.circle(p.x, p.y, r + 2).setStrokeStyle(2, 0xffffff, 0.9);
-        items.push(ring);
+        board.push(ring);
         this.s.tweens.add({ targets: ring, scale: 1.3, alpha: 0.1, duration: 800, yoyo: true, repeat: -1 });
       }
-      items.push(icon, hit);
-      // Your party stands on the node you're at (in place of its icon).
+      board.push(icon, hit);
       if (here) icon.setVisible(false);
-      // An elite with a twist says what it is.
       const twist = eliteTwist(run, n);
       if (twist) {
-        const tw = this.s.text(p.x, p.y + r + 1, TWISTS[twist].name, 11, '#ff9f9f').setOrigin(0.5, 0);
+        const tw = this.s.text(p.x, p.y + r + 1, TWISTS[twist].name, 11, '#ff9f9f').setOrigin(0.5, 0).setAlpha(alpha);
         tw.setStroke('#000000', 3);
-        items.push(tw);
+        board.push(tw);
       }
     }
-    // The party leader, on your node or at the camp.
     const at = run.at ? this.pos(map.nodes[run.at]) : this.camp();
-    this.leader = this.partyMarker(at.x, at.y + (run.at ? 14 : 6));
-    items.push(this.leader);
+    this.leader = this.partyMarker(at.x, at.y + (run.at ? 16 : 6));
+    board.push(this.leader);
+
+    // The board (and the scenery) are clipped to the map panel, so they can slide.
+    const mask = this.s.make.graphics({}, false).fillStyle(0xffffff).fillRoundedRect(BOX.x, BOX.y, BOX.w, BOX.h, 12).createGeometryMask();
+    this.scenery = terrain.ground.setMask(mask);
+    this.board = this.s.add.container(0, 0, board).setMask(mask);
+    items.push(this.scenery, this.board, ...terrain.over);
 
     // Fog over the floors further up (until the boss is in view).
-    if (top < MAP_FLOORS) items.push(...drawFog(this.s, act.look, BOX, 150));
-    // The act and its boss, on top of the fog; the boss's move only on the floor before it.
+    if (top < MAP_FLOORS) items.push(...drawFog(this.s, act.look, BOX, 170));
     const bossKind = act.boss;
     const special = BOSS_INFO[bossKind]?.moves[1];
     items.push(
@@ -234,9 +271,16 @@ export class MapScreen {
         sprite?.setFlipX(to.x < from.x);
       },
       onComplete: () => {
-        enterNode(run, n.id);
-        saveRun(run);
-        this.s.scene.restart({ run });
+        // Slide the board so the chosen node comes to the bottom centre (the scenery only scrolls down).
+        const dx = WORLD.width / 2 - to.x;
+        const dy = BOTTOM - to.y;
+        if (this.board) this.s.tweens.add({ targets: this.board, x: dx, y: dy, duration: SLIDE_MS, ease: 'Sine.easeInOut' });
+        if (this.scenery) this.s.tweens.add({ targets: this.scenery, y: dy, duration: SLIDE_MS, ease: 'Sine.easeInOut' });
+        this.s.time.delayedCall(SLIDE_MS + 20, () => {
+          enterNode(run, n.id);
+          saveRun(run);
+          this.s.scene.restart({ run });
+        });
       },
     });
   }

@@ -21,7 +21,7 @@ import {
 } from '../../sim/run';
 import type { AbilityId, HeroClass } from '../../sim/types';
 import { loadCamp, saveCamp } from '../../sim/camp';
-import { dailyBest, dailySetup, lockedAbilities, TIER_LOOT, TIERS, today } from '../../sim/progress';
+import { challengeBest, lockedAbilities, TIER_LOOT, TIERS } from '../../sim/progress';
 
 /** Hero slots on the select screen: the playable classes, then silhouettes for heroes still to come. */
 const ROSTER = 12;
@@ -62,22 +62,23 @@ export class HeroPicker {
   }
 
   /**
-   * Today's daily run: the same map, enemies and starting class for everyone,
-   * with no camp gear or perks. The class is drawn like a slot machine: the
-   * heroes flick past fast, slow down, and stop on today's pick.
+   * A Random Challenge: a random hero (drawn like a slot machine: the heroes
+   * flick past fast, slow down and stop) on a fresh map. Every ability is
+   * open, but there's no camp gear or perks, and it doesn't count toward tiers,
+   * unlocks or your normal best. Loot still comes home. Back and try again to
+   * draw another hero.
    */
-  showDaily(): void {
+  showChallenge(): void {
     const s = this.s;
-    const date = today();
-    const { seed, cls } = dailySetup(date);
-    const best = dailyBest(date);
+    const cls = ALL_CLASSES[Math.floor(Math.random() * ALL_CLASSES.length)];
+    const best = challengeBest();
     const cx = WORLD.width / 2;
     const cy = 420;
     const box = s.add.container(0, 0).setDepth(170);
     box.add([
       s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x000000, 0.75).setOrigin(0, 0).setInteractive(),
       s.add.rectangle(cx, cy, 440, 420, 0x111723).setStrokeStyle(2, 0x9a7ad6),
-      s.text(cx, cy - 186, `Daily run · ${date}`, 22, '#d7c2ff').setOrigin(0.5).setFontStyle('bold'),
+      s.text(cx, cy - 186, '🎲 Random Challenge', 22, '#d7c2ff').setOrigin(0.5).setFontStyle('bold'),
       s.add.rectangle(cx, cy - 50, 150, 150, 0x0b0e14).setStrokeStyle(3, 0x5a3f8a),
     ]);
     const status = s.text(cx, cy - 158, 'Drawing your starting hero…', 12, '#c9d1e0').setOrigin(0.5);
@@ -91,7 +92,7 @@ export class HeroPicker {
       box.add(shown);
       nameText.setText(c[0].toUpperCase() + c.slice(1)).setColor(cssColor(COLORS[c]));
     };
-    // The delays grow until the draw stops; start where it will land on today's class.
+    // The delays grow until the draw stops; start where it will land on the drawn class.
     const delays: number[] = [];
     for (let d = 45; d < 420; d *= 1.12) delays.push(d);
     const pool = ALL_CLASSES;
@@ -111,18 +112,18 @@ export class HeroPicker {
     };
     const reveal = () => {
       sound.play('levelUp');
-      status.setText("Today's hero").setColor('#ffd166');
+      status.setText('Your hero').setColor('#ffd166');
       s.cameras.main.flash(160, 220, 200, 255);
       for (const o of shown) s.tweens.add({ targets: o, scale: (o as Phaser.GameObjects.Image).scale * 1.15, duration: 160, yoyo: true });
       box.add([
-        s.text(cx, cy + 74, `Everyone starts as a ${cls[0].toUpperCase() + cls.slice(1)} today, on the same map against the same enemies. No camp gear or perks; camp loot still comes home.${best ? `\nYour best today: ${describeProgress(best.reached)}.` : ''}`, 12, '#c9d1e0')
+        s.text(cx, cy + 74, `A random hero and a fresh map. Every ability is open, but no camp gear or perks, and it doesn't count toward tiers or unlocks. Loot still comes home.${best ? `\nBest challenge: ${describeProgress(best.reached)}.` : ''}`, 12, '#c9d1e0')
           .setOrigin(0.5, 0)
           .setAlign('center')
           .setWordWrapWidth(400),
         s.button(cx - 90, cy + 170, 'Back', 16, '#3a4660', () => box.destroy()),
         s.button(cx + 90, cy + 170, 'Play ▶', 16, '#5a3f8a', () => {
           box.destroy();
-          this.chooseAbility(cls, 'daily', [], (first) => this.begin(newRun(cls, first, seed, { daily: date })));
+          this.chooseAbility(cls, 'challenge', [], (first) => this.begin(newRun(cls, first, undefined, { challenge: true })));
         }),
       ]);
     };
@@ -186,17 +187,17 @@ export class HeroPicker {
         const names = saved.team.map((c) => LETTERS[c]).join(' ');
         items.push(this.s.button(cx, 68, `▶ Continue: ${names} — Act ${saved.act}`, 16, '#1e6f50', () => this.s.scene.restart({ run: saved })));
       }
-      // The Camp and the Daily run, side by side and the same size.
+      // The Camp and the Random Challenge, side by side and the same size.
       items.push(
         this.s.button(cx - 104, WORLD.height - 62, '⛺ The Camp', 18, '#6b4f2a', () => {
           sound.unlock();
           sound.play('click');
           this.s.campScreen.show();
         }).setMinWidth(190),
-        this.s.button(cx + 104, WORLD.height - 62, '☀ Daily run', 18, '#5a3f8a', () => {
+        this.s.button(cx + 104, WORLD.height - 62, '🎲 Challenge', 18, '#5a3f8a', () => {
           sound.unlock();
           sound.play('click');
-          this.showDaily();
+          this.showChallenge();
         }).setMinWidth(190),
         ...this.tierPicker(),
       );
@@ -218,7 +219,7 @@ export class HeroPicker {
   }
 
   /** Step two: the hero's first ability (any active from its pool). */
-  private chooseAbility(cls: HeroClass, mode: 'start' | 'recruit' | 'daily', locked: string[], onPick: (id: AbilityId) => void): void {
+  private chooseAbility(cls: HeroClass, mode: 'start' | 'recruit' | 'challenge', locked: string[], onPick: (id: AbilityId) => void): void {
     this.hideHeroDetails();
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
 import { GEAR_BONUS, makeRound } from '../src/sim/content';
 import { bankLoot, buyPerk, resetUpgrades, canAfford, gearCost, loadCamp, lootFor, newCamp, saveCamp, upgradeGear, withGear } from '../src/sim/camp';
-import { dailySetup, lockedAbilities, newRecords, tierRules } from '../src/sim/progress';
+import { lockedAbilities, newRecords, tierRules } from '../src/sim/progress';
 import { CLASS_POOL } from '../src/sim/content';
 import { availableNodes, encounterFor, enterNode, freshPicks, newRun, rerollPrice, trainOptions } from '../src/sim/run';
 import type { HeroClass } from '../src/sim/types';
@@ -73,9 +73,18 @@ describe('The camp (between map runs)', () => {
     expect(tierRules(5).extraEnemies).toBe(1);
   });
 
-  it('the daily run is the same for everyone on a day', () => {
-    expect(dailySetup('2026-11-04')).toEqual(dailySetup('2026-11-04'));
-    expect(dailySetup('2026-11-04').seed).not.toBe(dailySetup('2026-11-05').seed);
+  it('a Random Challenge banks loot but keeps no records (no boss kills, tiers or ability unlocks)', () => {
+    const camp = newCamp();
+    const run = newRun('mage', undefined, 7, { challenge: true });
+    run.act = 3;
+    run.at = run.map.floors[run.map.floors.length - 1][0];
+    run.status = 'fight';
+    settleFight(run, camp, { won: true, fallen: [], kills: [{ kind: 'demonLord', summoned: false }] });
+    expect(run.status).toBe('won');
+    expect(camp.loot.trophies).toBeGreaterThan(0);
+    expect(camp.records.tier).toBe(0);
+    expect(camp.records.bossKills.demonLord).toBeUndefined();
+    expect(camp.records.graves[0]).toMatchObject({ won: true, challenge: true });
   });
 
   it('gear raises damage, health and cooldown speed in battle', () => {

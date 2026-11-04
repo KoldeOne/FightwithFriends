@@ -78,8 +78,8 @@ export interface RunState {
   perks: PerkId[];
   /** Class pool entries not unlocked yet (they're never offered this run). */
   locked: string[];
-  /** The daily run's date (same map, enemies and start for everyone; no camp gear or perks). */
-  daily?: string;
+  /** A Random Challenge: a random hero and map, every ability open, no camp gear or perks, and it doesn't count toward tiers or unlocks. */
+  challenge?: boolean;
   gold: number;
   /** Wishes held (from a Wishing Well): a wipe uses one, and the fight starts over. */
   wishes: number;
@@ -150,12 +150,12 @@ function shuffle<T>(rng: () => number, list: T[]): T[] {
 }
 
 /** Start a run with one hero and the first ability you picked for it. */
-/** How a run starts beyond its first hero: difficulty, perks, locked abilities, daily. */
+/** How a run starts beyond its first hero: difficulty, perks, locked abilities, a Random Challenge. */
 export interface RunOptions {
   tier?: number;
   perks?: PerkId[];
   locked?: string[];
-  daily?: string;
+  challenge?: boolean;
 }
 
 export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting, seed = Date.now() % 1_000_000, opts: RunOptions = {}): RunState {
@@ -176,7 +176,7 @@ export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting
     tier: opts.tier ?? 0,
     perks,
     locked: opts.locked ?? [],
-    daily: opts.daily,
+    challenge: opts.challenge || undefined,
     // Perks: a Coin Purse starts you with gold, a Lucky Charm with a wish.
     gold: perks.includes('purse') ? 50 : 0,
     wishes: perks.includes('charm') ? 1 : 0,
@@ -864,6 +864,12 @@ export function loadRun(): RunState | null {
     run.locked ??= [];
     run.wishes ??= 0;
     run.attempt ??= 0;
+    // The daily run became the Random Challenge.
+    const daily = (run as { daily?: string }).daily;
+    if (daily) {
+      run.challenge = true;
+      delete (run as { daily?: string }).daily;
+    }
     // Saves from before challenges and feasts were folded into elites and events, and the Gambler left.
     for (const n of Object.values(run.map.nodes) as { type: string }[]) {
       if (n.type === 'challenge') n.type = 'elite';

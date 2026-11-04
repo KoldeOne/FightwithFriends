@@ -94,7 +94,7 @@ export class BattleScene extends Phaser.Scene {
       carefulAI: this.careful,
       team: run?.team ?? [],
       // Camp gear goes with every hero (read fresh: it may have been upgraded since the run began).
-      builds: run ? (run.daily ? run.builds : withGear(run.team, run.builds, this.camp)) : undefined,
+      builds: run ? (run.challenge ? run.builds : withGear(run.team, run.builds, this.camp)) : undefined,
       ...(run && fighting ? fightMods(run) : {}),
     });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));

@@ -691,7 +691,7 @@ export class CampScreen {
     const camp = this.camp;
     this.openPanel(
       'Training Ground',
-      'Perks for the whole guild, bought once each. Every later run starts with them (not the daily run).',
+      'Perks for the whole guild, bought once each. Every later run starts with them (not a Random Challenge).',
       PERK_IDS.map((id) => {
         const p = PERKS[id];
         const owned = camp.records.perks.includes(id);
@@ -793,7 +793,7 @@ export class CampScreen {
 
 function graveTitle(g: Grave): string {
   const where = g.won ? 'Won the run' : `Fell at ${describeProgress(g.reached)}`;
-  return `${g.won ? '🏆' : '✝'} ${where}${g.tier ? ` · ${TIERS[g.tier].name}` : ''}${g.daily ? ` · Daily ${g.daily}` : ''}`;
+  return `${g.won ? '🏆' : '✝'} ${where}${g.tier ? ` · ${TIERS[g.tier].name}` : ''}${g.challenge ? ' · Challenge' : ''}`;
 }
 
 /** A canvas texture made once (gradients and glows). */

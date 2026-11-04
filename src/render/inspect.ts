@@ -90,7 +90,7 @@ export class Inspect {
       if (build?.vitality) ups.push(`Vitality ${build.vitality} (+${Math.round(UPGRADE.vitalityPerRank * build.vitality * 100)}% max health)`);
       if (build?.focus) ups.push(`Focus ${build.focus} (+${Math.round(UPGRADE.focusPerRank * build.focus * 100)}% regen)`);
       const gear = gearLines(this.s.camp.gear[u.kind as HeroClass]);
-      const daily = this.s.run?.daily ? ['Daily run: no camp gear'] : [];
+      const daily = this.s.run?.challenge ? ['Random Challenge: no camp gear'] : [];
       rows.push({ text: 'Upgrades', header: true, gap: true });
       rows.push({ text: [...ups, ...(daily.length ? daily : gear.map((g) => `Camp: ${g}`))].join('\n') || 'None yet', muted: !ups.length && (!gear.length || !!daily.length) });
     } else {

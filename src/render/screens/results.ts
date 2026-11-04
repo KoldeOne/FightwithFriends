@@ -2,9 +2,9 @@ import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
 import { actDef } from '../../sim/acts';
 import { WORLD } from '../../sim/content';
-import { bestProgress, clearRun, currentNode, describeProgress, heroLabel, recordProgress, recordWin, saveRun, spoilsLine, type Spoils } from '../../sim/run';
+import { bestProgress, winsSoFar, clearRun, currentNode, describeProgress, heroLabel, recordProgress, recordWin, saveRun, spoilsLine, type Spoils } from '../../sim/run';
 import { loadCamp, lootText, saveCamp } from '../../sim/camp';
-import { dailyBest, recordDaily } from '../../sim/progress';
+import { challengeBest, recordChallenge } from '../../sim/progress';
 import { addGrave, settleFight } from '../../sim/settle';
 import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
@@ -39,14 +39,15 @@ export class Results {
       return;
     }
     if (!won) {
-      recordProgress(run);
+      if (!run.challenge) recordProgress(run);
       clearRun();
       this.showGameOver(node.floor + 1, node.type);
       return;
     }
     if (spoils.won) {
-      recordProgress(run);
-      const wins = recordWin();
+      // A Random Challenge keeps its own best instead of counting toward the normal best and wins.
+      if (!run.challenge) recordProgress(run);
+      const wins = run.challenge ? winsSoFar() : recordWin();
       clearRun();
       this.showSpoils(spoils, loot, () => this.showVictory(wins));
       return;
@@ -209,7 +210,7 @@ export class Results {
     const run = this.s.run;
     if (!run) return;
     this.s.confirm('Abandon this run?', 'This run ends and you go back to choosing a hero. Everything at the camp (loot, gear, perks and unlocks) is kept.', 'Abandon', () => {
-      recordProgress(run);
+      if (!run.challenge) recordProgress(run);
       // The graveyard remembers abandoned runs too.
       const camp = loadCamp();
       addGrave(run, camp);
@@ -227,11 +228,15 @@ export class Results {
     const run = this.s.run!;
     this.s.state = 'over';
     const cx = WORLD.width / 2;
-    if (run.daily) {
+    if (run.challenge) {
+      // A Random Challenge keeps its own best (it doesn't count toward your normal best or wins).
       const node = currentNode(run);
       const reached = run.status === 'won' ? 999 : run.act * 100 + (node ? node.floor + 1 : 0);
-      const best = recordDaily(run.daily, reached, run.team);
-      o.lines = [...o.lines.filter((l) => !l.startsWith('Best:')), `Daily run ${run.daily}: ${describeProgress(reached)}${best ? ' (your best today!)' : ` (best today: ${describeProgress(dailyBest(run.daily)?.reached ?? 0)})`}`];
+      const best = recordChallenge(reached, run.team);
+      o.lines = [
+        ...o.lines.filter((l) => !l.startsWith('Best:') && !l.startsWith('Wins:')),
+        `Random Challenge: ${describeProgress(reached)}${best ? ' (your best challenge!)' : ` (best: ${describeProgress(challengeBest()?.reached ?? 0)})`}`,
+      ];
     }
     o.lines = [...o.lines, ...this.notices.map((n) => `🔓 ${n}`)];
     this.notices = [];

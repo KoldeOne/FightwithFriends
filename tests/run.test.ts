@@ -70,13 +70,18 @@ describe('Act maps', () => {
         for (let f = 0; f < MAP_FLOORS; f++) for (const id of m.floors[f]) if (reach.has(id)) m.nodes[id].next.forEach((n) => reach.add(n));
         expect(reach.size).toBe(Object.keys(m.nodes).length);
         for (const n of Object.values(m.nodes)) if (n.type !== 'boss') expect(n.next.length).toBeGreaterThan(0);
-        // Links never cross.
-        for (let f = 0; f < MAP_FLOORS - 1; f++) {
-          const edges = m.floors[f].flatMap((id) => m.nodes[id].next.map((to) => [m.nodes[id].col, m.nodes[to].col]));
-          for (const [a, b] of edges) for (const [c, d] of edges) expect((a - c) * (b - d) >= 0).toBe(true);
-        }
+        // Every step forks in two, to nodes of different kinds (bar fixed campsite floors; at most one exception a map).
+        let same = 0;
+        for (let f = 0; f < MAP_FLOORS - 1; f++)
+          for (const id of m.floors[f]) {
+            const kids = m.nodes[id].next.map((k) => m.nodes[k]);
+            expect(kids).toHaveLength(2);
+            if (!CAMPSITE_FLOORS[act].includes(f + 1) && kids[0].type === kids[1].type) same++;
+          }
+        expect(same).toBeLessThanOrEqual(1);
+        expect(m.start).toHaveLength(2);
         // Fights first; fixed campsite floors; no early elites or shops; a shop and two chests somewhere.
-        for (const id of [...m.floors[0], ...m.floors[1]]) expect(m.nodes[id].type).toBe('fight');
+        for (const id of m.floors[0]) expect(m.nodes[id].type).toBe('fight');
         for (const f of CAMPSITE_FLOORS[act]) for (const id of m.floors[f]) expect(m.nodes[id].type).toBe('campsite');
         for (const f of [0, 1, 2]) for (const id of m.floors[f]) expect(['elite', 'shop']).not.toContain(m.nodes[id].type);
         const types = Object.values(m.nodes).map((n) => n.type);
@@ -103,7 +108,7 @@ describe('A map run', () => {
     expect(run.team).toEqual(['mage']);
     expect(run.builds[0].abilities.map((a) => a.id)).toEqual(['frostNova']);
     expect(run.act).toBe(1);
-    expect(availableNodes(run).map((n) => n.id)).toEqual(run.map.floors[0]);
+    expect(availableNodes(run).map((n) => n.id)).toEqual(run.map.start);
   });
 
   it('you can only move along the links; fights start right away', () => {
@@ -218,6 +223,8 @@ describe('A map run', () => {
     while (run.status !== 'fight') advance(run);
     const node = currentNode(run)!;
     const kills = encounterFor(run).spawns.map((s) => ({ kind: s.kind }));
+    // (The node may already be golden on this map: compare a plain copy with a golden one.)
+    node.rich = false;
     const plain = finishFight(structuredClone(run), true, [], kills);
     node.rich = true;
     const golden = finishFight(run, true, [], kills);

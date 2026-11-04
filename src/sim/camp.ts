@@ -226,6 +226,13 @@ export function loadCamp(): CampState {
       runs: data.runs ?? 0,
       records: { ...fresh.records, ...data.records },
     };
+    // Daily-run graves are challenge graves now.
+    for (const g of camp.records.graves as (typeof camp.records.graves[number] & { daily?: string })[]) {
+      if (g.daily) {
+        g.challenge = true;
+        delete g.daily;
+      }
+    }
     for (let r = 0; r < (data.drills ?? 0); r++) addLoot(camp.loot, { ...emptyLoot(), ...oldDrillsCost(r) });
     return camp;
   } catch {

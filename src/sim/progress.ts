@@ -3,7 +3,7 @@ import type { EnemyKind, HeroClass, Loot } from './types';
 
 /**
  * Long-term progression between runs: difficulty tiers, ability unlocks, Training Ground perks, the camp's records (trophy wall and
- * graveyard) and the daily run. All numbers are first placeholders.
+ * graveyard) and the Random Challenge. All numbers are first placeholders.
  */
 
 // --- difficulty tiers -----------------------------------------------------------
@@ -48,7 +48,7 @@ export function lockedPool(cls: HeroClass, bossesBeaten: number): string[] {
 
 export type PerkId = 'purse' | 'haggler' | 'mentor' | 'charm';
 
-/** Bought once each with Spoils and Trophies; every later run starts with them (not the daily run). */
+/** Bought once each with Spoils and Trophies; every later run starts with them (not a Random Challenge). */
 export const PERKS: Record<PerkId, { name: string; text: string; cost: Partial<Loot> }> = {
   purse: { name: 'Coin Purse', text: 'Start every run with 50 gold.', cost: { spoils: 60, trophies: 1 } },
   haggler: { name: 'Haggler', text: 'The first reroll in every shop is free.', cost: { spoils: 80, trophies: 1 } },
@@ -69,7 +69,7 @@ export interface Grave {
   reached: number;
   tier: number;
   won: boolean;
-  daily?: string;
+  challenge?: boolean;
 }
 
 /** How many graves the graveyard keeps (newest first). */
@@ -98,41 +98,25 @@ export function lockedAbilities(r: Records): string[] {
   return (Object.keys(CLASS_POOL) as HeroClass[]).flatMap((cls) => lockedPool(cls, r.classBosses[cls] ?? 0));
 }
 
-// --- the daily run ---------------------------------------------------------------
+// --- the Random Challenge ---------------------------------------------------------
 
-/** Today's date as YYYY-MM-DD (local time). */
-export function today(now = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
-}
+const CHALLENGE_KEY = 'fightwithfriends.challenge';
 
-/** The daily run's seed and starting class: the same for everyone on a given day. */
-export function dailySetup(date: string): { seed: number; cls: HeroClass } {
-  let h = 2166136261;
-  for (const ch of `fwf-daily-${date}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
-  const classes: HeroClass[] = ['warrior', 'paladin', 'priest', 'mage', 'warlock', 'rogue'];
-  return { seed: h % 1_000_000, cls: classes[h % classes.length] };
-}
-
-const DAILY_KEY = 'fightwithfriends.daily';
-
-/** Your best result on a day's daily run (act * 100 + floor; 999 = won), if you've played it. */
-export function dailyBest(date: string): { reached: number; team: HeroClass[] } | undefined {
+/** Your best Random Challenge result (act * 100 + floor; 999 = won), if you've played one. */
+export function challengeBest(): { reached: number; team: HeroClass[] } | undefined {
   try {
-    const all = JSON.parse(localStorage.getItem(DAILY_KEY) ?? '{}') as Record<string, { reached: number; team: HeroClass[] }>;
-    return all[date];
+    const raw = localStorage.getItem(CHALLENGE_KEY);
+    return raw ? (JSON.parse(raw) as { reached: number; team: HeroClass[] }) : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** Keep a daily result if it's your best for that day. Returns true if it is. */
-export function recordDaily(date: string, reached: number, team: HeroClass[]): boolean {
+/** Keep a challenge result if it's your best. Returns true if it is. */
+export function recordChallenge(reached: number, team: HeroClass[]): boolean {
   try {
-    const all = JSON.parse(localStorage.getItem(DAILY_KEY) ?? '{}') as Record<string, { reached: number; team: HeroClass[] }>;
-    if ((all[date]?.reached ?? -1) >= reached) return false;
-    all[date] = { reached, team };
-    localStorage.setItem(DAILY_KEY, JSON.stringify(all));
+    if ((challengeBest()?.reached ?? -1) >= reached) return false;
+    localStorage.setItem(CHALLENGE_KEY, JSON.stringify({ reached, team }));
     return true;
   } catch {
     return false;

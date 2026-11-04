@@ -109,11 +109,12 @@ export function drawMapTerrain(
   nodes: Pt[],
   links: Pt[][],
   floors: { from: number; to: number; rowY: (f: number) => number; row: number },
-): Phaser.GameObjects.GameObject[] {
+): { under: Phaser.GameObjects.GameObject[]; ground: Phaser.GameObjects.Graphics; over: Phaser.GameObjects.GameObject[] } {
   const c = MAP_LOOK[look];
-  const g = s.add.graphics();
   const { x: bx, y: by, w: bw, h: bh } = box;
-  g.fillStyle(c.ground).fillRoundedRect(bx, by, bw, bh, 12);
+  // The ground itself stays put; the scenery on it (g) belongs to floors and can slide with them.
+  const base = s.add.graphics().fillStyle(c.ground).fillRoundedRect(bx, by, bw, bh, 12);
+  const g = s.add.graphics();
   let seed = 1;
   const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   /** Run f once per floor band, with that band's own random numbers. */
@@ -213,7 +214,7 @@ export function drawMapTerrain(
   const frame = s.add.graphics();
   frame.lineStyle(4, c.frame, 1).strokeRoundedRect(bx, by, bw, bh, 12);
   frame.lineStyle(1, 0x000000, 0.6).strokeRoundedRect(bx + 3, by + 3, bw - 6, bh - 6, 10);
-  return [s.add.rectangle(0, 96, WORLD.width, WORLD.hudTop - 96, c.bg).setOrigin(0, 0).setInteractive(), g, v, frame];
+  return { under: [s.add.rectangle(0, 96, WORLD.width, WORLD.hudTop - 96, c.bg).setOrigin(0, 0).setInteractive(), base], ground: g, over: [v, frame] };
 }
 
 /** Fog over the top of the map: the floors further up are hidden until you get closer. */

@@ -91,8 +91,18 @@ economy), `src/sim/run.ts` (run state, rewards, Auto).
 Some fights, elites and chests are **golden** (a gold ring): **2× gold, 1.5× XP
 and 2× camp loot**, and a golden chest offers **4** options instead of 3. The rewards say how much the golden bonus was.
 
-**Map rules** (so every route has a good mix): floors 1–2 are fights; no elite
-or shop before floor 4; no two of the same special node in a
+**Map shape** (2026-11-04): a diamond lattice wrapped around a ring of 8
+columns, 4 nodes a floor. **Every node forks in two** (up-left and up-right),
+and neighbouring forks share a node, so routes split and rejoin. The two
+nodes a fork leads to are **different kinds** (fight or something special;
+never the same special twice), except into a fixed campsite floor and into
+the boss; on a few early floors where only fights, a chest or an event fit,
+it can rarely happen. The act starts at a camp leading to two first-floor
+fights. The screen only shows a few floors around you, so the wrap is never
+seen.
+
+**Map rules** (so every route has a good mix): floor 1 is fights, floor 2
+fights, a chest or an event; no elite or shop before floor 4; no two of the same special node in a
 row on a path; every map has at least one shop, two chests and one chance
 encounter. Act 1's
 campsite floors are 3, 6, 9 and 12 (floor 6 recruits, the others train);
@@ -127,8 +137,10 @@ other floors (2026-11-03: the hidden "flavours" were removed).
 
 - **Enemy count:** one per hero, plus one from floor 7 on (a lone hero always
   meets one enemy at a time), up to 5.
-- **Strength** (enemy HP and damage): Act 1 1.2 + 0.08 a floor; Act 2 2.35 +
-  0.1; Act 3 3.6 + 0.16 (each act starts above the last one's end). Smaller parties meet weaker enemies (×0.6 for 1 hero,
+- **Strength** (enemy HP and damage): Act 1 1.3 + 0.085 a floor; Act 2 2.52 +
+  0.11; Act 3 3.88 + 0.17 (each act starts above the last one's end; raised
+  about 8% on 2026-11-04 because forking maps give more good choices). Camp
+  balance check: median first win over Act 1 / Act 2 / the run at runs 2 / 5 / 8. Smaller parties meet weaker enemies (×0.6 for 1 hero,
   then 0.62, 0.8, and 1 for 4). Bosses ×1.05 / 1 / 0.95 by act.
 - **Gold:** 3 per regular enemy, 14 per elite, 40 per boss, × 1 / 1.4 / 1.8 by
   act (raised minions pay nothing).
@@ -185,7 +197,7 @@ run is now tuned so an ungeared party usually falls, and the camp is what
 gets you through (2026-11-03).
 
 Tap a hero in a fight to see its **Upgrades**: this run's Might / Vitality /
-Focus, and the camp gear in numbers (no gear on the daily run). The camp's hero cards show the
+Focus, and the camp gear in numbers (no gear on a Random Challenge). The camp's hero cards show the
 gear bonuses too.
 
 Real item drops are still to be designed (see [IDEAS.md](IDEAS.md)).
@@ -209,7 +221,7 @@ numbers are first placeholders.
   one more, with a notice on the rewards. Locked abilities are never
   offered (first ability, training, chests, shops).
 - **Training Ground perks** (replaced Drills). Bought once each, for the
-  whole guild, from every later run on (not the daily run):
+  whole guild, from every later run on (not a Random Challenge):
   | Perk | Effect | Cost |
   |---|---|---|
   | Coin Purse | Start with 50 gold | 60 Spoils, 1 Trophy |
@@ -221,12 +233,13 @@ numbers are first placeholders.
   unlocked abilities. The Graveyard has a headstone per finished or abandoned
   run (the newest 12; tap for the list). A pennant goes up around the fire
   for every win, and more tents appear at 5, 15 and 30 runs.
-- **Daily run.** One a day (`☀ Daily` on the title screen): a seed and
-  starting class from the date, the same for everyone, at Normal with no
-  camp gear, perks or ability locks. Camp loot still comes home; the end
-  screen shows your result and your best that day (kept in
-  `fightwithfriends.daily`). Daily runs don't count toward boss kills, tiers
-  or unlocks.
+- **Random Challenge** (`🎲 Challenge` on the title screen): a random hero
+  (drawn like a slot machine; Back and try again to draw another) and a fresh
+  random map, at Normal, with **every ability open** but **no camp gear or
+  perks**. Camp loot still comes home. It doesn't count toward boss kills,
+  tiers, ability unlocks, or your normal best and wins; it keeps its own best
+  (`fightwithfriends.challenge`), shown on the draw and at the end. Its runs
+  get a grave marked "Challenge". (Replaced the daily run, 2026-11-04.)
 
 **Balance check** (`npm run camp-sim -- [guilds] [runs]`: the AI plays a
 guild's map runs back to back, rotating the starting class, and spends all loot
@@ -619,17 +632,21 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   **Your party (n of 4)** under the grid (hover or tap a hero for their
   details); the title screen doesn't show it.
 - **Title screen:** continue a saved run, best and wins, the hero grid, the
-  difficulty picker, and **The Camp** and **☀ Daily run** side by side at the
-  bottom (the same size). The daily run draws its starting hero like a slot
-  machine: the heroes flick past fast, slow down and stop on today's hero
-  (the same for everyone that day), then Play or Back.
+  difficulty picker, and **The Camp** and **🎲 Challenge** side by side at the
+  bottom (the same size). The Random Challenge draws its starting hero like a
+  slot machine: the heroes flick past fast, slow down and stop on a random
+  hero, then Play or Back.
 - **Map** (§2; drawing in `src/render/mapArt.ts`):
-  - **Zoomed in:** the floor you're on sits at the bottom, with the next 4
-    floors above it, and only the nodes you can still reach from where you
-    stand (roads you can no longer take are hidden). Floors you've finished aren't shown, and anything
-    further up is hidden in fog ("the way ahead is hidden") until you climb
-    closer; the boss comes into view 4 floors out. A "Floor N of 12" counter
-    sits top right.
+  - **Around you:** your node sits at the bottom centre; above it, your two
+    choices are spread across the full width, then the floor after, and a
+    third row fades into the fog ("the way ahead is hidden"). Only nodes you
+    can still reach are shown; finished floors and roads you can no longer
+    take are gone. Each row is laid out across the width in order, so roads
+    never cross; the boss sits in the middle once it's in view. A "Floor N of
+    12" counter sits top right.
+  - **Moving:** tap a node and your leader walks the road to it, then the
+    board slides it to the bottom centre (the scenery scrolls down a floor)
+    and the next choices appear.
   - **Roads:** every link is a road in the act's style (a dirt track, worn
     flagstones, charred rock). Roads from where you stand have gold dashes;
     the road you came in on has a solid gold trail. 

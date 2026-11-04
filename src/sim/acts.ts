@@ -67,8 +67,8 @@ export function actDef(act: number): ActDef {
  * own, tougher units on top.
  */
 export const STRENGTH = {
-  base: [1.2, 2.35, 3.6],
-  perFloor: [0.08, 0.1, 0.16],
+  base: [1.3, 2.52, 3.88],
+  perFloor: [0.085, 0.11, 0.17],
   /** Elites are a real risk (for a better reward); bosses stand out. */
   elite: 1.15,
   /** An elite with a twist is a bit tougher again. */

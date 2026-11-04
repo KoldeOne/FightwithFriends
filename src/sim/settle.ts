@@ -37,8 +37,8 @@ export function settleFight(run: RunState, camp: CampState | undefined, result: 
     if (camp) bankLoot(camp, loot);
     addLoot(run.loot, loot);
   }
-  const notices = camp && !run.daily ? keepRecords(run, camp, node.type === 'boss' && result.won) : [];
-  if (camp && run.daily && run.status !== 'map' && run.status !== 'fight') addGrave(run, camp);
+  const notices = camp && !run.challenge ? keepRecords(run, camp, node.type === 'boss' && result.won) : [];
+  if (camp && run.challenge && run.status !== 'map' && run.status !== 'fight') addGrave(run, camp);
   return { spoils, loot, notices };
 }
 
@@ -84,7 +84,7 @@ export function addGrave(run: RunState, camp: CampState): void {
     reached: run.status === 'won' ? 999 : run.act * 100 + (node ? node.floor + 1 : 0),
     tier: run.tier ?? 0,
     won: run.status === 'won',
-    daily: run.daily,
+    challenge: run.challenge,
   });
   camp.records.graves.length = Math.min(camp.records.graves.length, MAX_GRAVES);
 }
