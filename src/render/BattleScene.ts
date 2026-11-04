@@ -5,7 +5,7 @@ import { ARENA, ENEMY_LAYOUT, HERO_LINES, SUDDEN_DEATH, WORLD } from '../sim/con
 import { sound } from './sound';
 import { encounterFor, fightMods, fightSeed, type RunState } from '../sim/run';
 import { type Unit } from '../sim/types';
-import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, DPR, FONT } from './theme';
+import { ensurePixelTextures, HERO_SPRITES, partyLayout, type SceneState, TEXT_RES, FONT, FONT_SCALE, ZOOM } from './theme';
 import { Hud } from './hud';
 import { PixelButton } from './button';
 import { Inspect } from './inspect';
@@ -17,6 +17,7 @@ import { Results } from './screens/results';
 import { CampScreen } from './screens/camp';
 import { Meter } from './meter';
 import { Weather } from './weather';
+import { decorateField } from './field';
 import { loadCamp, withGear, type CampState } from '../sim/camp';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
@@ -66,6 +67,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   create(data?: { run?: RunState }): void {
+    // Draw at the screen's density: the canvas is ZOOM x the world (see main.ts).
+    this.cameras.main.setOrigin(0, 0).setZoom(ZOOM);
     this.hud = new Hud(this);
     this.inspect = new Inspect(this);
     this.units = new UnitLayer(this);
@@ -214,14 +217,14 @@ export class BattleScene extends Phaser.Scene {
    * closes the inspect window. It doesn't change what the AI does.
    */
   onFieldTap(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
-    if (over.length || pointer.y > WORLD.hudTop) return;
+    if (over.length || pointer.worldY > WORLD.hudTop) return;
     if (this.state !== 'playing' && this.state !== 'paused') return;
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.battle.units) {
       if (!u.alive) continue;
       const v = this.units.views.get(u.id)?.container;
-      const d = Math.hypot((v?.x ?? u.x) - pointer.x, (v?.y ?? u.y) - pointer.y);
+      const d = Math.hypot((v?.x ?? u.x) - pointer.worldX, (v?.y ?? u.y) - pointer.worldY);
       if (d <= u.radius + 24 && d < bestD) {
         best = u;
         bestD = d;
@@ -265,7 +268,6 @@ export class BattleScene extends Phaser.Scene {
     const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const top = ARENA.top + 6;
     const bottom = ARENA.bottom + 8;
-    const midY = (ENEMY_LAYOUT.rowY[0] + HERO_LINES.front) / 2;
     if (look === 'forest') {
       // A treeline along the top, mown stripes, tufts and a few flowers.
       g.fillStyle(0x1d3a24).fillRect(0, 0, WORLD.width, WORLD.hudTop);
@@ -274,7 +276,9 @@ export class BattleScene extends Phaser.Scene {
         g.fillStyle(0x2d5c34).fillCircle(x + 12 + rand() * 8, ARENA.top - 14 + rand() * 8, 18 + rand() * 6);
       }
       g.fillStyle(0x3f7a3a).fillRoundedRect(6, ARENA.top, WORLD.width - 12, ARENA.bottom - ARENA.top + 14, 18);
-      for (let y = top, k = 0; y < bottom; y += 38, k++) g.fillStyle(k % 2 ? 0x4f8f45 : 0x5a9a4c).fillRect(12, y, WORLD.width - 24, Math.min(38, bottom - y));
+      // Uneven grass: soft lighter and darker patches instead of mown stripes.
+      g.fillStyle(0x52923f).fillRect(12, top, WORLD.width - 24, bottom - top);
+      for (let n = 0; n < 60; n++) g.fillStyle(rand() < 0.5 ? 0x4a873c : 0x5c9e4b, 0.7).fillEllipse(20 + rand() * (WORLD.width - 40), top + rand() * (bottom - top), 40 + rand() * 90, 20 + rand() * 40);
       for (let n = 0; n < 140; n++) {
         const x = 20 + rand() * (WORLD.width - 40);
         const y = top + 6 + rand() * (bottom - top - 12);
@@ -289,8 +293,6 @@ export class BattleScene extends Phaser.Scene {
         g.fillStyle(rand() < 0.5 ? 0xf6f1d8 : 0xffd166).fillCircle(x, y, 2);
         g.fillStyle(0xe8a93a).fillCircle(x, y, 0.8);
       }
-      g.lineStyle(2, 0xf2f4e8, 0.35).lineBetween(24, midY, WORLD.width - 24, midY);
-      g.lineStyle(2, 0xf2f4e8, 0.35).strokeCircle(WORLD.width / 2, midY, 40);
     } else if (look === 'crypt') {
       // A crypt: dark walls with arches, a floor of worn stone slabs, cracks and candles.
       g.fillStyle(0x15171f).fillRect(0, 0, WORLD.width, WORLD.hudTop);
@@ -321,7 +323,6 @@ export class BattleScene extends Phaser.Scene {
         g.fillStyle(0xffd166, 0.25).fillCircle(x, y - 10, 14);
         g.fillStyle(0xffb347).fillCircle(x, y - 9, 2.5);
       }
-      g.lineStyle(2, 0x9ad1ff, 0.18).strokeCircle(WORLD.width / 2, midY, 44);
     } else {
       // A hellscape: black rock, glowing seams of lava, embers.
       g.fillStyle(0x1a0c0c).fillRect(0, 0, WORLD.width, WORLD.hudTop);
@@ -345,8 +346,8 @@ export class BattleScene extends Phaser.Scene {
         }
       }
       for (let n = 0; n < 30; n++) g.fillStyle(0xffb347, 0.7).fillCircle(20 + rand() * (WORLD.width - 40), top + rand() * (bottom - top), 1.2);
-      g.lineStyle(2, 0xff8c1a, 0.2).strokeCircle(WORLD.width / 2, midY, 44);
     }
+    decorateField(this, look, { top, bottom });
   }
 
 
@@ -378,6 +379,6 @@ export class BattleScene extends Phaser.Scene {
   }
 
   text(x: number, y: number, str: string, size: number, color: string): Phaser.GameObjects.Text {
-    return this.add.text(x, y, str, { fontFamily: FONT, fontSize: `${size}px`, color }).setResolution(DPR);
+    return this.add.text(x, y, str, { fontFamily: FONT, fontSize: `${Math.round(size * FONT_SCALE)}px`, color }).setResolution(TEXT_RES);
   }
 }

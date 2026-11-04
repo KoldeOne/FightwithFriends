@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DPR, FONT } from './theme';
+import { TEXT_RES, FONT, FONT_SCALE } from './theme';
 
 /** Bevel thickness (px). */
 const BEVEL = 2;
@@ -33,7 +33,7 @@ export class PixelButton extends Phaser.GameObjects.Container {
     super(scene, x, y);
     this.color = color;
     this.gfx = scene.add.graphics();
-    this.label = scene.add.text(0, 0, text, { fontFamily: FONT, fontSize: `${size}px`, color: '#ffffff' }).setResolution(DPR).setOrigin(0.5).setFontStyle('bold');
+    this.label = scene.add.text(0, 0, text, { fontFamily: FONT, fontSize: `${Math.round(size * FONT_SCALE)}px`, color: '#ffffff' }).setResolution(TEXT_RES).setOrigin(0.5).setFontStyle('bold');
     this.label.setShadow(1, 1, 'rgba(0,0,0,0.5)', 0);
     this.add([this.gfx, this.label]);
     scene.add.existing(this);

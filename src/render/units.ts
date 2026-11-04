@@ -7,7 +7,9 @@ import { type AbilityId, type BattleEvent, type Unit } from '../sim/types';
 import { SCHOOL_COLORS, MAX_PARTICLES, schoolOf, type School } from './fx';
 import { Remains } from './remains';
 import type { EnemyKind } from '../sim/types';
-import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectIcon, ICON_PX } from './theme';
+import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectIcon, ICON_PX, FONT_SCALE } from './theme';
+/** Shadows at a unit's feet: the base disc squashed to an ellipse. */
+const SHADOW_SQUASH = 0.38;
 
 /** Unit sprites and combat effects: views, projectiles, hits, numbers, deaths. */
 export class UnitLayer {
@@ -38,6 +40,7 @@ export class UnitLayer {
 
   // --- units --------------------------------------------------------------
 
+
   createView(u: Unit): void {
     const body = this.s.add.circle(0, 0, u.radius, COLORS[u.kind] ?? 0xffffff);
     body.setStrokeStyle(u.side === 'enemy' ? 3 : 2, u.side === 'enemy' ? ENEMY_STROKE : 0x111111);
@@ -54,7 +57,9 @@ export class UnitLayer {
     if (this.s.textures.exists(key)) {
       // Keep pixels crisp when scaled up.
       this.s.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
-      body.setFillStyle(COLORS[u.kind] ?? 0xffffff, 0.35);
+      // The disc becomes a soft shadow at the feet, with a thin rim in the unit's colour.
+      body.setPosition(0, u.radius * 0.6).setScale(1, SHADOW_SQUASH).setFillStyle(0x000000, 0.32);
+      body.setStrokeStyle(2, u.side === 'enemy' ? ENEMY_STROKE : (COLORS[u.kind] ?? 0xffffff), 0.75);
       letter.setVisible(false);
       const scale = spriteScale(u);
       baseScale = scale;
@@ -147,7 +152,7 @@ export class UnitLayer {
 
   /** Brief push of a unit's figure (lunges and knockback); returns to rest. */
   nudge(v: UnitView, dx: number, dy: number, duration: number): void {
-    this.s.tweens.add({ targets: v.body, x: dx, y: dy, duration, yoyo: true });
+    this.s.tweens.add({ targets: v.body, x: `+=${dx}`, y: `+=${dy}`, duration, yoyo: true });
     if (v.sprite) this.s.tweens.add({ targets: v.sprite, x: `+=${dx}`, y: `+=${dy}`, duration, yoyo: true });
   }
 
@@ -192,9 +197,16 @@ export class UnitLayer {
         sheepIcon?.setVisible(sheep);
         v.sprite?.setVisible(!sheep);
         v.letter.setVisible(sheep ? !sheepIcon : !v.sprite);
-        v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind], v.sprite && !sheep ? 0.35 : 1);
-        v.body.setStrokeStyle(3, sheep ? SCHOOL_COLORS.arcane.main : this.s.battle.hasEffect(u, 'slow') ? SLOW_STROKE : ENEMY_STROKE);
-        v.letter.setText(sheep ? '~' : LETTERS[u.kind]).setFontSize(u.radius);
+        const stroke = sheep ? SCHOOL_COLORS.arcane.main : this.s.battle.hasEffect(u, 'slow') ? SLOW_STROKE : ENEMY_STROKE;
+        if (v.sprite && !sheep) {
+          // The shadow at its feet (slowed: a blue rim).
+          if (v.body.scaleY !== SHADOW_SQUASH) v.body.setScale(1, SHADOW_SQUASH).setY(u.radius * 0.6);
+          v.body.setFillStyle(0x000000, 0.32).setStrokeStyle(2, stroke, 0.75);
+        } else {
+          if (v.sprite && v.body.scaleY !== 1) v.body.setScale(1, 1).setY(0);
+          v.body.setFillStyle(sheep ? 0xf4f1e8 : COLORS[u.kind], 1).setStrokeStyle(3, stroke);
+        }
+        v.letter.setText(sheep ? '~' : LETTERS[u.kind]).setFontSize(Math.round(u.radius * FONT_SCALE));
         if (sheep) v.letter.setColor('#555');
         else v.letter.setColor(DARK_LETTER.includes(u.kind) ? '#222' : '#fff');
       }
@@ -488,7 +500,8 @@ export class UnitLayer {
     if (existing && existing.text.active && now - existing.at < 300) {
       existing.total += amount;
       existing.at = now;
-      existing.text.setText(`${prefix}${existing.total}`).setFontSize(Math.min(size + 6, Math.max(parseInt(`${existing.text.style.fontSize}`, 10), size)));
+      const current = parseInt(`${existing.text.style.fontSize}`, 10) / FONT_SCALE;
+      existing.text.setText(`${prefix}${existing.total}`).setFontSize(Math.round(Math.min(size + 6, Math.max(current, size)) * FONT_SCALE));
       return;
     }
     const stack = (this.numberStacks.get(targetId) ?? []).filter((t) => t.active);

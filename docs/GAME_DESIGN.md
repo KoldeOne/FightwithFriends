@@ -554,6 +554,15 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   - Shots recoil with a flash at the hands.
   - Spellcasters hop with a glow at their feet in the spell's colour.
   - Downed heroes fall over and stay down.
+- **Shadows:** every unit stands on a soft shadow with a thin rim in its
+  colour (enemies red; a slowed enemy's rim turns blue).
+- **The field** (`src/render/field.ts`): no pitch markings. The forest has
+  uneven grass, a worn dirt path, bushes, stumps, rocks and mushrooms; the
+  crypt broken pillars, bone piles and cobwebs; the hellscape glowing pools,
+  jagged rocks and skulls. Props stay near the edges. Each act has its own
+  light: the ground darkens toward the edges (green in the forest, deep blue
+  and darkest in the crypt, red in the hellscape), under the units so they
+  stay bright.
 - **Remains** (`src/render/remains.ts`; they last for the fight, at most 50):
   - Fallen enemies collapse and leave what they were made of:
     - goblins: a pool of blood and bones with a skull
@@ -677,6 +686,15 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 ## 10. Tech
 
 - TypeScript, Phaser 3.90 (Scale.FIT), Vite and Vitest.
+- **Sharp on phones:** the canvas is `ZOOM` (the screen's pixel density,
+  1 or 2) times the 540 x 960 world, and the camera zooms in to match, so
+  shapes and text are drawn at the screen's real resolution. Game code works
+  in world units; taps use `pointer.worldX/worldY`. Text is drawn at least
+  2x (`TEXT_RES`).
+- **Font:** Jersey 10 (SIL Open Font License, `@fontsource/jersey-10`), a
+  pixel font for all text. It runs small, so `s.text()` and buttons scale
+  every size by `FONT_SCALE` (1.25). The game waits for it to load (up to
+  2.5 s) before starting.
 - `src/sim` holds the pure, deterministic simulation: a seeded RNG and no
   Phaser. `src/render` draws it.
 - `src/render/BattleScene.ts` owns the battle and run state and the update
@@ -685,6 +703,8 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   - `hud.ts`: top bar, party panels and tooltips
   - `inspect.ts`: the inspect window
   - `units.ts`: unit sprites and combat effects
+  - `field.ts`: each act's props along the field edges and its light (a vignette over the ground)
+  - `remains.ts` and `weather.ts`: ground marks, and each act's weather
   - `screens/`: hero picker (title, recruits), map, choices (training, upgrades, shop), results (spoils, game over, victory) and the camp
 
   New screens (for example story scenes) go in `screens/`.
