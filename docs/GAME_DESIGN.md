@@ -197,17 +197,13 @@ the title screen (`screens/hero.ts`) and the camp (`screens/camp.ts`). All
 numbers are first placeholders.
 
 - **Difficulty tiers.** Normal, then Tiers 1–5, chosen on the title screen
-  (◀ ▶, remembered). Winning a run on a tier opens the next one. Each tier
+  (◀ ▶, remembered). Winning a run on a tier opens the next one. (Class unlocks are not in the game yet: every class is always playable.) Each tier
   adds one rule to those below it and pays +25% camp loot per tier:
   1. Elites are 15% tougher.
   2. Enemies drop 20% less gold.
   3. Every enemy is 10% tougher.
   4. Your heroes heal 15% less.
   5. One more enemy in every fight from floor 4 (not bosses).
-- **Class unlocks.** You start with Warrior, Priest and Mage. Your first win
-  on Normal unlocks the Paladin, on Tier 1 the Rogue, on Tier 2 the Warlock.
-  The hero select shows how to unlock each one. While testing, every class
-  stays playable (`ALL_CLASSES_UNLOCKED_FOR_TESTING`).
 - **Ability unlocks.** Each class starts with 4 of its pool (plus its
   starting ability). Every boss beaten with that class in the party unlocks
   one more, with a notice on the rewards. Locked abilities are never

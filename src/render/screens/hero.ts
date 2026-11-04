@@ -21,7 +21,7 @@ import {
 } from '../../sim/run';
 import type { AbilityId, HeroClass } from '../../sim/types';
 import { loadCamp, saveCamp } from '../../sim/camp';
-import { ALL_CLASSES_UNLOCKED_FOR_TESTING, classUnlockHint, dailyBest, dailySetup, lockedAbilities, TIER_LOOT, TIERS, today, type Records } from '../../sim/progress';
+import { dailyBest, dailySetup, lockedAbilities, TIER_LOOT, TIERS, today } from '../../sim/progress';
 
 /** The difficulty tier you last chose (kept between visits). */
 const TIER_KEY = 'fightwithfriends.tier';
@@ -150,7 +150,6 @@ export class HeroPicker {
           sound.play('click');
           onPick(cls);
         },
-        this.s.state === 'title' ? loadCamp().records : undefined,
       ),
     );
     items.push(...this.partyStrip(this.s.state === 'title' ? undefined : this.s.run!));
@@ -341,7 +340,7 @@ export class HeroPicker {
     return max ? [arrow(-150, '◀'), arrow(150, '▶'), label, rule] : [label, rule];
   }
 
-  classCards(top: number, onPick: (cls: HeroClass) => void, records?: Records): Phaser.GameObjects.GameObject[] {
+  classCards(top: number, onPick: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
     const cx = WORLD.width / 2;
     const cardH = 68;
     const items: Phaser.GameObjects.GameObject[] = [];
@@ -356,12 +355,8 @@ export class HeroPicker {
         .on('pointerout', () => bg.setFillStyle(0x1c2433))
         .on('pointerdown', () => onPick(cls));
       const left = cx - 225;
-      // Classes still to unlock say how (and stay playable while testing).
-      const hint = records && classUnlockHint(records, cls);
-      if (hint && !ALL_CLASSES_UNLOCKED_FOR_TESTING) bg.disableInteractive().setAlpha(0.5);
       items.push(
         bg,
-        ...(hint ? [this.s.text(cx + 222, y + 30, `🔒 ${hint.replace('Win a run on', 'Win on').replace(' to unlock', '')}`, 10, '#ffb36b').setOrigin(1, 1)] : []),
         ...this.portrait(cls, left + 30, y + 30, 1.65),
         this.s.text(left + 64, y - 29, cls[0].toUpperCase() + cls.slice(1), 17, '#ffffff').setFontStyle('bold'),
         this.s.text(left + 150, y - 26, kit.role, 11, '#c9d1e0'),

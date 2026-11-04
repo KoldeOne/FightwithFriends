@@ -2,7 +2,7 @@ import { actDef, ECONOMY } from './acts';
 import { addLoot, bankLoot, emptyLoot, lootFor, scaleLoot, type CampState } from './camp';
 import { currentNode, finishFight, fightSeed, type RunState, type Spoils } from './run';
 import { ABILITIES, TRAITS } from './content';
-import { CLASS_UNLOCKS, lockedPool, MAX_GRAVES, MAX_TIER, TIER_LOOT, TIERS } from './progress';
+import { lockedPool, MAX_GRAVES, MAX_TIER, TIER_LOOT, TIERS } from './progress';
 import type { EnemyKind, Loot } from './types';
 
 /** How a fight went, as the game or the simulator saw it. */
@@ -42,7 +42,7 @@ export function settleFight(run: RunState, camp: CampState | undefined, result: 
   return { spoils, loot, notices };
 }
 
-/** Boss kills (trophy wall), abilities unlocked by them, and at the end of a run its grave, tier and class unlocks. */
+/** Boss kills (trophy wall), abilities unlocked by them, and at the end of a run its grave and tier unlock. */
 function keepRecords(run: RunState, camp: CampState, bossDown: boolean): string[] {
   const r = camp.records;
   const notices: string[] = [];
@@ -68,8 +68,6 @@ function keepRecords(run: RunState, camp: CampState, bossDown: boolean): string[
         r.tier = t + 1;
         notices.push(`${TIERS[t + 1].name} unlocked: ${TIERS[t + 1].rule}`);
       }
-      const cls = CLASS_UNLOCKS[t];
-      if (cls) notices.push(`New class unlocked: ${cls[0].toUpperCase() + cls.slice(1)}`);
     }
   }
   if (run.status === 'won' || run.status === 'lost') addGrave(run, camp);

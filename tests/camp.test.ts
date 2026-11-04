@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
 import { GEAR_BONUS, makeRound } from '../src/sim/content';
 import { bankLoot, buyPerk, resetUpgrades, canAfford, gearCost, loadCamp, lootFor, newCamp, saveCamp, upgradeGear, withGear } from '../src/sim/camp';
-import { dailySetup, lockedAbilities, newRecords, tierRules, unlockedClasses } from '../src/sim/progress';
+import { dailySetup, lockedAbilities, newRecords, tierRules } from '../src/sim/progress';
 import { CLASS_POOL } from '../src/sim/content';
 import { availableNodes, encounterFor, enterNode, freshPicks, newRun, rerollPrice, trainOptions } from '../src/sim/run';
 import type { HeroClass } from '../src/sim/types';
@@ -47,7 +47,7 @@ describe('The camp (between map runs)', () => {
     expect(lockedAbilities(records).some((id) => CLASS_POOL.warrior.includes(id as never))).toBe(false);
   });
 
-  it('winning on a tier unlocks the next tier and a class; every run leaves a grave', () => {
+  it('winning on a tier unlocks the next tier; every run leaves a grave', () => {
     const camp = newCamp();
     const run = newRun('mage', undefined, 7);
     run.act = 3;
@@ -59,8 +59,7 @@ describe('The camp (between map runs)', () => {
     expect(camp.records.tier).toBe(1);
     expect(camp.records.bossKills.demonLord).toBe(1);
     expect(camp.records.graves[0]).toMatchObject({ won: true, team: ['mage'] });
-    expect(notices.some((n) => n.includes('Paladin'))).toBe(true);
-    expect(unlockedClasses(camp.records)).toContain('paladin');
+    expect(notices.some((n) => n.includes('Tier 1'))).toBe(true);
   });
 
   it('tiers make fights harder and pay more camp loot', () => {

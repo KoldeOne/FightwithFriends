@@ -2,13 +2,9 @@ import { CLASS_POOL, HERO_KIT } from './content';
 import type { EnemyKind, HeroClass, Loot } from './types';
 
 /**
- * Long-term progression between runs: difficulty tiers, class and ability
- * unlocks, Training Ground perks, the camp's records (trophy wall and
+ * Long-term progression between runs: difficulty tiers, ability unlocks, Training Ground perks, the camp's records (trophy wall and
  * graveyard) and the daily run. All numbers are first placeholders.
  */
-
-/** Testing switch: every class is playable even before it's unlocked (Kolde, 2026-11-03). */
-export const ALL_CLASSES_UNLOCKED_FOR_TESTING = true;
 
 // --- difficulty tiers -----------------------------------------------------------
 
@@ -36,13 +32,6 @@ export function tierRules(tier: number): { eliteStrength: number; strength: numb
     extraEnemies: tier >= 5 ? 1 : 0,
   };
 }
-
-// --- class unlocks ----------------------------------------------------------------
-
-/** You start with these; the others unlock by winning a run on a tier. */
-export const STARTING_CLASSES: HeroClass[] = ['warrior', 'priest', 'mage'];
-/** Winning on tier N unlocks this class (and tier N+1). */
-export const CLASS_UNLOCKS: HeroClass[] = ['paladin', 'rogue', 'warlock'];
 
 // --- ability unlocks --------------------------------------------------------------
 
@@ -102,19 +91,6 @@ export interface Records {
 
 export function newRecords(): Records {
   return { tier: 0, tierWins: [], perks: [], bossKills: {}, classBosses: {}, graves: [] };
-}
-
-/** Classes you can pick (all of them while testing). */
-export function unlockedClasses(r: Records): HeroClass[] {
-  const won = CLASS_UNLOCKS.filter((_, t) => (r.tierWins[t] ?? 0) > 0);
-  return [...STARTING_CLASSES, ...won];
-}
-
-/** What a class still needs before it unlocks (undefined = unlocked). */
-export function classUnlockHint(r: Records, cls: HeroClass): string | undefined {
-  if (unlockedClasses(r).includes(cls)) return undefined;
-  const t = CLASS_UNLOCKS.indexOf(cls);
-  return `Win a run on ${TIERS[t].name} to unlock`;
 }
 
 /** Locked pool entries for every class (the run keeps this list). */
