@@ -99,6 +99,14 @@ export class MapScreen {
         this.s.tweens.add({ targets: ring, scale: 1.25, alpha: 0.2, duration: 700, yoyo: true, repeat: -1 });
       }
       items.push(icon);
+      // Fights you've won leave a little skull and crossbones beside the node.
+      if (visited.has(n.id) && !here && (n.type === 'fight' || n.type === 'elite')) {
+        const m = this.s.add.graphics({ x: p.x + size / 2 - 2, y: p.y + size / 2 - 4 });
+        m.lineStyle(2, 0xe8e0cc, 0.9).lineBetween(-5, -3, 5, 5).lineBetween(-5, 5, 5, -3);
+        m.fillStyle(0xe8e0cc, 0.95).fillCircle(0, -2, 4);
+        m.fillStyle(0x1a1410, 1).fillCircle(-1.5, -2.5, 1).fillCircle(1.5, -2.5, 1);
+        items.push(m);
+      }
       // An elite with a twist says what it is.
       const twist = eliteTwist(run, n);
       if (twist) {

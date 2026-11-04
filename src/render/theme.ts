@@ -280,6 +280,19 @@ export interface UnitView {
   /** Buff/debuff icons under an enemy's health bar (heroes show theirs on their panel). */
   effectIcons: Phaser.GameObjects.Image[];
   dead: boolean;
+  /** The sprite's resting scale (animations squash and stretch around it). */
+  baseScale: number;
+  /** Walking sway phase, and where the unit was last frame. */
+  walk: number;
+  lastX: number;
+  lastY: number;
+  /** An attack or cast animation owns the sprite's tilt and scale until this time (ms). */
+  busyUntil: number;
+  /** Kept for the death animation and remains (the unit may be gone from the battle by then). */
+  side: 'hero' | 'enemy';
+  kind: string;
+  radius: number;
+  boss: boolean;
 }
 
 /** choosing: team builder. recruit: picking a new hero. placing: arranging heroes before the fight. */

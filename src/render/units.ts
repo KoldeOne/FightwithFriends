@@ -5,6 +5,8 @@ import { ABILITIES, ABILITY_TUNING, BOSS_SPECIALS } from '../sim/content';
 import { sound } from './sound';
 import { type AbilityId, type BattleEvent, type Unit } from '../sim/types';
 import { SCHOOL_COLORS, MAX_PARTICLES, schoolOf, type School } from './fx';
+import { Remains } from './remains';
+import type { EnemyKind } from '../sim/types';
 import { spriteKey, spriteScale, spriteTopRow, spriteOriginY, COLORS, LETTERS, DARK_LETTER, PROJECTILE_COLORS, GOLD, ENEMY_STROKE, SLOW_STROKE, EFFECT_INFO, UNIT_ICONS, UNIT_ICON, type UnitView, effectIcon, ICON_PX } from './theme';
 
 /** Unit sprites and combat effects: views, projectiles, hits, numbers, deaths. */
@@ -30,6 +32,8 @@ export class UnitLayer {
   /** Short-lived particles alive now (capped at MAX_PARTICLES). */
   particles = 0;
   lastReinforcementCall = -99;
+  /** What fights leave on the ground: remains, spatter, scorch marks. */
+  remains = new Remains(this.s);
   focusMarker!: Phaser.GameObjects.Graphics;
 
   // --- units --------------------------------------------------------------
@@ -44,6 +48,7 @@ export class UnitLayer {
     const flash = this.s.add.circle(0, 0, u.radius, 0xffffff).setAlpha(0);
     const container = this.s.add.container(u.x, u.y, [body, flash, letter, hpBar]);
     let sprite: Phaser.GameObjects.Image | undefined;
+    let baseScale = 1;
     let top = -u.radius;
     const key = spriteKey(u);
     if (this.s.textures.exists(key)) {
@@ -52,6 +57,7 @@ export class UnitLayer {
       body.setFillStyle(COLORS[u.kind] ?? 0xffffff, 0.35);
       letter.setVisible(false);
       const scale = spriteScale(u);
+      baseScale = scale;
       sprite = this.s.add.image(0, u.radius * 0.6, key).setScale(scale);
       sprite.setOrigin(0.5, spriteOriginY(key, sprite.height));
       container.addAt(sprite, 2);
@@ -89,7 +95,59 @@ export class UnitLayer {
       container.add(img);
       effectIcons.push(img);
     }
-    this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, effectIcons, dead: false });
+    this.views.set(u.id, { container, body, hpBar, name, letter, flash, sprite, top, aggroIcon, castLabel, effectIcons, dead: false, baseScale, walk: Math.random() * 6, lastX: u.x, lastY: u.y, busyUntil: 0, side: u.side, kind: u.kind, radius: u.radius, boss: !!u.isBoss });
+  }
+
+  /**
+   * Life in the figures: a sway while walking, slow breathing while standing,
+   * and facing the way they move. Attack and cast animations take over the
+   * tilt and scale for a moment (busyUntil).
+   */
+  private animate(v: UnitView, u: Unit): void {
+    const sp = v.sprite;
+    if (!sp) return;
+    const x = v.container.x;
+    const y = v.container.y;
+    const dx = x - v.lastX;
+    const dy = y - v.lastY;
+    v.lastX = x;
+    v.lastY = y;
+    const moving = Math.hypot(dx, dy) > 0.15;
+    if (Math.abs(dx) > 0.2 && !this.s.battle.isSheep(u)) sp.setFlipX(dx < 0);
+    if (this.s.time.now < v.busyUntil) return;
+    if (moving) {
+      v.walk += 0.32;
+      sp.setRotation(Math.sin(v.walk) * 0.09);
+      sp.setScale(v.baseScale, v.baseScale * (1 + Math.abs(Math.sin(v.walk)) * 0.04));
+    } else {
+      sp.setRotation(sp.rotation * 0.8);
+      const breath = Math.sin(this.s.time.now / 420 + u.id) * 0.025;
+      sp.setScale(v.baseScale * (1 - breath * 0.4), v.baseScale * (1 + breath));
+    }
+  }
+
+  /** Attack wind-up and follow-through: tilt toward the target, squash, then stretch back. */
+  private swingPose(v: UnitView, dx: number, duration: number): void {
+    const sp = v.sprite;
+    if (!sp) return;
+    v.busyUntil = this.s.time.now + duration * 2 + 20;
+    const tilt = Math.sign(dx || 1) * 0.32;
+    sp.setRotation(-tilt * 0.4).setScale(v.baseScale * 1.06, v.baseScale * 0.92);
+    this.s.tweens.add({ targets: sp, rotation: tilt, scaleX: v.baseScale * 0.96, scaleY: v.baseScale * 1.06, duration, yoyo: true, ease: 'Quad.easeOut' });
+  }
+
+  /** A caster's flourish: a little hop and a glow at their feet in the spell's colour. */
+  castPose(id: number, color: number): void {
+    const v = this.views.get(id);
+    if (!v || v.dead) return;
+    const sp = v.sprite;
+    if (sp) {
+      v.busyUntil = this.s.time.now + 260;
+      sp.setScale(v.baseScale);
+      this.s.tweens.add({ targets: sp, y: `-=6`, scaleY: v.baseScale * 1.08, duration: 110, yoyo: true, ease: 'Quad.easeOut' });
+    }
+    const glow = this.s.add.ellipse(v.container.x, v.container.y + 10, 30, 10, color, 0.45).setDepth(9);
+    this.s.tweens.add({ targets: glow, scaleX: 1.8, scaleY: 1.8, alpha: 0, duration: 380, onComplete: () => glow.destroy() });
   }
 
   /** Brief push of a unit's figure (lunges and knockback); returns to rest. */
@@ -107,6 +165,7 @@ export class UnitLayer {
       const a = Math.min(1, this.s.acc / STEP);
       if (prev && this.s.battle.outcome === 'running') v.container.setPosition(prev.x + (u.x - prev.x) * a, prev.y + (u.y - prev.y) * a);
       else v.container.setPosition(u.x, u.y);
+      this.animate(v, u);
       const w = u.radius * 2 + 6;
       const y = v.top - 10;
       v.hpBar.clear();
@@ -312,6 +371,17 @@ export class UnitLayer {
     bolt.setStrokeStyle(big ? 3 : 2, big ? 0xffd166 : school === 'physical' ? 0x222222 : sc.light, big ? 1 : 0.9);
     let lastTrail = 0;
     sound.play(big ? 'fire' : ability === 'iceLance' ? 'frost' : 'shoot');
+    // The shooter: a small recoil and a flash at the hands (a spell also gets a cast flourish).
+    const shooterView = this.views.get(fromId);
+    if (shooterView) {
+      const ddx = to.x - from.x;
+      const ddy = to.y - from.y;
+      const dl = Math.hypot(ddx, ddy) || 1;
+      this.nudge(shooterView, (-ddx / dl) * 3, (-ddy / dl) * 3, 60);
+      const flash = this.s.add.circle(from.x + (ddx / dl) * 12, from.y + (ddy / dl) * 12 - 6, big ? 9 : 6, sc.light, 0.9).setDepth(31);
+      this.s.tweens.add({ targets: flash, scale: 1.8, alpha: 0, duration: 140, onComplete: () => flash.destroy() });
+      if (ability) this.castPose(fromId, sc.main);
+    }
     const sx = from.x;
     const sy = from.y;
     // Home in on where the target is drawn, so the shot always lands on it.
@@ -361,12 +431,19 @@ export class UnitLayer {
       const dy = ty - fy;
       const len = Math.hypot(dx, dy) || 1;
       const lunger = this.views.get(fromId);
-      if (lunger) this.nudge(lunger, (dx / len) * 7, (dy / len) * 7, 70);
+      if (lunger) {
+        this.nudge(lunger, (dx / len) * 8, (dy / len) * 8, 75);
+        this.swingPose(lunger, dx, 75);
+      }
+      // The swing: an arc sweeping across the target.
       const slash = this.s.add.graphics().setDepth(30);
-      const w = ability === 'eviscerate' ? 9 : ability === 'heroicStrike' ? 8 : ability === 'sinisterStrike' ? 7 : 3;
+      const w = ability === 'eviscerate' ? 6 : ability === 'heroicStrike' ? 5 : ability === 'sinisterStrike' ? 5 : 3;
       const c = ability === 'eviscerate' ? 0xe74c3c : ability === 'heroicStrike' ? 0xff7043 : ability === 'sinisterStrike' ? 0xffe066 : 0xffffff;
-      slash.lineStyle(w, c, 0.95).lineBetween(fx + (dx / len) * 10, fy + (dy / len) * 10, tx, ty);
-      this.s.tweens.add({ targets: slash, alpha: 0, duration: ability ? 240 : 140, onComplete: () => slash.destroy() });
+      const ang = Math.atan2(dy, dx);
+      const reach = Math.min(len, 34) + 6;
+      slash.lineStyle(w, c, 0.95).beginPath().arc(fx, fy, reach, ang - 0.9, ang + 0.9).strokePath();
+      slash.lineStyle(Math.max(1, w - 2), 0xffffff, 0.7).beginPath().arc(fx, fy, reach - 3, ang - 0.6, ang + 0.6).strokePath();
+      this.s.tweens.add({ targets: slash, alpha: 0, duration: ability ? 240 : 150, onComplete: () => slash.destroy() });
     }
 
     // Impact on the target: flash, knockback, sparks.
@@ -388,6 +465,10 @@ export class UnitLayer {
       this.nudge(toView, (dx / len) * kb, (dy / len) * kb, 60);
       const school = schoolOf(ability, from?.kind);
       if (ability || heavy) this.impact(tx, ty, school, heavy, to?.radius ?? 14);
+      // The ground remembers: spatter behind heavy hits, scorch from fire, ice from frost.
+      if (heavy && school === 'physical') this.remains.spatter(tx, ty, dx, dy, to?.side === 'enemy' ? (to.kind as EnemyKind) : undefined);
+      if (ability && school === 'fire') this.remains.scorch(tx, ty, (to?.radius ?? 14) * (heavy ? 1.2 : 0.9));
+      if (ability && school === 'frost') this.remains.frost(tx, ty, (to?.radius ?? 14) * 0.9);
       else this.spark(tx, ty, hitHero && school === 'physical' ? 0xff6b6b : SCHOOL_COLORS[school].light, 3, 16);
     }
     if (heavy) {
@@ -542,6 +623,7 @@ export class UnitLayer {
     const to = toId !== undefined ? this.s.battle.unit(toId) : undefined;
     const name = ABILITIES[ability].name;
     const c = SCHOOL_COLORS[schoolOf(ability)];
+    this.castPose(fromId, c.main);
     switch (ability) {
       case 'taunt':
         return; // the taunt event draws it
@@ -686,29 +768,42 @@ export class UnitLayer {
 
   showDeath(id: number): void {
     const v = this.views.get(id);
-    const u = this.s.battle.unit(id);
     if (!v) return;
     v.dead = true;
     v.hpBar.clear();
     this.sheepIcons.delete(id);
     v.aggroIcon?.container.setVisible(false);
-    this.spark(v.container.x, v.container.y, u?.side === 'hero' ? 0xff6b6b : 0x9fdc5a, 12, 34);
-    if (u?.side === 'hero') {
+    this.spark(v.container.x, v.container.y, v.side === 'hero' ? 0xff6b6b : 0x9fdc5a, 12, 34);
+    if (v.side === 'hero') {
       sound.play('heroDown');
       this.s.cameras.main.shake(160, 0.006);
     } else {
       sound.play('death');
     }
-    if (u?.side === 'hero') {
+    const x = v.container.x;
+    const y = v.container.y;
+    const radius = v.radius;
+    if (v.side === 'hero') {
+      // A downed hero falls over where they stood.
       v.body.setFillStyle(0x444444);
-      v.sprite?.setTint(0x555555);
-      v.container.setAlpha(0.5);
+      v.sprite?.setTint(0x777777);
+      v.container.setAlpha(0.7);
+      this.remains.hero(x, y, radius);
+      if (v.sprite) {
+        v.busyUntil = Number.POSITIVE_INFINITY;
+        this.s.tweens.add({ targets: v.sprite, rotation: (v.sprite.flipX ? -1 : 1) * Math.PI / 2, y: `+=6`, duration: 320, ease: 'Bounce.easeOut' });
+      }
     } else {
+      // An enemy collapses and leaves its remains: blood and bones, a bone heap, ichor or ash.
+      this.remains.enemy(v.kind as EnemyKind, x, y, radius, v.boss);
       this.s.tweens.add({
         targets: v.container,
         alpha: 0,
-        scale: 0.4,
-        duration: 350,
+        scaleY: 0.2,
+        scaleX: 1.15,
+        y: y + radius * 0.5,
+        duration: 260,
+        ease: 'Quad.easeIn',
         onComplete: () => {
           v.container.destroy();
           this.views.delete(id);

@@ -508,6 +508,25 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 
 - **Smooth motion.** Rendering is interpolated between simulation steps, units
   steer with easing, and units are softly pushed apart so they don't overlap.
+- **Animations** (drawn in code over the pixel sprites):
+  - Units sway as they walk, breathe when standing and face the way they move.
+  - Melee attacks have a wind-up tilt and squash, a lunge, and an arc swing.
+  - Shots recoil with a flash at the hands.
+  - Spellcasters hop with a glow at their feet in the spell's colour.
+  - Downed heroes fall over and stay down.
+- **Remains** (`src/render/remains.ts`; they last for the fight, at most 50):
+  - Fallen enemies collapse and leave what they were made of:
+    - goblins: a pool of blood and bones with a skull
+    - skeletons: a bone heap and a puff of dust
+    - ghouls and abominations: green ichor and bones
+    - cultists: blood, bones and a scrap of robe
+    - demons: smouldering ash with charred bones and rising embers
+  - Bosses leave a bigger pile.
+  - Heavy hits spatter the ground behind the target.
+  - Fire spells leave scorch marks and frost spells leave ice patches; both
+    fade after a few seconds.
+  - Downed heroes leave blood.
+  - On the map, fights you've won get a small skull and crossbones.
 - **Projectiles.** Ranged damage lands when the shot arrives.
 - **Hit feedback.**
   - Every hit: a white flash, a small knockback and sparks.
