@@ -83,16 +83,16 @@ export class Inspect {
         });
       }
       for (const t of u.traits ?? []) rows.push({ text: `${TRAITS[t].name} (passive) — ${TRAITS[t].description}`, icon: traitIcon(t) });
-      // Upgrades: this run's stat upgrades, then the camp's gear and Drills.
+      // Upgrades: this run's stat upgrades, then the camp's gear.
       const build = this.s.run?.builds[u.slot ?? 0];
       const ups: string[] = [];
       if (build?.might) ups.push(`Might ${build.might} (+${Math.round(UPGRADE.mightPerRank * build.might * 100)}% damage and healing)`);
       if (build?.vitality) ups.push(`Vitality ${build.vitality} (+${Math.round(UPGRADE.vitalityPerRank * build.vitality * 100)}% max health)`);
       if (build?.focus) ups.push(`Focus ${build.focus} (+${Math.round(UPGRADE.focusPerRank * build.focus * 100)}% regen)`);
       const gear = gearLines(this.s.camp.gear[u.kind as HeroClass]);
-      const drills = this.s.run && this.s.run.baseLevel > 1 ? [`Drills: started at level ${this.s.run.baseLevel}`] : [];
+      const daily = this.s.run?.daily ? ['Daily run: no camp gear'] : [];
       rows.push({ text: 'Upgrades', header: true, gap: true });
-      rows.push({ text: [...ups, ...gear.map((g) => `Camp: ${g}`), ...drills].join('\n') || 'None yet', muted: !ups.length && !gear.length && !drills.length });
+      rows.push({ text: [...ups, ...(daily.length ? daily : gear.map((g) => `Camp: ${g}`))].join('\n') || 'None yet', muted: !ups.length && (!gear.length || !!daily.length) });
     } else {
       const notes = [u.isElite ? 'Elite' : '', u.isCaster ? 'Caster (can be interrupted)' : ''].filter(Boolean);
       if (notes.length) rows.push({ text: notes.join(' · ') });

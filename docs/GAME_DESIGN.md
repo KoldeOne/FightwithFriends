@@ -151,9 +151,9 @@ screen or the end-of-run screen. Every number is a placeholder to tune.
 | Rule | Value |
 |---|---|
 | Loot | Every fight's loot (**win or lose**) goes straight to the camp. Dying costs nothing you've banked. |
-| What resets | Everything in the run (levels, abilities, upgrades, gold). Gear, Drills and loot are kept. |
+| What resets | Everything in the run (levels, abilities, upgrades, gold). Gear, perks, loot and the camp's records are kept. |
 | Gear | Per **class**: every hero of that class, in every later run, recruits too. |
-| Saves | `fightwithfriends.camp.v1` (the camp; the round-based version's loot, gear and Drills carry over). |
+| Saves | `fightwithfriends.camp.v1` (the camp, now version 3 with its records and perks; older saves keep their loot and gear, and Drills already bought are refunded). |
 
 Gold (spent in the run's shops) and camp loot are separate.
 
@@ -176,7 +176,6 @@ and n of the station's material, and every 5th level also a Trophy):
 | Blacksmith | Weapon (Ore) | +8% damage and healing |
 | Armorer | Armor (Hide) | +8% maximum health |
 | Jeweler | Trinket (Gems) | +8% mana/energy regen, 4% faster cooldowns |
-| Training station (whole guild, placeholder) | Drills, 0–5 | Heroes start each run (and recruits join) +1 level; 60(n+1) Spoils and a Trophy |
 
 **Changed from the round-based Camp Mode:** the 1.6× enemy toughness, start
 rounds (1/11/21), the round-30 cap, party picking at camp and the separate
@@ -186,12 +185,52 @@ run is now tuned so an ungeared party usually falls, and the camp is what
 gets you through (2026-11-03).
 
 Tap a hero in a fight to see its **Upgrades**: this run's Might / Vitality /
-Focus, the camp gear in numbers, and Drills. The camp's hero cards show the
+Focus, and the camp gear in numbers (no gear on the daily run). The camp's hero cards show the
 gear bonuses too.
 
-The Training station is a placeholder until Kolde and Bailey design progression
-together. Real item drops are also still to be designed (see
-[IDEAS.md](IDEAS.md)).
+Real item drops are still to be designed (see [IDEAS.md](IDEAS.md)).
+
+### Progression (2026-11-04)
+
+Code: `src/sim/progress.ts` (rules and numbers), `settle.ts` (`keepRecords`),
+the title screen (`screens/hero.ts`) and the camp (`screens/camp.ts`). All
+numbers are first placeholders.
+
+- **Difficulty tiers.** Normal, then Tiers 1–5, chosen on the title screen
+  (◀ ▶, remembered). Winning a run on a tier opens the next one. Each tier
+  adds one rule to those below it and pays +25% camp loot per tier:
+  1. Elites are 15% tougher.
+  2. Enemies drop 20% less gold.
+  3. Every enemy is 10% tougher.
+  4. Your heroes heal 15% less.
+  5. One more enemy in every fight from floor 4 (not bosses).
+- **Class unlocks.** You start with Warrior, Priest and Mage. Your first win
+  on Normal unlocks the Paladin, on Tier 1 the Rogue, on Tier 2 the Warlock.
+  The hero select shows how to unlock each one. While testing, every class
+  stays playable (`ALL_CLASSES_UNLOCKED_FOR_TESTING`).
+- **Ability unlocks.** Each class starts with 4 of its pool (plus its
+  starting ability). Every boss beaten with that class in the party unlocks
+  one more, with a notice on the rewards. Locked abilities are never
+  offered (first ability, training, chests, shops).
+- **Training Ground perks** (replaced Drills). Bought once each, for the
+  whole guild, from every later run on (not the daily run):
+  | Perk | Effect | Cost |
+  |---|---|---|
+  | Coin Purse | Start with 50 gold | 60 Spoils, 1 Trophy |
+  | Haggler | First reroll in every shop is free | 80 Spoils, 1 Trophy |
+  | Mentor | Training campsites offer 4 choices | 140 Spoils, 2 Trophies |
+  | Lucky Charm | Start holding a wish | 180 Spoils, 2 Trophies |
+- **The camp grows.** The Trophy Wall mounts a skull for each boss you've
+  killed (with a count); tap it for bosses slain, tier wins and each class's
+  unlocked abilities. The Graveyard has a headstone per finished or abandoned
+  run (the newest 12; tap for the list). A pennant goes up around the fire
+  for every win, and more tents appear at 5, 15 and 30 runs.
+- **Daily run.** One a day (`☀ Daily` on the title screen): a seed and
+  starting class from the date, the same for everyone, at Normal with no
+  camp gear, perks or ability locks. Camp loot still comes home; the end
+  screen shows your result and your best that day (kept in
+  `fightwithfriends.daily`). Daily runs don't count toward boss kills, tiers
+  or unlocks.
 
 **Balance check** (`npm run camp-sim -- [guilds] [runs]`: the AI plays a
 guild's map runs back to back, rotating the starting class, and spends all loot
@@ -388,7 +427,7 @@ Polymorph exist as ability definitions but are only used by the passives.
   first offered.
 - Offers are seeded by the run's seed and the node, so they're the same if you
   reload.
-- **Camp gear and Drills** (§2b) apply on top, and carry between runs.
+- **Camp gear and perks** (§2b) apply on top, and carry between runs.
 
 ---
 
@@ -509,7 +548,8 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 - **Smooth motion.** Rendering is interpolated between simulation steps, units
   steer with easing, and units are softly pushed apart so they don't overlap.
 - **Animations** (drawn in code over the pixel sprites):
-  - Units sway as they walk, breathe when standing and face the way they move.
+  - Units stay upright as they walk (no sway), breathe slightly when standing
+    and face the way they move.
   - Melee attacks have a wind-up tilt and squash, a lunge, and an arc swing.
   - Shots recoil with a flash at the hands.
   - Spellcasters hop with a glow at their feet in the spell's colour.
@@ -521,12 +561,18 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
     - ghouls and abominations: green ichor and bones
     - cultists: blood, bones and a scrap of robe
     - demons: smouldering ash with charred bones and rising embers
-  - Bosses leave a bigger pile.
+  - Bosses leave a bigger pile, with their item on top and a glint: the
+    Warchief an axe, the Bone King a crown, the Demon Lord a burning sword
+    across a horned skull.
   - Heavy hits spatter the ground behind the target.
   - Fire spells leave scorch marks and frost spells leave ice patches; both
     fade after a few seconds.
   - Downed heroes leave blood.
   - On the map, fights you've won get a small skull and crossbones.
+- **Weather** (`src/render/weather.ts`, per act, at most about 19 particles,
+  in fights and on the map): falling autumn leaves in the forest, drips with
+  splash rings and dust motes in the crypt, rising embers and ash in the
+  hellscape.
 - **Projectiles.** Ranged damage lands when the shot arrives.
 - **Hit feedback.**
   - Every hit: a white flash, a small knockback and sparks.
@@ -613,7 +659,7 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   - HP, resource, attack, auto-heal and move speed
   - tank threat
   - for heroes, labelled sections: Passive, Abilities (cost, cooldown, effect
-    text), Upgrades (run upgrades, camp gear, Drills) and Effects, each with
+    text), Upgrades (run upgrades, camp gear) and Effects, each with
     its icon on the left
   - for enemies: whether it's an elite or caster, and its current cast
   - for bosses: their moves and the boss rules
@@ -697,11 +743,11 @@ art and more) are in [IDEAS.md](IDEAS.md).
 - **Ability scarcity (addressed 2026-11-03):** chests and training now give
   every hero a pick.
 - **Geared guilds:** once the camp is built up, runs get easy again. The
-  difficulty ladder (IDEAS.md, later design phase) is the planned answer.
+  difficulty tiers (§2b) are the answer; their numbers are untested.
 - **First run:** the AI beats Act 1 on about a third of first runs (aim ~25%).
   Worth checking in real play.
 - **Late recruits:** the hero joining mid-Act 2 starts at the run's starting
-  level (1 plus Drills) with one
+  level (1) with one
   ability, well behind the rest (to revisit, as decided 2026-11-03).
 - **Camp numbers:** loot rates, gear bonuses and costs are placeholders.
 

@@ -2,19 +2,20 @@ import { CAMP, ENEMY_STATS, GEAR_BONUS, LOOT } from './content';
 import { createRng } from './rng';
 import { ALL_CLASSES } from './run';
 import type { EnemyKind, HeroBuild, HeroClass, Loot } from './types';
+import { newRecords, PERKS, type PerkId, type Records } from './progress';
 
 /**
  * The camp: the guild's lasting progress between map runs. Every fight's loot
- * (win or lose) is banked here, and the stations turn it into gear and
- * training that every later run starts with. Numbers are first placeholders.
+ * (win or lose) is banked here; the stations turn it into gear, the Training
+ * Ground into perks; and the camp keeps its records (tiers won, unlocks, the
+ * trophy wall, the graveyard). Numbers are first placeholders.
  */
 export interface CampState {
-  version: 2;
+  version: 3;
   loot: Loot;
   gear: Record<HeroClass, Gear>;
-  /** Training station rank: heroes start each run (and join it) this many levels higher. */
-  drills: number;
   runs: number;
+  records: Records;
 }
 
 export type GearSlot = 'weapon' | 'armor' | 'trinket';
@@ -49,7 +50,7 @@ export function emptyLoot(): Loot {
 export function newCamp(): CampState {
   const gear = {} as Record<HeroClass, Gear>;
   for (const cls of ALL_CLASSES) gear[cls] = { weapon: 0, armor: 0, trinket: 0 };
-  return { version: 2, loot: emptyLoot(), gear, drills: 0, runs: 0 };
+  return { version: 3, loot: emptyLoot(), gear, runs: 0, records: newRecords() };
 }
 
 // --- loot -------------------------------------------------------------------
@@ -105,9 +106,8 @@ export function gearCost(slot: GearSlot, level: number): Partial<Loot> | null {
   return { spoils: 10 * next + 3 * next * next, [STATIONS[slot].material]: next, trophies: next % 5 === 0 ? 1 : 0 };
 }
 
-/** Training station (placeholder): each rank of Drills starts heroes 1 level higher. Takes a Trophy. */
-export function drillsCost(rank: number): Partial<Loot> | null {
-  if (rank >= CAMP.maxDrills) return null;
+/** What the retired Drills cost (for refunding old saves). */
+function oldDrillsCost(rank: number): Partial<Loot> {
   return { spoils: 60 * (rank + 1), trophies: 1 };
 }
 
@@ -137,11 +137,12 @@ export function upgradeGear(camp: CampState, cls: HeroClass, slot: GearSlot): bo
   return true;
 }
 
-export function upgradeDrills(camp: CampState): boolean {
-  const cost = drillsCost(camp.drills);
-  if (!cost || !canAfford(camp.loot, cost)) return false;
+/** Buy a Training Ground perk (once). False if owned or unaffordable. */
+export function buyPerk(camp: CampState, id: PerkId): boolean {
+  const cost = PERKS[id].cost;
+  if (camp.records.perks.includes(id) || !canAfford(camp.loot, cost)) return false;
   pay(camp.loot, cost);
-  camp.drills += 1;
+  camp.records.perks.push(id);
   return true;
 }
 
@@ -161,7 +162,7 @@ export function gearShort(gear: Gear): string {
 }
 
 /**
- * Testing aid: undo every gear level and Drills rank and give back everything
+ * Testing aid: undo every gear level and perk and give back everything
  * they cost, so the same loot can be spent again.
  */
 export function resetUpgrades(camp: CampState): Loot {
@@ -174,8 +175,8 @@ export function resetUpgrades(camp: CampState): Loot {
       for (let lv = 0; lv < camp.gear[cls][slot]; lv++) add(gearCost(slot, lv));
       camp.gear[cls][slot] = 0;
     }
-  for (let r = 0; r < camp.drills; r++) add(drillsCost(r));
-  camp.drills = 0;
+  for (const id of camp.records.perks) add(PERKS[id].cost);
+  camp.records.perks = [];
   addLoot(camp.loot, refund);
   return refund;
 }
@@ -185,11 +186,6 @@ export function resetUpgrades(camp: CampState): Loot {
 /** The run's builds with each hero's camp gear on (read fresh, so a recruit gets theirs too). */
 export function withGear(team: HeroClass[], builds: HeroBuild[], camp: CampState): HeroBuild[] {
   return builds.map((b, i) => ({ ...b, gear: { ...camp.gear[team[i]] } }));
-}
-
-/** The level heroes start a run at (and recruits join at): 1 plus the camp's Drills. */
-export function startLevel(camp: CampState): number {
-  return 1 + camp.drills;
 }
 
 /** Multiply a loot bundle (a golden node's camp loot is doubled). */
@@ -218,18 +214,20 @@ export function loadCamp(): CampState {
   try {
     const raw = localStorage.getItem(CAMP_KEY);
     if (!raw) return newCamp();
-    const data = JSON.parse(raw) as Omit<Partial<CampState>, 'version'> & { version?: number };
-    // Version 1 was the round-based Camp Mode: its loot, gear and Drills carry over.
-    if (data?.version !== 2 && data?.version !== 1) return newCamp();
+    const data = JSON.parse(raw) as Omit<Partial<CampState>, 'version'> & { version?: number; drills?: number };
+    // Versions 1 (round-based Camp Mode) and 2 (Drills) carry over; Drills are refunded.
+    if (data?.version !== 3 && data?.version !== 2 && data?.version !== 1) return newCamp();
     // Fill in anything missing (e.g. a class added later).
     const fresh = newCamp();
-    return {
-      version: 2,
+    const camp: CampState = {
+      version: 3,
       loot: { ...fresh.loot, ...data.loot },
       gear: { ...fresh.gear, ...data.gear },
-      drills: data.drills ?? 0,
       runs: data.runs ?? 0,
+      records: { ...fresh.records, ...data.records },
     };
+    for (let r = 0; r < (data.drills ?? 0); r++) addLoot(camp.loot, { ...emptyLoot(), ...oldDrillsCost(r) });
+    return camp;
   } catch {
     return newCamp();
   }

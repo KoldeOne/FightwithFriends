@@ -20,7 +20,25 @@ import {
   type RunState,
 } from '../../sim/run';
 import type { AbilityId, HeroClass } from '../../sim/types';
-import { loadCamp, saveCamp, startLevel } from '../../sim/camp';
+import { loadCamp, saveCamp } from '../../sim/camp';
+import { ALL_CLASSES_UNLOCKED_FOR_TESTING, classUnlockHint, dailyBest, dailySetup, lockedAbilities, TIER_LOOT, TIERS, today, type Records } from '../../sim/progress';
+
+/** The difficulty tier you last chose (kept between visits). */
+const TIER_KEY = 'fightwithfriends.tier';
+function chosenTier(max: number): number {
+  try {
+    return Math.min(max, Math.max(0, Number(localStorage.getItem(TIER_KEY)) || 0));
+  } catch {
+    return 0;
+  }
+}
+function keepTier(t: number): void {
+  try {
+    localStorage.setItem(TIER_KEY, String(t));
+  } catch {
+    /* ignore */
+  }
+}
 import { abilityIcon, COLORS, cssColor, DARK_LETTER, ICON_PX, LETTERS, passiveIcon, spriteKey, spriteOriginY, traitIcon } from '../theme';
 
 /** Choosing a hero: the starting hero of a run, and recruits at the first campsites. Both pick a class, then its first ability. */
@@ -30,23 +48,41 @@ export class HeroPicker {
   /** Start of a run: continue a saved run, or choose your first hero. */
   showStart(): void {
     this.s.state = 'title';
-    const start = (cls: HeroClass, first: AbilityId) => {
+    const records = loadCamp().records;
+    this.chooseClass('Choose your hero', 'You start alone. More heroes join mid-Act 1, after the Act 1 boss and mid-Act 2 (a party of 4).', (cls) =>
+      this.chooseAbility(cls, 'start', lockedAbilities(records), (first) => {
+        const camp = loadCamp();
+        this.begin(newRun(cls, first, undefined, { tier: chosenTier(camp.records.tier), perks: camp.records.perks, locked: lockedAbilities(camp.records) }));
+      }),
+    );
+  }
+
+  /** Today's daily run: the same map, enemies and starting class for everyone, with no camp gear or perks. */
+  showDaily(): void {
+    const date = today();
+    const { seed, cls } = dailySetup(date);
+    const best = dailyBest(date);
+    this.s.confirm(
+      `Daily run · ${date}`,
+      `Everyone gets the same map and enemies today, starting as a ${cls[0].toUpperCase() + cls.slice(1)}. No camp gear or perks; camp loot still comes home.${best ? `\nYour best today: ${describeProgress(best.reached)}.` : ''}`,
+      'Play',
+      () => this.chooseAbility(cls, 'daily', [], (first) => this.begin(newRun(cls, first, seed, { daily: date }))),
+    );
+  }
+
+  /** Start a fresh run (asking first if it would replace a saved one). */
+  private begin(run: RunState): void {
+    const go = () => {
       sound.unlock();
       const camp = loadCamp();
-      const run = newRun(cls, first, undefined, startLevel(camp));
       camp.runs += 1;
       saveCamp(camp);
       saveRun(run);
       this.s.scene.restart({ run });
     };
-    this.chooseClass('Choose your hero', 'You start alone. More heroes join mid-Act 1, after the Act 1 boss and mid-Act 2 (a party of 4).', (cls) =>
-      this.chooseAbility(cls, 'start', (first) => {
-        // Starting over replaces a saved run: ask first.
-        const saved = loadRun();
-        if (saved) this.s.confirm('Start a new run?', `Your saved run (Act ${saved.act}) will be lost. Its camp loot is already safe at the camp.`, 'Start new', () => start(cls, first));
-        else start(cls, first);
-      }),
-    );
+    const saved = loadRun();
+    if (saved) this.s.confirm('Start a new run?', `Your saved run (Act ${saved.act}) will be lost. Its camp loot is already safe at the camp.`, 'Start new', go);
+    else go();
   }
 
   /** A recruit campsite: someone wants to join. */
@@ -58,7 +94,7 @@ export class HeroPicker {
       'A new hero joins',
       `Recruit ${n} of ${RECRUITS} (party ${n} → ${n + 1} of ${MAX_PARTY}). They start at level ${run.baseLevel}; leveling gets slower the higher you are, so they close the gap over time.`,
       (cls) =>
-        this.chooseAbility(cls, 'recruit', (first) => {
+        this.chooseAbility(cls, 'recruit', run.locked, (first) => {
           recruit(run, cls, first);
           saveRun(run);
           this.s.scene.restart({ run });
@@ -97,22 +133,32 @@ export class HeroPicker {
           sound.play('click');
           this.s.campScreen.show();
         }),
+        this.s.button(WORLD.width - 74, WORLD.height - 62, '☀ Daily', 15, '#5a3f8a', () => {
+          sound.unlock();
+          sound.play('click');
+          this.showDaily();
+        }),
+        ...this.tierPicker(),
       );
       const wins = winsSoFar();
       items.push(this.s.text(cx, 206, `Best: ${describeProgress(bestProgress())}${wins ? ` · Wins: ${wins}` : ''}`, 12, '#ffd166').setOrigin(0.5));
     }
     items.push(
-      ...this.classCards(270, (cls) => {
-        sound.play('click');
-        onPick(cls);
-      }),
+      ...this.classCards(
+        270,
+        (cls) => {
+          sound.play('click');
+          onPick(cls);
+        },
+        this.s.state === 'title' ? loadCamp().records : undefined,
+      ),
     );
     items.push(...this.partyStrip(this.s.state === 'title' ? undefined : this.s.run!));
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }
 
   /** Step two: the hero's first ability (any active from its pool). */
-  private chooseAbility(cls: HeroClass, mode: 'start' | 'recruit', onPick: (id: AbilityId) => void): void {
+  private chooseAbility(cls: HeroClass, mode: 'start' | 'recruit' | 'daily', locked: string[], onPick: (id: AbilityId) => void): void {
     this.hideHeroDetails();
     this.s.overlay?.destroy();
     const cx = WORLD.width / 2;
@@ -126,7 +172,7 @@ export class HeroPicker {
         .setAlign('center')
         .setWordWrapWidth(470),
     ];
-    const options = firstAbilityOptions(cls);
+    const options = firstAbilityOptions(cls, locked);
     const cardH = 66;
     options.forEach((id, i) => {
       const def = ABILITIES[id];
@@ -150,7 +196,7 @@ export class HeroPicker {
         this.s.text(left + 230, y - 24, `${def.cost ? `${def.cost} ${HERO_KIT[cls].resource}` : 'free'} · ${def.cooldown}s`, 11, '#8f9bb3'),
       );
     });
-    items.push(this.s.button(cx, 262 + options.length * (cardH + 6) + 14, '← Back', 15, '#2b3445', () => (mode === 'start' ? this.showStart() : this.showRecruit())));
+    items.push(this.s.button(cx, 262 + options.length * (cardH + 6) + 14, '← Back', 15, '#2b3445', () => (mode === 'recruit' ? this.showRecruit() : this.showStart())));
     this.s.overlay = this.s.add.container(0, 0, items).setDepth(100);
   }
 
@@ -262,7 +308,40 @@ export class HeroPicker {
     ];
   }
 
-  classCards(top: number, onPick: (cls: HeroClass) => void): Phaser.GameObjects.GameObject[] {
+  /** The difficulty tier for the next run: ◀ Tier ▶, with what it adds. Tiers open by winning on the one below. */
+  private tierPicker(): Phaser.GameObjects.GameObject[] {
+    const max = loadCamp().records.tier;
+    const cx = WORLD.width / 2;
+    const y = 800;
+    let tier = chosenTier(max);
+    const label = this.s.text(cx, y, '', 16, '#ffffff').setOrigin(0.5).setFontStyle('bold');
+    const rule = this.s.text(cx, y + 22, '', 11, '#c9d1e0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(460);
+    const show = () => {
+      label.setText(`Difficulty: ${TIERS[tier].name}`).setColor(tier ? '#ff9f6b' : '#ffffff');
+      rule.setText(
+        tier
+          ? `${TIERS[tier].rule}${tier > 1 ? ' (and every tier below)' : ''} · +${Math.round(TIER_LOOT * tier * 100)}% camp loot`
+          : max
+            ? 'The standard run. Use the arrows for harder tiers.'
+            : `The standard run. Win a run to unlock ${TIERS[1].name}.`,
+      );
+    };
+    const arrow = (dx: number, text: string) =>
+      this.s.text(cx + dx, y, text, 18, '#ffd166')
+        .setOrigin(0.5)
+        .setPadding(10, 2, 10, 2)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          sound.play('click');
+          tier = Math.min(max, Math.max(0, tier + Math.sign(dx)));
+          keepTier(tier);
+          show();
+        });
+    show();
+    return max ? [arrow(-150, '◀'), arrow(150, '▶'), label, rule] : [label, rule];
+  }
+
+  classCards(top: number, onPick: (cls: HeroClass) => void, records?: Records): Phaser.GameObjects.GameObject[] {
     const cx = WORLD.width / 2;
     const cardH = 68;
     const items: Phaser.GameObjects.GameObject[] = [];
@@ -277,8 +356,12 @@ export class HeroPicker {
         .on('pointerout', () => bg.setFillStyle(0x1c2433))
         .on('pointerdown', () => onPick(cls));
       const left = cx - 225;
+      // Classes still to unlock say how (and stay playable while testing).
+      const hint = records && classUnlockHint(records, cls);
+      if (hint && !ALL_CLASSES_UNLOCKED_FOR_TESTING) bg.disableInteractive().setAlpha(0.5);
       items.push(
         bg,
+        ...(hint ? [this.s.text(cx + 222, y + 30, `🔒 ${hint.replace('Win a run on', 'Win on').replace(' to unlock', '')}`, 10, '#ffb36b').setOrigin(1, 1)] : []),
         ...this.portrait(cls, left + 30, y + 30, 1.65),
         this.s.text(left + 64, y - 29, cls[0].toUpperCase() + cls.slice(1), 17, '#ffffff').setFontStyle('bold'),
         this.s.text(left + 150, y - 26, kit.role, 11, '#c9d1e0'),

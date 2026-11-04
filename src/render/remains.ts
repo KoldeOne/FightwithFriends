@@ -95,6 +95,115 @@ export class Remains {
     this.s.tweens.add({ targets: g, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
     if (k === 'bones') this.dust(x, y, size, 0xd9d2c0);
     if (k === 'ash') this.embers(x, y, size);
+    if (boss) this.drop(kind, x, y, radius);
+  }
+
+  /** A boss's dropped item, landing on its pile with a glint. */
+  private drop(kind: EnemyKind, x: number, y: number, radius: number): void {
+    const r = Math.max(10, radius);
+    const tx = x + r * 0.85;
+    const ty = y + r * 0.15;
+    const g = this.s.add.graphics({ x: tx, y: ty - r * 1.6 });
+    if (kind === 'warchief') this.axe(g, r);
+    else if (kind === 'boneKing') this.crown(g, r);
+    else if (kind === 'demonLord') this.demonSpoils(g, r);
+    else return void g.destroy();
+    this.add(g);
+    g.setAlpha(0);
+    this.s.tweens.add({
+      targets: g,
+      y: ty,
+      alpha: 1,
+      delay: 180,
+      duration: 380,
+      ease: 'Bounce.easeOut',
+      onComplete: () => this.glint(tx + r * 0.25, ty - r * 0.45),
+    });
+  }
+
+  /** The Warchief's crude axe: a rough wooden haft and a chipped iron head. */
+  private axe(g: Phaser.GameObjects.Graphics, r: number): void {
+    g.rotation = -0.5;
+    g.lineStyle(3.5, 0x5a3a1e, 1).lineBetween(0, r * 0.75, 0, -r * 0.75);
+    g.lineStyle(1.5, 0x8a5a2e, 1).lineBetween(-1, r * 0.4, -1, -r * 0.6);
+    // Leather wrap near the grip.
+    g.lineStyle(2, 0x2e1e10, 1).lineBetween(-2.5, r * 0.45, 2.5, r * 0.35).lineBetween(-2.5, r * 0.6, 2.5, r * 0.5);
+    // A lopsided head, one notch out of the edge.
+    const head = [
+      { x: 1, y: -r * 0.7 },
+      { x: r * 0.55, y: -r * 0.95 },
+      { x: r * 0.7, y: -r * 0.55 },
+      { x: r * 0.5, y: -r * 0.45 },
+      { x: r * 0.62, y: -r * 0.25 },
+      { x: 1, y: -r * 0.3 },
+    ];
+    g.fillStyle(0x7e7a74, 1).fillPoints(head, true);
+    g.lineStyle(1.5, 0x1a1410, 0.9).strokePoints(head, true);
+    g.lineStyle(1.5, 0xb8b4ae, 1).lineBetween(r * 0.55, -r * 0.93, r * 0.68, -r * 0.57);
+    g.fillStyle(0x7a1010, 0.9).fillCircle(r * 0.6, -r * 0.35, 1.5);
+  }
+
+  /** The Bone King's crown: tarnished gold with five points and gems. */
+  private crown(g: Phaser.GameObjects.Graphics, r: number): void {
+    g.rotation = 0.25;
+    const w = r * 1.1;
+    const h = r * 0.55;
+    const pts: { x: number; y: number }[] = [{ x: -w / 2, y: h / 2 }];
+    for (let i = 0; i <= 4; i++) {
+      const px = -w / 2 + (i * w) / 4;
+      pts.push({ x: px, y: -h / 2 });
+      if (i < 4) pts.push({ x: px + w / 8, y: 0 });
+    }
+    pts.push({ x: w / 2, y: h / 2 });
+    g.fillStyle(0x8a6a1a, 1).fillPoints(pts, true);
+    g.fillStyle(0xd4a62a, 1).fillRect(-w / 2, h * 0.1, w, h * 0.4);
+    g.lineStyle(1, 0xffe08a, 0.9).lineBetween(-w / 2, h * 0.1, w / 2, h * 0.1);
+    for (let i = 0; i <= 4; i++) g.fillStyle(0xffe08a, 1).fillCircle(-w / 2 + (i * w) / 4, -h / 2, 1.6);
+    g.fillStyle(0x8a1a2a, 1).fillCircle(0, h * 0.3, 2.2);
+    g.fillStyle(0x2a5a9a, 1).fillCircle(-w * 0.28, h * 0.3, 1.6).fillCircle(w * 0.28, h * 0.3, 1.6);
+  }
+
+  /** The Demon Lord's spoils: a burning sword across a horned skull. */
+  private demonSpoils(g: Phaser.GameObjects.Graphics, r: number): void {
+    // The horned skull, charred.
+    const s = r * 0.32;
+    g.lineStyle(3, 0x9a7a62, 1);
+    g.beginPath().arc(-s * 1.6, -s * 1.2, s * 1.1, 0.2, 1.6).strokePath();
+    g.beginPath().arc(s * 1.6, -s * 1.2, s * 1.1, Math.PI - 1.6, Math.PI - 0.2).strokePath();
+    g.fillStyle(0x7a5a48, 1).fillTriangle(-s * 0.7, -s * 0.6, -s * 1.5, -s * 1.9, -s * 0.2, -s * 0.9);
+    g.fillTriangle(s * 0.7, -s * 0.6, s * 1.5, -s * 1.9, s * 0.2, -s * 0.9);
+    this.skull(g, 0, 0, s, 0x8a7a6a);
+    g.fillStyle(0xff8c1a, 0.9).fillCircle(-s * 0.38, -s * 0.05, s * 0.14).fillCircle(s * 0.38, -s * 0.05, s * 0.14);
+    // The sword, lying across it: a black blade with a glowing edge and flames.
+    const L = r * 1.3;
+    const a = -0.35;
+    const cx = Math.cos(a);
+    const sy = Math.sin(a);
+    const P = (t: number, o: number) => ({ x: cx * t - sy * o, y: s * 0.9 + sy * t + cx * o });
+    g.fillStyle(0x1a1010, 1).fillPoints([P(-L * 0.25, -2.5), P(L * 0.7, -2), P(L * 0.8, 0), P(L * 0.7, 2), P(-L * 0.25, 2.5)], true);
+    const e0 = P(-L * 0.25, -2.5);
+    const e1 = P(L * 0.75, -1);
+    g.lineStyle(1.2, 0xff6a1a, 1).lineBetween(e0.x, e0.y, e1.x, e1.y);
+    const q0 = P(-L * 0.25, -6);
+    const q1 = P(-L * 0.25, 6);
+    g.lineStyle(3, 0x5a1a14, 1).lineBetween(q0.x, q0.y, q1.x, q1.y);
+    const h0 = P(-L * 0.25, 0);
+    const h1 = P(-L * 0.5, 0);
+    g.lineStyle(3, 0x2a1a14, 1).lineBetween(h0.x, h0.y, h1.x, h1.y);
+    for (let i = 0; i < 4; i++) {
+      const b = P(L * (0.05 + i * 0.18), -2);
+      g.fillStyle(i % 2 ? 0xffd166 : 0xff8c1a, 0.85).fillTriangle(b.x - 2, b.y, b.x + 2, b.y, b.x + 0.5, b.y - 4 - Math.random() * 3);
+    }
+  }
+
+  /** A tiny four-point sparkle that flares and fades. */
+  private glint(x: number, y: number): void {
+    const g = this.s.add.graphics({ x, y }).setDepth(6);
+    g.fillStyle(0xffffff, 1).fillTriangle(-1.2, 0, 1.2, 0, 0, -6).fillTriangle(-1.2, 0, 1.2, 0, 0, 6);
+    g.fillTriangle(0, -1.2, 0, 1.2, -6, 0).fillTriangle(0, -1.2, 0, 1.2, 6, 0);
+    g.fillCircle(0, 0, 1.5);
+    g.setScale(0).setAlpha(0.95);
+    this.s.tweens.add({ targets: g, scale: 1.1, angle: 45, duration: 180, yoyo: true, hold: 120, onComplete: () => g.destroy() });
   }
 
   /** A downed hero leaves a little blood under them. */

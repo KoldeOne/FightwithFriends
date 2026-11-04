@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Battle, STEP } from '../src/sim/battle';
 import { GEAR_BONUS, makeRound } from '../src/sim/content';
-import { bankLoot, resetUpgrades, canAfford, gearCost, loadCamp, lootFor, newCamp, saveCamp, startLevel, upgradeDrills, upgradeGear, withGear } from '../src/sim/camp';
-import { autoResolve, availableNodes, encounterFor, enterNode, finishFight, newRun, recruit } from '../src/sim/run';
+import { bankLoot, buyPerk, resetUpgrades, canAfford, gearCost, loadCamp, lootFor, newCamp, saveCamp, upgradeGear, withGear } from '../src/sim/camp';
+import { dailySetup, lockedAbilities, newRecords, tierRules, unlockedClasses } from '../src/sim/progress';
+import { CLASS_POOL } from '../src/sim/content';
+import { availableNodes, encounterFor, enterNode, freshPicks, newRun, rerollPrice, trainOptions } from '../src/sim/run';
 import type { HeroClass } from '../src/sim/types';
 import { playRun } from '../scripts/simlib';
 import { settleFight } from '../src/sim/settle';
@@ -20,20 +22,61 @@ function fakeStorage(): void {
 }
 
 describe('The camp (between map runs)', () => {
-  it('Drills start a run, and every recruit, at a higher level; XP adds on top', () => {
+  it('Training Ground perks: bought once, and runs start with them (gold, a wish, free reroll, 4 training choices)', () => {
     const camp = newCamp();
-    camp.drills = 2;
-    const run = newRun('warrior', undefined, 5, startLevel(camp));
-    expect(run.builds[0].level).toBe(3);
-    // Walk to the first recruit campsite, winning fights on the way.
-    for (let i = 0; i < 40 && run.team.length < 2; i++) {
-      if (run.pending?.kind === 'recruit') recruit(run, 'priest');
-      else if (run.pending) autoResolve(run);
-      else if (run.status === 'fight') finishFight(run, true, [], encounterFor(run).spawns.map((s) => ({ kind: s.kind })));
-      else enterNode(run, availableNodes(run)[0].id);
-    }
-    expect(run.builds[1].level).toBe(3);
-    expect(run.builds[0].level).toBe(3 + Math.floor(run.xp[0] / 10));
+    camp.loot = { spoils: 1000, ore: 0, hide: 0, gems: 0, trophies: 10 };
+    expect(buyPerk(camp, 'purse')).toBe(true);
+    expect(buyPerk(camp, 'purse')).toBe(false);
+    for (const id of ['haggler', 'mentor', 'charm'] as const) expect(buyPerk(camp, id)).toBe(true);
+    const run = newRun('warrior', undefined, 5, { perks: camp.records.perks });
+    expect(run.gold).toBe(50);
+    expect(run.wishes).toBe(1);
+    run.pending = { kind: 'shop', stock: [], rerolls: 0 };
+    expect(rerollPrice(run)).toBe(0);
+    run.pending = { kind: 'train', source: 'campsite', left: [0] };
+    expect(trainOptions(run, 0)).toHaveLength(4);
+  });
+
+  it('abilities unlock by beating bosses with a class; locked ones are never offered', () => {
+    const records = newRecords();
+    const locked = lockedAbilities(records);
+    expect(locked.length).toBeGreaterThan(0);
+    const run = newRun('warrior', undefined, 5, { locked });
+    for (const r of freshPicks('warrior', run.builds[0], run.locked)) expect(locked).not.toContain((r as { id: string }).id);
+    records.classBosses.warrior = 5;
+    expect(lockedAbilities(records).some((id) => CLASS_POOL.warrior.includes(id as never))).toBe(false);
+  });
+
+  it('winning on a tier unlocks the next tier and a class; every run leaves a grave', () => {
+    const camp = newCamp();
+    const run = newRun('mage', undefined, 7);
+    run.act = 3;
+    const boss = run.map.floors[run.map.floors.length - 1][0];
+    run.at = boss;
+    run.status = 'fight';
+    const { notices } = settleFight(run, camp, { won: true, fallen: [], kills: [{ kind: 'demonLord', summoned: false }] });
+    expect(run.status).toBe('won');
+    expect(camp.records.tier).toBe(1);
+    expect(camp.records.bossKills.demonLord).toBe(1);
+    expect(camp.records.graves[0]).toMatchObject({ won: true, team: ['mage'] });
+    expect(notices.some((n) => n.includes('Paladin'))).toBe(true);
+    expect(unlockedClasses(camp.records)).toContain('paladin');
+  });
+
+  it('tiers make fights harder and pay more camp loot', () => {
+    const run = newRun('warrior', undefined, 9);
+    run.at = run.map.floors[5][0];
+    run.status = 'fight';
+    const easy = encounterFor(run).strength!;
+    run.tier = 3;
+    expect(encounterFor(run).strength!).toBeGreaterThan(easy);
+    expect(tierRules(4).healing).toBeLessThan(1);
+    expect(tierRules(5).extraEnemies).toBe(1);
+  });
+
+  it('the daily run is the same for everyone on a day', () => {
+    expect(dailySetup('2026-11-04')).toEqual(dailySetup('2026-11-04'));
+    expect(dailySetup('2026-11-04').seed).not.toBe(dailySetup('2026-11-05').seed);
   });
 
   it('gear raises damage, health and cooldown speed in battle', () => {
@@ -99,7 +142,7 @@ describe('The camp (between map runs)', () => {
     expect(gearCost('weapon', 4)!.trophies).toBe(1);
     expect(upgradeGear(camp, 'warrior', 'weapon')).toBe(false);
     expect(upgradeGear(camp, 'warrior', 'armor')).toBe(false); // no Hide
-    expect(upgradeDrills(camp)).toBe(false); // needs a Trophy
+    expect(buyPerk(camp, 'purse')).toBe(false); // needs a Trophy
     camp.loot.trophies = 1;
     expect(canAfford(camp.loot, gearCost('weapon', 4))).toBe(true);
     expect(upgradeGear(camp, 'warrior', 'weapon')).toBe(true);
@@ -114,15 +157,15 @@ describe('The camp (between map runs)', () => {
     upgradeGear(camp, 'mage', 'weapon');
     upgradeGear(camp, 'mage', 'weapon');
     upgradeGear(camp, 'warrior', 'armor');
-    upgradeDrills(camp);
+    buyPerk(camp, 'purse');
     expect(camp.loot).not.toEqual(before);
     resetUpgrades(camp);
     expect(camp.loot).toEqual(before);
     expect(camp.gear.mage.weapon).toBe(0);
-    expect(camp.drills).toBe(0);
+    expect(camp.records.perks).toEqual([]);
   });
 
-  it('loot is banked at the camp; old Camp Mode saves keep their loot, gear and Drills', () => {
+  it('loot is banked at the camp; old saves keep their loot and gear, and Drills are refunded', () => {
     fakeStorage();
     const camp = newCamp();
     bankLoot(camp, { spoils: 5, ore: 1, hide: 0, gems: 0, trophies: 1 });
@@ -132,10 +175,10 @@ describe('The camp (between map runs)', () => {
     const old = { version: 1, loot: { spoils: 99, ore: 2, hide: 3, gems: 4, trophies: 1 }, gear: { ...newCamp().gear, mage: { weapon: 2, armor: 0, trinket: 1 } }, drills: 1, unlocked: [1, 11], best: 14, runs: 6, wins: 0 };
     localStorage.setItem('fightwithfriends.camp.v1', JSON.stringify(old));
     const loaded = loadCamp();
-    expect(loaded.version).toBe(2);
-    expect(loaded.loot.spoils).toBe(99);
+    expect(loaded.version).toBe(3);
+    expect(loaded.loot.spoils).toBe(99 + 60);
+    expect(loaded.loot.trophies).toBe(2);
     expect(loaded.gear.mage.weapon).toBe(2);
-    expect(loaded.drills).toBe(1);
   });
 
   it('a map run with a camp banks loot from its fights and uses the gear', () => {
@@ -146,7 +189,6 @@ describe('The camp (between map runs)', () => {
     // A fully geared guild does at least as well on the same seed.
     const rich = newCamp();
     for (const cls of Object.keys(rich.gear) as HeroClass[]) rich.gear[cls] = { weapon: 10, armor: 10, trinket: 10 };
-    rich.drills = 5;
     const geared = playRun('warrior', 77, 'ai', rich);
     const pos = (r: typeof rec) => (r.won ? 999 : r.reached);
     expect(pos(geared)).toBeGreaterThanOrEqual(pos(rec));

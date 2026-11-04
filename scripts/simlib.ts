@@ -3,7 +3,8 @@
  * runs with the same rules as the game (Auto's choices, or random ones) and
  * records what happened. Pure: no Phaser, no DOM.
  */
-import { startLevel, withGear, type CampState } from '../src/sim/camp';
+import { withGear, type CampState } from '../src/sim/camp';
+import { lockedAbilities } from '../src/sim/progress';
 import { settleFight } from '../src/sim/settle';
 import { Battle, STEP } from '../src/sim/battle';
 import { ARENA, HERO_KIT, WORLD } from '../src/sim/content';
@@ -234,13 +235,17 @@ function checkInvariants(units: Unit[], note: (m: string) => void): void {
   }
 }
 
-/** Play a whole run on the map: path, fights, campsites, chests and shops, until the party falls or the last boss does. */
-/** Play a run; with a camp, its gear and Drills apply and every fight's loot is banked there. */
-export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai', camp?: CampState): RunRecord {
+/**
+ * Play a whole run on the map: path, fights, campsites, chests and shops, until
+ * the party falls or the last boss does. With a camp, its gear, perks and
+ * ability unlocks apply and every fight's loot (and record) is kept there.
+ */
+export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai', camp?: CampState, tier = 0): RunRecord {
   const rng = createRng(seed * 7 + 3);
   const pick = <T>(list: T[]): T => list[Math.floor(rng() * list.length)];
-  const options = firstAbilityOptions(start);
-  const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed, camp ? startLevel(camp) : 1);
+  const locked = camp ? lockedAbilities(camp.records) : [];
+  const options = firstAbilityOptions(start, locked);
+  const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed, { tier, perks: camp?.records.perks, locked });
   const rec: RunRecord = { team: [start], seed, reached: 0, act: 1, won: false, gold: 0, losses: [], rounds: [], violations: [], picks: [], path: [] };
   const log = (slot: number, r: Reward | string) => rec.picks.push({ cls: run.team[slot], round: position(run), pick: typeof r === 'string' ? r : rewardKey(r) });
   for (let guard = 0; guard < 2000 && (run.status === 'map' || run.status === 'fight'); guard++) {
@@ -272,7 +277,7 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
         }
       } else if (p.kind === 'recruit') {
         const cls = pick(ALL_CLASSES);
-        recruit(run, cls, pick(firstAbilityOptions(cls)));
+        recruit(run, cls, pick(firstAbilityOptions(cls, run.locked)));
         rec.team.push(cls);
       } else if (p.kind === 'train') {
         const slot = p.left[0];

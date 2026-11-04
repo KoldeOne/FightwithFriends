@@ -3,6 +3,7 @@ import { ECONOMY, goldFor, makeEncounter, STRENGTH } from './acts';
 import { ABILITIES, CLASS_POOL, HERO_KIT, HERO_STATS, LEVEL_SCALING, MAX_ABILITY_SLOTS, RESOURCES, TRAITS, UPGRADE } from './content';
 import { generateActMap, nextNodes, type ActMap, type MapNode } from './map';
 import { createRng } from './rng';
+import { tierRules, type PerkId } from './progress';
 import { ALTAR_WOUND, CURSE_DAMAGE, EVENTS, eventFor, FEAST, MAX_WISHES, type EventChoice, type EventId } from './events';
 import type { AbilityId, EnemyKind, HeroBuild, HeroClass, Loot, TraitId, WaveDef } from './types';
 
@@ -69,8 +70,16 @@ export interface RunState {
   builds: HeroBuild[];
   /** Experience per hero (ECONOMY.xpPerLevel per level). */
   xp: number[];
-  /** The level heroes start (and recruits join) at: 1 plus the camp's Drills. XP adds to it. */
+  /** The level heroes start (and recruits join) at (1). XP adds to it. */
   baseLevel: number;
+  /** Difficulty tier (0 = Normal; see progress.ts). */
+  tier: number;
+  /** Training Ground perks this run started with. */
+  perks: PerkId[];
+  /** Class pool entries not unlocked yet (they're never offered this run). */
+  locked: string[];
+  /** The daily run's date (same map, enemies and start for everyone; no camp gear or perks). */
+  daily?: string;
   gold: number;
   /** Wishes held (from a Wishing Well): a wipe uses one, and the fight starts over. */
   wishes: number;
@@ -117,8 +126,8 @@ export const ALL_CLASSES: HeroClass[] = ['warrior', 'paladin', 'priest', 'mage',
 const isTrait = (id: AbilityId | TraitId): id is TraitId => id in TRAITS;
 
 /** Abilities a class can start with (its usual opener plus any active from its pool). */
-export function firstAbilityOptions(cls: HeroClass): AbilityId[] {
-  return [HERO_KIT[cls].starting, ...CLASS_POOL[cls].filter((id): id is AbilityId => !isTrait(id))];
+export function firstAbilityOptions(cls: HeroClass, locked: string[] = []): AbilityId[] {
+  return [HERO_KIT[cls].starting, ...CLASS_POOL[cls].filter((id): id is AbilityId => !isTrait(id) && !locked.includes(id))];
 }
 
 function freshBuild(first: AbilityId, level = 1): HeroBuild {
@@ -141,9 +150,18 @@ function shuffle<T>(rng: () => number, list: T[]): T[] {
 }
 
 /** Start a run with one hero and the first ability you picked for it. */
-export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting, seed = Date.now() % 1_000_000, baseLevel = 1): RunState {
+/** How a run starts beyond its first hero: difficulty, perks, locked abilities, daily. */
+export interface RunOptions {
+  tier?: number;
+  perks?: PerkId[];
+  locked?: string[];
+  daily?: string;
+}
+
+export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting, seed = Date.now() % 1_000_000, opts: RunOptions = {}): RunState {
   const build = freshBuild(first);
-  build.level = baseLevel;
+  const perks = opts.perks ?? [];
+  const baseLevel = 1;
   return {
     version: 5,
     seed,
@@ -155,8 +173,13 @@ export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting
     builds: [build],
     xp: [0],
     baseLevel,
-    gold: 0,
-    wishes: 0,
+    tier: opts.tier ?? 0,
+    perks,
+    locked: opts.locked ?? [],
+    daily: opts.daily,
+    // Perks: a Coin Purse starts you with gold, a Lucky Charm with a wish.
+    gold: perks.includes('purse') ? 50 : 0,
+    wishes: perks.includes('charm') ? 1 : 0,
     attempt: 0,
     loot: { spoils: 0, ore: 0, hide: 0, gems: 0, trophies: 0 },
     campsites: 0,
@@ -180,9 +203,10 @@ function slotsUsed(b: HeroBuild): number {
 }
 
 /** Abilities and passives from the class pool this hero hasn't taken yet (if a slot is free). */
-export function freshPicks(cls: HeroClass, b: HeroBuild): Reward[] {
+export function freshPicks(cls: HeroClass, b: HeroBuild, locked: string[] = []): Reward[] {
   if (slotsUsed(b) >= MAX_ABILITY_SLOTS) return [];
   return CLASS_POOL[cls]
+    .filter((id) => !locked.includes(id))
     .filter((id) => (isTrait(id) ? !b.traits.includes(id) : !b.abilities.some((a) => a.id === id)))
     .map((id) => (isTrait(id) ? { kind: 'trait' as const, id } : { kind: 'ability' as const, id }));
 }
@@ -233,7 +257,7 @@ export function xpProgress(xp: number): { into: number; need: number } {
  */
 export function partyPickOptions(run: RunState, salt: number, count = 3): PartyReward[] {
   const rng = nodeRng(run, salt);
-  const open = shuffle(rng, run.team.map((_, i) => i)).filter((i) => freshPicks(run.team[i], run.builds[i]).length);
+  const open = shuffle(rng, run.team.map((_, i) => i)).filter((i) => freshPicks(run.team[i], run.builds[i], run.locked).length);
   if (!open.length) return partyUpgradeOptions(run, salt, count);
   open.sort((a, b) => slotsUsed(run.builds[a]) - slotsUsed(run.builds[b]));
   const fresh: PartyReward[] = [];
@@ -241,7 +265,7 @@ export function partyPickOptions(run: RunState, salt: number, count = 3): PartyR
   for (let k = 0; fresh.length < want && k < 4; k++)
     for (const slot of open) {
       if (fresh.length >= want) break;
-      const options = shuffle(rng, freshPicks(run.team[slot], run.builds[slot])).filter((r) => !fresh.some((f) => f.slot === slot && JSON.stringify(f.reward) === JSON.stringify(r)));
+      const options = shuffle(rng, freshPicks(run.team[slot], run.builds[slot], run.locked)).filter((r) => !fresh.some((f) => f.slot === slot && JSON.stringify(f.reward) === JSON.stringify(r)));
       if (options.length && (k > 0 || !fresh.some((f) => f.slot === slot))) fresh.push({ slot, reward: options[0] });
     }
   return [...fresh, ...partyUpgradeOptions(run, salt + 1, count - fresh.length)];
@@ -289,8 +313,9 @@ export function trainOptions(run: RunState, slot: number): Reward[] {
   const rng = nodeRng(run, 11 + slot);
   // A boss offers four.
   const p = run.pending;
-  const count = p?.kind === 'train' && p.source === 'boss' ? 4 : 3;
-  const fresh = freshPicks(run.team[slot], run.builds[slot]);
+  // A Mentor makes training campsites offer four too.
+  const count = p?.kind === 'train' && (p.source === 'boss' || (p.source === 'campsite' && run.perks.includes('mentor'))) ? 4 : 3;
+  const fresh = freshPicks(run.team[slot], run.builds[slot], run.locked);
   if (fresh.length) return shuffle(rng, fresh).slice(0, count);
   const u = upgrades(run.team[slot], run.builds[slot]);
   const masteries = shuffle(rng, u.masteries).slice(0, 2);
@@ -299,7 +324,7 @@ export function trainOptions(run: RunState, slot: number): Reward[] {
 
 /** Heroes with a free slot (who can learn something new). */
 export function trainableSlots(run: RunState): number[] {
-  return run.team.map((_, i) => i).filter((i) => freshPicks(run.team[i], run.builds[i]).length > 0);
+  return run.team.map((_, i) => i).filter((i) => freshPicks(run.team[i], run.builds[i], run.locked).length > 0);
 }
 
 function shopStock(run: RunState, rerolls: number): ShopItem[] {
@@ -307,7 +332,7 @@ function shopStock(run: RunState, rerolls: number): ShopItem[] {
   const price = (p: number) => Math.round(p * ECONOMY.actPrice[run.act - 1]);
   const abilities: ShopItem[] = shuffle(
     rng,
-    trainableSlots(run).flatMap((slot) => freshPicks(run.team[slot], run.builds[slot]).map((reward) => ({ slot, reward, price: price(ECONOMY.prices.ability) }))),
+    trainableSlots(run).flatMap((slot) => freshPicks(run.team[slot], run.builds[slot], run.locked).map((reward) => ({ slot, reward, price: price(ECONOMY.prices.ability) }))),
   );
   const items: ShopItem[] = [];
   const heroes = new Set<number>();
@@ -324,6 +349,8 @@ function shopStock(run: RunState, rerolls: number): ShopItem[] {
 }
 
 export function rerollPrice(run: RunState): number {
+  // Haggler: the first reroll in each shop is free.
+  if (run.perks.includes('haggler') && run.pending?.kind === 'shop' && run.pending.rerolls === 0) return 0;
   return Math.round(ECONOMY.prices.reroll * ECONOMY.actPrice[run.act - 1]);
 }
 
@@ -378,8 +405,12 @@ export function fightSeed(run: RunState): number {
 export function encounterFor(run: RunState): WaveDef {
   const node = currentNode(run)!;
   const twist = eliteTwist(run, node);
-  const wave = makeEncounter(run.seed, run.act, node.floor, node.type, run.team.length, node.id, twist === 'swarm' ? 2 : 0);
-  return twist ? { ...wave, name: `${wave.name} (${TWISTS[twist].name})`, strength: (wave.strength ?? 1) * STRENGTH.twist } : wave;
+  // The difficulty tier: tougher enemies (elites more so), and from Tier 5 one more enemy from floor 4.
+  const tier = tierRules(run.tier ?? 0);
+  const extra = (twist === 'swarm' ? 2 : 0) + (node.floor >= 3 && node.type !== 'boss' ? tier.extraEnemies : 0);
+  const wave = makeEncounter(run.seed, run.act, node.floor, node.type, run.team.length, node.id, extra);
+  const strength = (wave.strength ?? 1) * (twist ? STRENGTH.twist : 1) * tier.strength * (node.type === 'elite' ? tier.eliteStrength : 1);
+  return { ...wave, name: twist ? `${wave.name} (${TWISTS[twist].name})` : wave.name, strength };
 }
 
 /** An elite's twist: what makes it harder (and its reward bigger). */
@@ -404,11 +435,13 @@ export function eliteTwist(run: RunState, node: MapNode): Twist | undefined {
 export function fightMods(run: RunState): { curse?: number; feast?: number; enemyDamage?: number; healingScale?: number } {
   const node = currentNode(run);
   const twist = node ? eliteTwist(run, node) : undefined;
+  // No Rest halves healing; Tier 4 takes another 15%.
+  const healing = (twist === 'frail' ? 0.5 : 1) * tierRules(run.tier ?? 0).healing;
   return {
     curse: run.cursed ? CURSE_DAMAGE : undefined,
     feast: run.feast ? FEAST.health : undefined,
     enemyDamage: twist === 'enraged' ? 1.3 : undefined,
-    healingScale: twist === 'frail' ? 0.5 : undefined,
+    healingScale: healing === 1 ? undefined : healing,
   };
 }
 
@@ -459,7 +492,7 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
   run.stats.fights += 1;
   if (node.type === 'elite') run.stats.elites += 1;
   if (node.type === 'boss') run.stats.bosses += 1;
-  const plain = Math.round(kills.reduce((a, k) => a + (k.summoned ? 0 : goldFor(k.kind)), 0) * ECONOMY.actGold[run.act - 1]);
+  const plain = Math.round(kills.reduce((a, k) => a + (k.summoned ? 0 : goldFor(k.kind)), 0) * ECONOMY.actGold[run.act - 1] * tierRules(run.tier ?? 0).gold);
   const gold = Math.round(plain * (node.rich ? ECONOMY.richBonus : 1));
   run.gold += gold;
   run.stats.gold += gold;
@@ -564,7 +597,7 @@ export function buy(run: RunState, index: number): boolean {
   for (const other of p.stock) {
     if (other.sold) continue;
     if (other.reward.kind === 'ability' || other.reward.kind === 'trait') {
-      if (!freshPicks(run.team[other.slot], run.builds[other.slot]).some((r) => JSON.stringify(r) === JSON.stringify(other.reward))) other.sold = true;
+      if (!freshPicks(run.team[other.slot], run.builds[other.slot], run.locked).some((r) => JSON.stringify(r) === JSON.stringify(other.reward))) other.sold = true;
     }
     if (other.reward.kind === 'mastery') {
       const a = run.builds[other.slot].abilities.find((x) => x.id === (other.reward as { id: AbilityId }).id);
@@ -826,6 +859,9 @@ export function loadRun(): RunState | null {
     const ok = run?.version === 5 && Array.isArray(run.team) && run.team.length === run.builds.length && run.team.length <= MAX_PARTY && (run.status === 'map' || run.status === 'fight');
     if (!ok) return null;
     run.baseLevel ??= 1;
+    run.tier ??= 0;
+    run.perks ??= [];
+    run.locked ??= [];
     run.wishes ??= 0;
     run.attempt ??= 0;
     // Saves from before challenges and feasts were folded into elites and events, and the Gambler left.

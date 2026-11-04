@@ -16,6 +16,7 @@ import { Choices } from './screens/choices';
 import { Results } from './screens/results';
 import { CampScreen } from './screens/camp';
 import { Meter } from './meter';
+import { Weather } from './weather';
 import { loadCamp, withGear, type CampState } from '../sim/camp';
 
 /** The game screen: owns the battle and run state, and wires the modules together. */
@@ -30,6 +31,8 @@ export class BattleScene extends Phaser.Scene {
   results!: Results;
   campScreen!: CampScreen;
   meter!: Meter;
+  /** The act's ambient weather (none on the title screen). */
+  weather?: Weather;
 
   battle!: Battle;
   acc = 0;
@@ -40,7 +43,7 @@ export class BattleScene extends Phaser.Scene {
   careful = true;
   auto = false;
 
-  /** The camp (gear and Drills), read when the scene starts. */
+  /** The camp (gear and records), read when the scene starts. */
   camp!: CampState;
   /** The current run (null while choosing a hero). */
   run: RunState | null = null;
@@ -88,13 +91,14 @@ export class BattleScene extends Phaser.Scene {
       carefulAI: this.careful,
       team: run?.team ?? [],
       // Camp gear goes with every hero (read fresh: it may have been upgraded since the run began).
-      builds: run ? withGear(run.team, run.builds, this.camp) : undefined,
+      builds: run ? (run.daily ? run.builds : withGear(run.team, run.builds, this.camp)) : undefined,
       ...(run && fighting ? fightMods(run) : {}),
     });
     this.party = partyLayout(Math.max(3, this.battle.heroes.length));
 
     ensurePixelTextures(this);
     this.drawField(actDef(run?.act ?? 1).look);
+    this.weather = run ? new Weather(this, actDef(run.act).look) : undefined;
     this.units.zoneLayer = this.add.graphics().setDepth(5);
     this.hud.drawTopBar();
     this.hud.drawHud();
@@ -140,6 +144,7 @@ export class BattleScene extends Phaser.Scene {
     this.units.syncViews();
     this.hud.updateHud();
     this.meter.update(deltaMs);
+    this.weather?.update(deltaMs, this.state === 'map' || this.state === 'choice');
     this.inspect.inspectRefresh -= deltaMs;
     if (this.inspect.inspectRefresh <= 0) {
       this.inspect.inspectRefresh = 200;

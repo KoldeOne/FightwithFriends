@@ -5,7 +5,8 @@
  *
  *   npx vite-node scripts/camp-sim.ts -- [guilds=4] [maxRuns=30]
  */
-import { canAfford, drillsCost, GEAR_SLOTS, gearCost, newCamp, upgradeDrills, upgradeGear, type CampState } from '../src/sim/camp';
+import { buyPerk, canAfford, GEAR_SLOTS, gearCost, newCamp, upgradeGear, type CampState } from '../src/sim/camp';
+import { PERK_IDS, PERKS } from '../src/sim/progress';
 import type { HeroClass } from '../src/sim/types';
 import { playRun } from './simlib';
 
@@ -26,8 +27,7 @@ function spend(camp: CampState, heroes: HeroClass[]): number {
         const cost = gearCost(slot, camp.gear[cls][slot]);
         if (canAfford(camp.loot, cost)) options.push({ spoils: cost!.spoils ?? 0, buy: () => upgradeGear(camp, cls, slot) });
       }
-    const d = drillsCost(camp.drills);
-    if (canAfford(camp.loot, d)) options.push({ spoils: d!.spoils ?? 0, buy: () => upgradeDrills(camp) });
+    for (const id of PERK_IDS) if (!camp.records.perks.includes(id) && canAfford(camp.loot, PERKS[id].cost)) options.push({ spoils: PERKS[id].cost.spoils ?? 0, buy: () => buyPerk(camp, id) });
     if (!options.length) return bought;
     options.sort((a, b) => a.spoils - b.spoils);
     options[0].buy();
@@ -65,7 +65,7 @@ for (let g = 0; g < GUILDS; g++) {
   firsts.push(first);
   if (!QUIET) {
     const gear = ORDER.map((c) => `${c[0]}:${GEAR_SLOTS.map((s) => camp.gear[c][s]).join('/')}`).join(' ');
-    console.log(`guild ${g}: ${line.join(' ')}\n  gear ${gear} drills ${camp.drills} left ${JSON.stringify(camp.loot)}`);
+    console.log(`guild ${g}: ${line.join(' ')}\n  gear ${gear} perks ${camp.records.perks.join(',') || '-'} left ${JSON.stringify(camp.loot)}`);
   }
 }
 const median = (xs: number[]) => {

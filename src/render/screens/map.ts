@@ -6,6 +6,8 @@ import { MAP_COLS, MAP_FLOORS, type MapNode, type NodeType } from '../../sim/map
 import { autoPath, availableNodes, clearRun, eliteTwist, enterNode, isRecruitCampsite, recordProgress, saveRun, TWISTS } from '../../sim/run';
 import { sound } from '../sound';
 import { ICON_PX } from '../theme';
+import { loadCamp, saveCamp } from '../../sim/camp';
+import { addGrave } from '../../sim/settle';
 
 /** Where the map is drawn (between the top bar and the hero panels). */
 const TOP = 180;
@@ -136,6 +138,10 @@ export class MapScreen {
         .on('pointerdown', () =>
           this.s.confirm('Abandon this run?', 'The run ends here. Your best progress is kept, and its camp loot is already at the camp.', 'Abandon', () => {
             recordProgress(run);
+            // The graveyard keeps abandoned runs too.
+            const camp = loadCamp();
+            addGrave(run, camp);
+            saveCamp(camp);
             clearRun();
             this.hide();
             this.s.results.showAbandoned();

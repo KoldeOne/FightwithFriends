@@ -4,6 +4,7 @@ import { actDef } from '../../sim/acts';
 import { WORLD } from '../../sim/content';
 import { bestProgress, clearRun, currentNode, describeProgress, heroLabel, recordProgress, recordWin, saveRun, spoilsLine, type Spoils } from '../../sim/run';
 import { loadCamp, lootText, saveCamp } from '../../sim/camp';
+import { dailyBest, recordDaily } from '../../sim/progress';
 import { settleFight } from '../../sim/settle';
 import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
@@ -17,6 +18,9 @@ const SPOILS_MS = 2400;
 export class Results {
   constructor(readonly s: BattleScene) {}
 
+  /** Unlocks earned by the fight just settled (a new ability, tier or class), shown with its rewards. */
+  private notices: string[] = [];
+
   /** The fight is over: settle it with the run, then show what happened. */
   finish(): void {
     const run = this.s.run!;
@@ -26,8 +30,9 @@ export class Results {
     // Camp loot goes home straight away, win or lose.
     const camp = loadCamp();
     const meter = this.s.battle.heroes.map((h) => ({ slot: h.slot ?? 0, damage: this.s.battle.meter.get(h.id)?.damage ?? {}, healing: this.s.battle.meter.get(h.id)?.healing ?? {} }));
-    const { spoils, loot } = settleFight(run, camp, { won, fallen, kills: this.s.battle.kills, meter });
+    const { spoils, loot, notices } = settleFight(run, camp, { won, fallen, kills: this.s.battle.kills, meter });
     saveCamp(camp);
+    this.notices = notices;
     if (spoils.wished) {
       saveRun(run);
       this.showWish();
@@ -48,7 +53,7 @@ export class Results {
     }
     if (spoils.pick) {
       // An elite or boss pick follows: the rewards go at the top of that screen instead.
-      run.lastSpoils = `${spoils.actCleared ? `ACT ${run.act} CLEARED! ` : 'Victory: '}${spoilsLine(run, spoils, lootText(loot))}`;
+      run.lastSpoils = `${spoils.actCleared ? `ACT ${run.act} CLEARED! ` : 'Victory: '}${spoilsLine(run, spoils, lootText(loot))}${notices.map((n) => `\n🔓 ${n}`).join('')}`;
       saveRun(run);
       this.s.scene.restart({ run });
       return;
@@ -67,7 +72,7 @@ export class Results {
     const items: Phaser.GameObjects.GameObject[] = [];
     const veil = this.s.add.rectangle(0, 0, WORLD.width, WORLD.hudTop, 0x000000, 0.45).setOrigin(0, 0).setInteractive();
     const ups = spoils.heroes.filter((r) => r.to > r.from);
-    const h = 190 + (ups.length ? 28 : 0) + (spoils.goldBonus ? 22 : 0);
+    const h = 190 + (ups.length ? 28 : 0) + (spoils.goldBonus ? 22 : 0) + this.notices.length * 22;
     const panel = this.s.add.rectangle(cx, cy, 380, h, 0x111723, 0.94).setStrokeStyle(2, 0xffd166);
     const title = spoils.won ? 'THE RIFT IS CLOSED!' : spoils.actCleared ? `ACT ${run.act} CLEARED!` : 'VICTORY!';
     const t = this.s.text(cx, cy - h / 2 + 30, title, spoils.actCleared || spoils.won ? 28 : 32, '#ffd166').setOrigin(0.5).setFontStyle('bold');
@@ -109,6 +114,10 @@ export class Results {
     const lt = this.s.text(cx, y + 32, `⛺ To the camp: ${lootText(loot)}`, 13, '#e0b878').setOrigin(0.5).setAlpha(0);
     this.s.tweens.add({ targets: lt, alpha: 1, duration: 300, delay: 500 });
     items.push(lt);
+    // Unlocks (abilities, a tier, a class).
+    this.notices.forEach((n, i) =>
+      items.push(this.s.text(cx, y + 58 + i * 22, `🔓 ${n}`, 13, '#ffd166').setOrigin(0.5).setFontStyle('bold').setWordWrapWidth(360)),
+    );
     if (spoils.pick) items.push(this.s.text(cx, cy + h / 2 - 18, 'An upgrade awaits…', 12, '#ffd166').setOrigin(0.5));
     const box = this.s.add.container(0, 0, items).setDepth(120);
     panel.setScale(0.6);
@@ -187,7 +196,7 @@ export class Results {
     this.showEnd({
       title: 'Victory!',
       color: '#ffd166',
-      lines: ['The rift is closed. Your guild is legend.', `Wins: ${wins}. Something new will unlock here soon.`],
+      lines: ['The rift is closed. Your guild is legend.', `Wins: ${wins}.`],
     });
   }
 
@@ -204,6 +213,14 @@ export class Results {
     const run = this.s.run!;
     this.s.state = 'over';
     const cx = WORLD.width / 2;
+    if (run.daily) {
+      const node = currentNode(run);
+      const reached = run.status === 'won' ? 999 : run.act * 100 + (node ? node.floor + 1 : 0);
+      const best = recordDaily(run.daily, reached, run.team);
+      o.lines = [...o.lines.filter((l) => !l.startsWith('Best:')), `Daily run ${run.daily}: ${describeProgress(reached)}${best ? ' (your best today!)' : ` (best today: ${describeProgress(dailyBest(run.daily)?.reached ?? 0)})`}`];
+    }
+    o.lines = [...o.lines, ...this.notices.map((n) => `🔓 ${n}`)];
+    this.notices = [];
     const items: Phaser.GameObjects.GameObject[] = [
       this.s.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x0b0e14, 0.97).setOrigin(0, 0).setInteractive(),
       this.s.add.rectangle(12, 56, WORLD.width - 24, 800, 0x111723).setOrigin(0, 0).setStrokeStyle(2, 0x3a4660),
