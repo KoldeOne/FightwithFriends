@@ -5,7 +5,7 @@ import { WORLD } from '../../sim/content';
 import { bestProgress, clearRun, currentNode, describeProgress, heroLabel, recordProgress, recordWin, saveRun, spoilsLine, type Spoils } from '../../sim/run';
 import { loadCamp, lootText, saveCamp } from '../../sim/camp';
 import { dailyBest, recordDaily } from '../../sim/progress';
-import { settleFight } from '../../sim/settle';
+import { addGrave, settleFight } from '../../sim/settle';
 import type { Loot } from '../../sim/types';
 import { sound } from '../sound';
 import { abilityIcon, COLORS, cssColor, ICON_PX, traitIcon } from '../theme';
@@ -200,7 +200,25 @@ export class Results {
     });
   }
 
-  /** You gave up on the run (from the map). */
+  /** Give up on the run (from the top bar, with a check first). */
+  abandon(): void {
+    const run = this.s.run;
+    if (!run) return;
+    this.s.confirm('Abandon this run?', 'The run ends here. Your best progress is kept, and its camp loot is already at the camp.', 'Abandon', () => {
+      recordProgress(run);
+      // The graveyard keeps abandoned runs too.
+      const camp = loadCamp();
+      addGrave(run, camp);
+      saveCamp(camp);
+      clearRun();
+      this.s.map.hide();
+      this.s.inspect.closeInspect();
+      this.s.overlay?.destroy();
+      this.showAbandoned();
+    });
+  }
+
+  /** You gave up on the run. */
   showAbandoned(): void {
     this.showEnd({ title: 'Run abandoned', color: '#c9d1e0', lines: [`Best: ${describeProgress(bestProgress())}`] });
   }

@@ -668,8 +668,9 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   with level and abilities, and a **damage bar and a healing bar** for the run
   (tap a hero for what their numbers were made of). Then the camp loot sent
   home, The Camp and New run.
-- **Map:** **✕ Abandon run** (bottom left, with a check first) ends the run
-  from the map. Starting a new run from the title screen while one is saved
+- **Top bar:** **✕ Abandon run** (top centre, whenever a run is under way: map, fights, choice screens; with a check first) ends the run.
+  The end screen then shows only the whole-run damage and healing chart (the
+  last fight's meter is hidden there). Starting a new run from the title screen while one is saved
   asks first.
 - **Fights:** cast names sit above units, one at a time, and damage numbers
   fan out; spells are coloured by school (frost, fire, holy, shadow, nature,

@@ -22,6 +22,7 @@ export class Hud {
   hudText!: Phaser.GameObjects.Text;
   waveText!: Phaser.GameObjects.Text;
   speedButton!: PixelButton;
+  abandonButton!: PixelButton;
   pauseButton!: PixelButton;
   partyFrames: PartyFrame[] = [];
   partyBars!: Phaser.GameObjects.Graphics;
@@ -53,6 +54,11 @@ export class Hud {
     });
     this.pauseButton = small(WORLD.width - 8, 8, () => this.s.togglePause()).setOrigin(1, 0);
     this.autoButton = small(WORLD.width - 104, 8, () => this.s.setAuto(!this.s.auto)).setOrigin(1, 0);
+    // Give up on the run, in the middle (it asks first).
+    this.abandonButton = new PixelButton(this.s, WORLD.width / 2, 8, '✕ Abandon run', 13, '#6b2a2a', () => this.s.results.abandon())
+      .setOrigin(0.5, 0)
+      .setPadding(11, 9)
+      .setDepth(200);
 
   }
 
@@ -174,6 +180,9 @@ export class Hud {
     // Sound and Auto move to the edges when the others are hidden.
     this.soundButton.setX(fighting ? 98 : 8);
     this.autoButton.setX(fighting ? WORLD.width - 104 : WORLD.width - 8);
+    // Abandon: whenever a run is under way (not on its spoils, the end screen, the title or the camp).
+    const st = this.s.state;
+    this.abandonButton.setVisible(!!this.s.run && (fighting || st === 'map' || st === 'choice'));
     this.autoButton.setText(`Auto: ${this.s.auto ? 'ON' : 'OFF'}`).setBackgroundColor(this.s.auto ? '#1e6f50' : '#3a4660');
 
     this.updatePartyHud();

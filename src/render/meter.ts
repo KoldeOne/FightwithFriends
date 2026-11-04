@@ -46,8 +46,9 @@ export class Meter {
     const state = this.s.state;
     const b = this.s.battle;
     const fought = b.heroes.length > 0 && b.time > 0;
-    // During a fight and on the screens straight after it (spoils, game over), the live numbers.
-    if (fought && (state === 'playing' || state === 'paused' || state === 'spoils' || state === 'over')) {
+    // During a fight and on the spoils straight after it, the live numbers. (The end of a run has its own
+    // whole-run chart, so this fight's meter stays hidden there.)
+    if (fought && (state === 'playing' || state === 'paused' || state === 'spoils')) {
       lastFight = { heroes: b.heroes.map((h) => ({ id: h.id, label: h.label, kind: h.kind })), meter: b.meter };
       if (state === 'playing') openAfter = false;
       this.place('field', state === 'playing' || state === 'paused' ? 60 : 130, WORLD.hudTop - 10);
