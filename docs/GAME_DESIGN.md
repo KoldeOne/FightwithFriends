@@ -625,17 +625,27 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
 - **Title screen:** continue a saved run, best and wins, **The Camp**, then
   choose a class and its first ability.
 - **Map** (§2; drawing in `src/render/mapArt.ts`):
-  - Each act's terrain in a framed panel: forest trees and ponds; crypt
+  - **Zoomed in:** the floor you're on sits at the bottom, with the next 4
+    floors above it. Floors you've finished aren't shown, and anything
+    further up is hidden in fog ("the way ahead is hidden") until you climb
+    closer; the boss comes into view 4 floors out. A "Floor N of 12" counter
+    sits top right.
+  - **Roads:** every link is a road in the act's style (a dirt track, worn
+    flagstones, charred rock). Roads from where you stand have gold dashes;
+    the road you came in on has a solid gold trail. Other nodes on your floor
+    (the ones you didn't take) are faded.
+  - **Terrain** per act in a framed panel: forest trees and ponds; crypt
     tombstones, pillars, candles and bones; hellscape spikes, lava pools and
-    seams. Scenery is kept clear of every node, path, the header and the legend.
-  - Paths are gentle curves: faint dashes ahead, bright gold dashes from where
-    you stand, and the way you came as a solid trail.
-  - Nodes are round badges with a rim in their type's colour (fight steel,
-    elite red, chest gold, campsite orange, shop green, event purple). Nodes
-    you've done are greyed; ones you passed by are faded. Golden nodes have a
-    gold halo. The whole badge is the tap area.
-  - Your party leader stands in the current node with a gold pennant.
+    seams. Scenery belongs to a floor, so it scrolls down as you climb, and it
+    is kept clear of nodes, roads and the legend.
+  - **Nodes** are round badges with a rim in their type's colour (fight steel,
+    elite red, chest gold, campsite orange, shop green, event purple). Golden
+    nodes have a gold halo. The whole badge is the tap area.
+  - **The party:** your leader stands on your node with a gold pennant (at the
+    start of an act, at a little camp with a tent and a fire at the bottom).
+    Tapping a node makes them walk the road to it (0.65 s) before it opens.
   - The boss's badge shows the boss itself, with a slow red glow.
+  - Weather is faint over the map (35%).
   - A legend, and the boss's move at the top on the floor before it.
 - **Spoils panel** after each win; **game over / victory** screens show the
   run's stats and the loot sent home, with buttons to the camp and a new run.

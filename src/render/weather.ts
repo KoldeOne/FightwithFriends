@@ -61,7 +61,8 @@ export class Weather {
   /** Call every frame; `onMap` lifts the weather above the map panel. */
   update(deltaMs: number, onMap: boolean): void {
     if (!this.layer.active) return;
-    this.layer.setDepth(onMap ? MAP_DEPTH : FIELD_DEPTH);
+    // Over the map it's kept faint, so it doesn't get in the way of the nodes.
+    this.layer.setDepth(onMap ? MAP_DEPTH : FIELD_DEPTH).setAlpha(onMap ? 0.35 : 1);
     const dt = Math.min(deltaMs / 1000, 0.1);
     for (const [kind, spec] of Object.entries(SPAWN[this.look]) as [Kind, { max: number; rate: number }][]) {
       this.due[kind] = (this.due[kind] ?? 0) - dt;

@@ -6,15 +6,24 @@ import { MAP_COLS, MAP_FLOORS, type MapNode, type NodeType } from '../../sim/map
 import { autoPath, availableNodes, clearRun, eliteTwist, enterNode, isRecruitCampsite, recordProgress, saveRun, TWISTS } from '../../sim/run';
 import { sound } from '../sound';
 import { ICON_PX, spriteKey, spriteOriginY } from '../theme';
-import { drawMapTerrain, linkPoints, MAP_LOOK, NODE_RIM, strokeCurve } from '../mapArt';
+import { along, drawFog, drawMapTerrain, drawRoad, drawStartCamp, linkPoints, NODE_RIM } from '../mapArt';
 import { loadCamp, saveCamp } from '../../sim/camp';
 import { addGrave } from '../../sim/settle';
 
 /** Where the map is drawn (between the top bar and the hero panels). */
-const TOP = 180;
-const BOTTOM = 742;
+const BOTTOM = 708;
 const LEFT = 58;
 const RIGHT = WORLD.width - 58;
+/** The map is zoomed in: the floor you're on at the bottom, then this many floors above it; the rest is in fog. */
+const VIEW = 4;
+/** Height of one floor. */
+const ROW = 116;
+/** The map panel. */
+const BOX = { x: 10, y: 104, w: WORLD.width - 20, h: WORLD.hudTop - 118 };
+/** Roads stop at the legend strip. */
+const ROAD_BOTTOM = 752;
+/** How long the party takes to walk to the next node. */
+const WALK_MS = 650;
 
 const NODE_NAMES: Record<NodeType, string> = { fight: 'Fight', elite: 'Elite', chest: 'Chest', campsite: 'Campsite', shop: 'Shop', event: 'Event', boss: 'Boss' };
 
@@ -30,6 +39,20 @@ export class MapScreen {
   private ui?: Phaser.GameObjects.Container;
   private tip?: Phaser.GameObjects.Text;
 
+  /** The floor at the bottom of the view: where you stand (-1 = the starting camp). */
+  private base = -1;
+  private leader?: Phaser.GameObjects.Container;
+  private moving = false;
+
+  private rowY(floor: number): number {
+    return BOTTOM - (floor - this.base) * ROW;
+  }
+
+  /** Where the starting camp sits (below the first floor). */
+  private camp(): { x: number; y: number } {
+    return { x: WORLD.width / 2, y: this.rowY(-1) };
+  }
+
   /** Screen position of a node (a little jitter so the map doesn't look like graph paper). */
   pos(n: MapNode): { x: number; y: number } {
     let h = 0;
@@ -38,8 +61,7 @@ export class MapScreen {
     const jy = (((h >> 5) % 11) - 5) * (n.type === 'boss' ? 0 : 1);
     return {
       x: LEFT + (n.col / (MAP_COLS - 1)) * (RIGHT - LEFT) + jx,
-      // (The boss sits a little higher, clear of the last row.)
-      y: BOTTOM - (n.floor / MAP_FLOORS) * (BOTTOM - TOP) + jy - (n.type === 'boss' ? 8 : 0),
+      y: this.rowY(n.floor) + jy * 2,
     };
   }
 
@@ -47,64 +69,58 @@ export class MapScreen {
     const run = this.s.run!;
     const map = run.map;
     const act = actDef(run.act);
-    const look = MAP_LOOK[act.look];
     this.ui?.destroy();
+    this.moving = false;
     const items: Phaser.GameObjects.GameObject[] = [];
-    // The terrain first, kept clear of every node and path.
-    const links: { from: MapNode; to: MapNode; pts: { x: number; y: number }[] }[] = [];
-    for (const n of Object.values(map.nodes)) for (const id of n.next) links.push({ from: n, to: map.nodes[id], pts: linkPoints(this.pos(n), this.pos(map.nodes[id]), `${n.id}>${id}`) });
+    const visited = new Set(run.visited);
+    this.base = run.at ? map.nodes[run.at].floor : -1;
+    const top = this.base + VIEW;
+    // Only the floor you're on and the next few: what's behind you is done, what's beyond is in fog.
+    const inView = (n: MapNode) => n.floor >= this.base && n.floor <= top;
+    const nodes = Object.values(map.nodes).filter(inView);
+    const links: { from: MapNode | undefined; to: MapNode; pts: { x: number; y: number }[] }[] = [];
+    for (const n of nodes) {
+      // Roads from the floor you're on only start at your node.
+      if (n.floor === this.base && n.id !== run.at) continue;
+      for (const id of n.next) links.push({ from: n, to: map.nodes[id], pts: linkPoints(this.pos(n), this.pos(map.nodes[id]), `${n.id}>${id}`) });
+    }
+    // At the start, roads lead from the camp to every first-floor node.
+    if (!run.at) for (const id of map.floors[0]) links.push({ from: undefined, to: map.nodes[id], pts: linkPoints(this.camp(), this.pos(map.nodes[id]), `start>${id}`) });
+    // The road you came in on, from below the view.
+    const prev = run.visited.length > 1 ? map.nodes[run.visited[run.visited.length - 2]] : undefined;
+    const cameFrom = run.at ? linkPoints(prev ? this.pos(prev) : this.camp(), this.pos(map.nodes[run.at]), `${prev?.id ?? 'start'}>${run.at}`) : undefined;
+
     items.push(
       ...drawMapTerrain(
         this.s,
         act.look,
-        { x: 10, y: 104, w: WORLD.width - 20, h: WORLD.hudTop - 118 },
-        Object.values(map.nodes).map((n) => this.pos(n)),
-        links.map((l) => l.pts),
+        BOX,
+        [...nodes.map((n) => this.pos(n)), ...(run.at ? [] : [this.camp()])],
+        [...links.map((l) => l.pts), ...(cameFrom ? [cameFrom] : [])],
+        { from: this.base - 1, to: top + 2, rowY: (f) => this.rowY(f), row: ROW },
       ),
     );
-    // The act's boss, so you know what's coming.
-    const bossKind = act.boss;
-    const boss = BOSS_INFO[bossKind];
-    const special = boss?.moves[1];
-    items.push(
-      this.s.text(WORLD.width / 2, 112, `${act.theme}  Boss: ${ENEMY_STATS[bossKind].label}`, 12, '#e6e9f0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500),
-    );
-    // The boss's move is only revealed on the last floor before the boss.
-    const lastFloor = !!run.at && map.nodes[run.at].floor === MAP_FLOORS - 1;
-    if (special && lastFloor) items.push(this.s.text(WORLD.width / 2, 130, `${special.name}: ${special.text}`, 11, '#ffd9c2').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500));
 
-    // Trails between nodes: faint dashes ahead, brighter from where you stand,
-    // and the way you came as a solid trail with footprints.
+    // Roads: dimmer ahead, gold dashes from where you stand, a gold trail behind you.
     const g = this.s.add.graphics();
     items.push(g);
-    const visited = new Set(run.visited);
-    const steps = new Set<string>();
-    for (let i = 1; i < run.visited.length; i++) steps.add(`${run.visited[i - 1]}>${run.visited[i]}`);
-    const floorNow = run.at ? map.nodes[run.at].floor : -1;
-    for (const l of links) {
-      if (steps.has(`${l.from.id}>${l.to.id}`)) continue;
-      const fromHere = l.from.id === run.at;
-      const behind = l.to.floor <= floorNow;
-      strokeCurve(g, l.pts, fromHere ? 3 : 2, fromHere ? look.path : look.line, fromHere ? 0.85 : behind ? 0.15 : 0.45, true);
-    }
-    for (const l of links) {
-      if (!steps.has(`${l.from.id}>${l.to.id}`)) continue;
-      strokeCurve(g, l.pts, 6, 0x000000, 0.35, false);
-      strokeCurve(g, l.pts, 3, look.path, 0.95, false);
-    }
+    const open = new Set(availableNodes(run).map((n) => n.id));
+    for (const l of links) if (l.from?.id !== run.at || !run.at) drawRoad(g, act.look, l.pts, 'ahead', ROAD_BOTTOM);
+    for (const l of links) if (run.at ? l.from?.id === run.at : !l.from) drawRoad(g, act.look, l.pts, 'open', ROAD_BOTTOM);
+    if (cameFrom) drawRoad(g, act.look, cameFrom, 'taken', ROAD_BOTTOM);
+    if (!run.at) items.push(...drawStartCamp(this.s, this.camp().x, this.camp().y));
 
     // Nodes.
-    const open = new Set(availableNodes(run).map((n) => n.id));
-    for (const n of Object.values(map.nodes)) {
+    for (const n of nodes) {
       const p = this.pos(n);
       const isOpen = open.has(n.id);
       const here = run.at === n.id;
       const boss = n.type === 'boss';
-      const size = boss ? 40 : 24;
-      const r = size / 2 + (boss ? 8 : 5);
-      const done = visited.has(n.id) && !here;
-      const missed = !visited.has(n.id) && n.floor <= floorNow;
-      const alpha = isOpen || here ? 1 : done ? 0.8 : missed ? 0.35 : 0.9;
+      const size = boss ? 40 : 26;
+      const r = size / 2 + (boss ? 8 : 6);
+      // Other nodes on your floor are the ones you didn't take.
+      const missed = n.floor === this.base && !here;
+      const alpha = isOpen || here ? 1 : missed ? 0.35 : 0.9;
       // A round badge: shadow, dark disc, a rim in the node type's colour.
       const badge = this.s.add.graphics({ x: p.x, y: p.y }).setAlpha(alpha);
       if (boss) {
@@ -114,8 +130,8 @@ export class MapScreen {
       }
       if (n.rich && !boss) badge.fillStyle(0xffd166, 0.28).fillCircle(0, 0, r + 6).lineStyle(2, 0xffd166, 0.9).strokeCircle(0, 0, r + 5);
       badge.fillStyle(0x000000, 0.35).fillEllipse(2, r * 0.75, r * 2.1, r * 0.8);
-      badge.fillStyle(done ? 0x2a2622 : 0x15120f).fillCircle(0, 0, r);
-      badge.lineStyle(boss ? 4 : 2.5, done ? 0x8a8478 : NODE_RIM[n.type], 1).strokeCircle(0, 0, r);
+      badge.fillStyle(0x15120f).fillCircle(0, 0, r);
+      badge.lineStyle(boss ? 4 : 3, NODE_RIM[n.type], 1).strokeCircle(0, 0, r);
       if (boss) badge.lineStyle(1.5, 0xffd166, 0.8).strokeCircle(0, 0, r - 4);
       badge.fillStyle(0xffffff, 0.08).fillCircle(-r * 0.25, -r * 0.3, r * 0.55);
       items.push(badge);
@@ -128,7 +144,6 @@ export class MapScreen {
         icon.setOrigin(0.5, spriteOriginY(bossKey, icon.height));
       } else icon = this.s.add.image(p.x, p.y, `icon-nd-${n.type}`).setScale(size / ICON_PX);
       icon.setAlpha(alpha);
-      if (done) icon.setTint(0x9a9a9a);
       // A generous tap area: the whole badge.
       const hit = this.s.add.circle(p.x, p.y, r + 4, 0xffffff, 0.001).setInteractive({ useHandCursor: isOpen }).on('pointerdown', () => (isOpen ? this.go(n) : this.describe(n)));
       if (isOpen) {
@@ -138,28 +153,33 @@ export class MapScreen {
       }
       items.push(icon, hit);
       // Your party stands on the node you're at (in place of its icon).
-      if (here) {
-        icon.setVisible(false);
-        items.push(...this.partyMarker(p.x, p.y + r - 4));
-      }
-      // Fights you've won leave a little skull and crossbones beside the node.
-      if (done && (n.type === 'fight' || n.type === 'elite')) {
-        const m = this.s.add.graphics({ x: p.x + r - 3, y: p.y + r - 5 });
-        m.lineStyle(2, 0xe8e0cc, 0.9).lineBetween(-5, -3, 5, 5).lineBetween(-5, 5, 5, -3);
-        m.fillStyle(0xe8e0cc, 0.95).fillCircle(0, -2, 4);
-        m.fillStyle(0x1a1410, 1).fillCircle(-1.5, -2.5, 1).fillCircle(1.5, -2.5, 1);
-        items.push(m);
-      }
+      if (here) icon.setVisible(false);
       // An elite with a twist says what it is.
       const twist = eliteTwist(run, n);
-      if (twist) {
-        const tw = this.s.text(p.x, p.y + r + 1, TWISTS[twist].name, 10, '#ff9f9f').setOrigin(0.5, 0);
+      if (twist && !missed) {
+        const tw = this.s.text(p.x, p.y + r + 1, TWISTS[twist].name, 11, '#ff9f9f').setOrigin(0.5, 0);
         tw.setStroke('#000000', 3);
         items.push(tw);
       }
     }
+    // The party leader, on your node or at the camp.
+    const at = run.at ? this.pos(map.nodes[run.at]) : this.camp();
+    this.leader = this.partyMarker(at.x, at.y + (run.at ? 14 : 6));
+    items.push(this.leader);
 
-    // Legend.
+    // Fog over the floors further up (until the boss is in view).
+    if (top < MAP_FLOORS) items.push(...drawFog(this.s, act.look, BOX, 150));
+    // The act and its boss, on top of the fog; the boss's move only on the floor before it.
+    const bossKind = act.boss;
+    const special = BOSS_INFO[bossKind]?.moves[1];
+    items.push(
+      this.s.text(WORLD.width / 2, 112, `${act.theme}  Boss: ${ENEMY_STATS[bossKind].label}`, 12, '#e6e9f0').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500),
+      this.s.text(WORLD.width - 22, 112 + 18, run.at ? `Floor ${this.base + 1} of ${MAP_FLOORS}` : 'The start', 11, '#8f9bb3').setOrigin(1, 0),
+    );
+    if (special && this.base === MAP_FLOORS - 1) items.push(this.s.text(WORLD.width / 2, 130, `${special.name}: ${special.text}`, 11, '#ffd9c2').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500));
+
+    // Legend, on a darker strip.
+    items.push(this.s.add.rectangle(BOX.x + 4, BOX.y + BOX.h - 40, BOX.w - 8, 36, 0x000000, 0.45).setOrigin(0, 0));
     const types: NodeType[] = ['fight', 'elite', 'chest', 'campsite', 'shop', 'event'];
     types.forEach((t, i) => {
       const x = 26 + (i % 4) * 116;
@@ -210,12 +230,34 @@ export class MapScreen {
   /** Move to a node: fights start right away; anything else opens its screen. */
   private go(n: MapNode): void {
     const run = this.s.run!;
-    if (this.s.state !== 'map') return;
+    if (this.s.state !== 'map' || this.moving) return;
+    this.moving = true;
     sound.unlock();
     sound.play('click');
-    enterNode(run, n.id);
-    saveRun(run);
-    this.s.scene.restart({ run });
+    // The party walks the road to it first.
+    const from = run.at ? this.pos(run.map.nodes[run.at]) : this.camp();
+    const to = this.pos(n);
+    const pts = linkPoints(from, to, `${run.at ?? 'start'}>${n.id}`);
+    const leader = this.leader;
+    const lift = leader ? leader.y - from.y : 0;
+    const step = { t: 0 };
+    this.s.tweens.add({
+      targets: step,
+      t: 1,
+      duration: WALK_MS,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => {
+        const p = along(pts, step.t);
+        leader?.setPosition(p.x, p.y + lift);
+        const sprite = leader?.list.find((o) => o instanceof Phaser.GameObjects.Image) as Phaser.GameObjects.Image | undefined;
+        sprite?.setFlipX(to.x < from.x);
+      },
+      onComplete: () => {
+        enterNode(run, n.id);
+        saveRun(run);
+        this.s.scene.restart({ run });
+      },
+    });
   }
 
   /** What a node is (tapping one you can't reach yet). */
@@ -237,22 +279,22 @@ export class MapScreen {
     this.tip?.setText(`${text[n.type]}${n.rich ? ' Golden: better loot.' : ''}`).setColor('#ffffff');
   }
 
-  /** The party's leader inside the current node's badge, with a little pennant. */
-  private partyMarker(x: number, feet: number): Phaser.GameObjects.GameObject[] {
+  /** The party's leader with a little gold pennant: you are here. */
+  private partyMarker(x: number, feet: number): Phaser.GameObjects.Container {
     const run = this.s.run!;
     const key = spriteKey({ side: 'hero', kind: run.team[0] });
-    const out: Phaser.GameObjects.GameObject[] = [];
+    const parts: Phaser.GameObjects.GameObject[] = [this.s.add.ellipse(0, 0, 22, 7, 0x000000, 0.4)];
     if (this.s.textures.exists(key)) {
       this.s.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
-      const img = this.s.add.image(x, feet, key).setScale(0.95);
+      const img = this.s.add.image(0, 0, key).setScale(1.05);
       img.setOrigin(0.5, spriteOriginY(key, img.height));
-      out.push(img);
-    } else out.push(this.s.add.image(x, feet - 12, 'icon-nd-fight').setScale(24 / ICON_PX));
-    // A little gold pennant on the badge's edge: you are here.
-    const flag = this.s.add.graphics({ x: x + 14, y: feet - 6 });
-    flag.fillStyle(0x4a2f1c).fillRect(0, -22, 2, 22);
-    flag.fillStyle(0xffd166).fillTriangle(2, -22, 2, -14, 12, -18);
-    out.push(flag);
-    return out;
+      parts.push(img);
+    } else parts.push(this.s.add.image(0, -12, 'icon-nd-fight').setScale(24 / ICON_PX));
+    const flag = this.s.add.graphics({ x: 14, y: -4 });
+    flag.fillStyle(0x4a2f1c).fillRect(0, -24, 2, 24);
+    flag.fillStyle(0xffd166).fillTriangle(2, -24, 2, -15, 13, -19.5);
+    parts.push(flag);
+    return this.s.add.container(x, feet, parts);
   }
+
 }
