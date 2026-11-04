@@ -67,8 +67,8 @@ export function actDef(act: number): ActDef {
  * own, tougher units on top.
  */
 export const STRENGTH = {
-  base: [1.3, 2.52, 3.88],
-  perFloor: [0.085, 0.11, 0.17],
+  base: [1.3, 2.6, 4.35],
+  perFloor: [0.085, 0.115, 0.19],
   /** Elites are a real risk (for a better reward); bosses stand out. */
   elite: 1.15,
   /** An elite with a twist is a bit tougher again. */
@@ -151,6 +151,6 @@ export const ECONOMY = {
   /** XP for the first level-up; each level after costs xpGrowth more, so a hero who's ahead slows down and the party levels out over time. */
   xpPerLevel: 10,
   xpGrowth: 3,
-  prices: { ability: 45, upgrade: 30, reroll: 10 },
+  prices: { ability: 45, upgrade: 30, reroll: 10, relic: 75 },
   actPrice: [1, 1.3, 1.6],
 };

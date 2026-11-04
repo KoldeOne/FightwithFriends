@@ -5,8 +5,9 @@
  *
  *   npx vite-node scripts/camp-sim.ts -- [guilds=4] [maxRuns=30]
  */
-import { buyPerk, canAfford, GEAR_SLOTS, gearCost, newCamp, upgradeGear, type CampState } from '../src/sim/camp';
-import { PERK_IDS, PERKS } from '../src/sim/progress';
+import { buyPerk, canAfford, discoverRelic, GEAR_SLOTS, gearCost, newCamp, upgradeGear, type CampState } from '../src/sim/camp';
+import { PERK_IDS, PERKS, undiscoveredRelics } from '../src/sim/progress';
+import { RELIC_DISCOVERY_COST } from '../src/sim/relics';
 import type { HeroClass } from '../src/sim/types';
 import { playRun } from './simlib';
 
@@ -28,6 +29,7 @@ function spend(camp: CampState, heroes: HeroClass[]): number {
         if (canAfford(camp.loot, cost)) options.push({ spoils: cost!.spoils ?? 0, buy: () => upgradeGear(camp, cls, slot) });
       }
     for (const id of PERK_IDS) if (!camp.records.perks.includes(id) && canAfford(camp.loot, PERKS[id].cost)) options.push({ spoils: PERKS[id].cost.spoils ?? 0, buy: () => buyPerk(camp, id) });
+    for (const id of undiscoveredRelics(camp.records)) if (canAfford(camp.loot, RELIC_DISCOVERY_COST)) options.push({ spoils: RELIC_DISCOVERY_COST.spoils, buy: () => discoverRelic(camp, id) });
     if (!options.length) return bought;
     options.sort((a, b) => a.spoils - b.spoils);
     options[0].buy();

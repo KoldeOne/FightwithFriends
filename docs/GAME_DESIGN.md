@@ -137,10 +137,11 @@ other floors (2026-11-03: the hidden "flavours" were removed).
 
 - **Enemy count:** one per hero, plus one from floor 7 on (a lone hero always
   meets one enemy at a time), up to 5.
-- **Strength** (enemy HP and damage): Act 1 1.3 + 0.085 a floor; Act 2 2.52 +
-  0.11; Act 3 3.88 + 0.17 (each act starts above the last one's end; raised
-  about 8% on 2026-11-04 because forking maps give more good choices). Camp
-  balance check: median first win over Act 1 / Act 2 / the run at runs 2 / 5 / 8. Smaller parties meet weaker enemies (×0.6 for 1 hero,
+- **Strength** (enemy HP and damage): Act 1 1.3 + 0.085 a floor; Act 2 2.6 +
+  0.115; Act 3 4.35 + 0.19 (each act starts above the last one's end). Raised
+  on 2026-11-04 for forking maps and again for relics. Camp balance check
+  (gear capped at 5, relics and discoveries in): median first win over Act 1 /
+  Act 2 / the run at runs 2 / 4 / 7. Smaller parties meet weaker enemies (×0.6 for 1 hero,
   then 0.62, 0.8, and 1 for 4). Bosses ×1.05 / 1 / 0.95 by act.
 - **Gold:** 3 per regular enemy, 14 per elite, 40 per boss, × 1 / 1.4 / 1.8 by
   act (raised minions pay nothing).
@@ -180,7 +181,7 @@ three placeholder materials (Ore, Hide, Gems) and boss Trophies. Spoils are
 | Boss | 15 Spoils × act, 1 of each material, 1 Trophy |
 | Raised minion | Nothing |
 
-**Stations** (gear per class, levels 0–10; next level costs 10n + 3n² Spoils
+**Stations** (gear per class, levels 0–5 since 2026-11-04 (was 10; levels above 5 on old saves are refunded); next level costs 10n + 3n² Spoils
 and n of the station's material, and every 5th level also a Trophy):
 
 | Station | Gear | Per level |
@@ -202,6 +203,41 @@ gear bonuses too.
 
 Real item drops are still to be designed (see [IDEAS.md](IDEAS.md)).
 
+### Relics and attunement (2026-11-04)
+
+Code: `src/sim/relics.ts` (schools, attunement, relics and their numbers),
+battle hooks in `battle.ts`, offers in `run.ts`. All numbers are placeholders.
+
+- **Attunement** (party synergy): every ability has a school (Steel, Fire,
+  Frost, Light, Shadow, Arcane). Count the party's abilities of each school,
+  across all heroes: **2** give +8% damage and healing with that school, **4**
+  give +18%, **6** give +30%. A new-ability card says what it does to the count
+  ("Fire attunement 1 → 2: +8%…"). The map shows the party's current
+  attunement under the party panel.
+- **Relics** are run-wide, for the whole party. Every **elite's** pick includes
+  one (in place of the last option), a **golden chest** has one, and **shops**
+  stock one (75 gold × the act's price). The map shows the relics you carry
+  (tap one for what it does). Auto takes a relic when offered.
+
+| Relic | Effect | Pool |
+|---|---|---|
+| Whetstone | Auto-attacks +25% damage | start |
+| Iron Skin | +15% max health | start |
+| Glass Cannon | +30% damage dealt, +20% taken | start |
+| Thorn Mail | Melee attackers take 25% of the damage back | start |
+| Lucky Coin | Fights pay 30% more gold | start |
+| Scholar's Tome | Fights give 25% more XP | start |
+| Steel / Ember Charm | Count as 2 more Steel / Fire abilities | start |
+| Bloodstone | A killing blow heals the hero 8% | camp |
+| Healing Spring | Heroes recover 1.5% max health a second | camp |
+| Hourglass | Cooldowns 15% faster | camp |
+| Mana Spring | Mana and energy regenerate 30% faster | camp |
+| Frost / Sun / Hex Charm | Count as 2 more Frost / Light / Shadow abilities | camp |
+
+- **Discoveries:** the "camp" relics are found at the **Training Ground**
+  (90 Spoils and a Trophy each); after that they can turn up on any run. A
+  Random Challenge uses every relic.
+
 ### Progression (2026-11-04)
 
 Code: `src/sim/progress.ts` (rules and numbers), `settle.ts` (`keepRecords`),
@@ -220,7 +256,7 @@ numbers are first placeholders.
   starting ability). Every boss beaten with that class in the party unlocks
   one more, with a notice on the rewards. Locked abilities are never
   offered (first ability, training, chests, shops).
-- **Training Ground perks** (replaced Drills). Bought once each, for the
+- **Training Ground** perks (replaced Drills) and relic discoveries (above). Bought once each, for the
   whole guild, from every later run on (not a Random Challenge):
   | Perk | Effect | Cost |
   |---|---|---|

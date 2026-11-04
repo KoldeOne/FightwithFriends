@@ -21,7 +21,8 @@ import {
 } from '../../sim/run';
 import type { AbilityId, HeroClass } from '../../sim/types';
 import { loadCamp, saveCamp } from '../../sim/camp';
-import { challengeBest, lockedAbilities, TIER_LOOT, TIERS } from '../../sim/progress';
+import { challengeBest, lockedAbilities, relicPool, TIER_LOOT, TIERS } from '../../sim/progress';
+import { RELIC_IDS } from '../../sim/relics';
 
 /** Hero slots on the select screen: the playable classes, then silhouettes for heroes still to come. */
 const ROSTER = 12;
@@ -56,7 +57,7 @@ export class HeroPicker {
     this.chooseClass('Choose your hero', 'You start alone. More heroes join mid-Act 1, after the Act 1 boss and mid-Act 2 (a party of 4).', (cls) =>
       this.chooseAbility(cls, 'start', lockedAbilities(records), (first) => {
         const camp = loadCamp();
-        this.begin(newRun(cls, first, undefined, { tier: chosenTier(camp.records.tier), perks: camp.records.perks, locked: lockedAbilities(camp.records) }));
+        this.begin(newRun(cls, first, undefined, { tier: chosenTier(camp.records.tier), perks: camp.records.perks, locked: lockedAbilities(camp.records), relicPool: relicPool(camp.records) }));
       }),
     );
   }
@@ -123,7 +124,7 @@ export class HeroPicker {
         s.button(cx - 90, cy + 170, 'Back', 16, '#3a4660', () => box.destroy()),
         s.button(cx + 90, cy + 170, 'Play ▶', 16, '#5a3f8a', () => {
           box.destroy();
-          this.chooseAbility(cls, 'challenge', [], (first) => this.begin(newRun(cls, first, undefined, { challenge: true })));
+          this.chooseAbility(cls, 'challenge', [], (first) => this.begin(newRun(cls, first, undefined, { challenge: true, relicPool: [...RELIC_IDS] })));
         }),
       ]);
     };

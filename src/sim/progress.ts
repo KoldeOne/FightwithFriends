@@ -1,5 +1,6 @@
 import { CLASS_POOL, HERO_KIT } from './content';
 import type { EnemyKind, HeroClass, Loot } from './types';
+import { RELIC_IDS, STARTING_RELICS, type RelicId } from './relics';
 
 /**
  * Long-term progression between runs: difficulty tiers, ability unlocks, Training Ground perks, the camp's records (trophy wall and
@@ -87,10 +88,22 @@ export interface Records {
   /** Bosses beaten with each class in the party: unlocks its abilities. */
   classBosses: Partial<Record<HeroClass, number>>;
   graves: Grave[];
+  /** Relics discovered at the Training Ground (beyond the starting ones). */
+  relics: RelicId[];
 }
 
 export function newRecords(): Records {
-  return { tier: 0, tierWins: [], perks: [], bossKills: {}, classBosses: {}, graves: [] };
+  return { tier: 0, tierWins: [], perks: [], bossKills: {}, classBosses: {}, graves: [], relics: [] };
+}
+
+/** Relics that can turn up on a run: the starting ones and those discovered at the camp. */
+export function relicPool(r: Records): RelicId[] {
+  return [...STARTING_RELICS, ...(r.relics ?? []).filter((id) => !STARTING_RELICS.includes(id))];
+}
+
+/** Relics still to discover at the Training Ground. */
+export function undiscoveredRelics(r: Records): RelicId[] {
+  return RELIC_IDS.filter((id) => !relicPool(r).includes(id));
 }
 
 /** Locked pool entries for every class (the run keeps this list). */

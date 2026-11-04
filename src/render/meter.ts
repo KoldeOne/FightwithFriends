@@ -249,6 +249,7 @@ export function meterSource(key: string): { name: string; icon: string } {
     autoHeal: { name: 'Auto-heal', icon: 'icon-ef-hot' },
     dot: { name: 'Damage over time', icon: 'icon-ef-dot' },
     other: { name: 'Other', icon: 'icon-ef-hot' },
+    relic: { name: 'Relics', icon: 'icon-ef-empower' },
   };
   if (fixed[key]) return fixed[key];
   const [id, part] = key.split(':');

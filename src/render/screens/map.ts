@@ -5,6 +5,8 @@ import { BOSS_INFO, ENEMY_STATS, WORLD } from '../../sim/content';
 import { MAP_COLS, MAP_FLOORS, type MapNode, type NodeType } from '../../sim/map';
 import { autoPath, availableNodes, eliteTwist, enterNode, isRecruitCampsite, saveRun, TWISTS } from '../../sim/run';
 import { sound } from '../sound';
+import { relicIcon } from '../relicIcons';
+import { attunementLine, RELICS } from '../../sim/relics';
 import { ICON_PX, spriteKey, spriteOriginY } from '../theme';
 import { along, drawFog, drawMapTerrain, drawRoad, drawStartCamp, linkPoints, NODE_RIM } from '../mapArt';
 
@@ -228,6 +230,7 @@ export class MapScreen {
     items.push(this.s.add.circle(WORLD.width - 30, 770, 9, 0xffd166, 0.25).setStrokeStyle(2, 0xffd166, 0.9), this.s.text(WORLD.width - 44, 784, 'golden', 9, '#ffd166').setOrigin(0.5, 0));
     this.tip = this.s.text(WORLD.width / 2, 152, '', 12, '#7dff9b').setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(500);
     items.push(this.tip);
+    items.push(...this.relicStrip());
     this.ui = this.s.add.container(0, 0, items).setDepth(40);
 
     // Auto chooses the route too.
@@ -302,6 +305,25 @@ export class MapScreen {
       boss: `Boss: ${ENEMY_STATS[act.boss].label}. Beat it to finish the act.`,
     };
     this.tip?.setText(`${text[n.type]}${n.rich ? ' Golden: better loot.' : ''}`).setColor('#ffffff');
+  }
+
+  /** Under the party panel: the relics you carry (tap one for what it does) and the party's attunement. */
+  private relicStrip(): Phaser.GameObjects.GameObject[] {
+    const run = this.s.run!;
+    const y = WORLD.height - 26;
+    const out: Phaser.GameObjects.GameObject[] = [];
+    let x = 14;
+    if (run.relics.length) out.push(this.s.text(x, y - 8, 'Relics', 11, '#ffd166').setFontStyle('bold'));
+    x += run.relics.length ? 48 : 0;
+    for (const id of run.relics) {
+      const img = this.s.add.image(x + 10, y, relicIcon(id)).setScale(20 / 14).setInteractive({ useHandCursor: true });
+      img.on('pointerdown', () => this.tip?.setText(`${RELICS[id].name}: ${RELICS[id].text}`).setColor('#ffd166'));
+      out.push(img);
+      x += 24;
+    }
+    const line = attunementLine(run.builds, run.relics);
+    if (line) out.push(this.s.text(x + 8, y - 8, `Attuned: ${line}`, 11, '#c9d1e0'));
+    return out;
   }
 
   /** The party's leader with a little gold pennant: you are here. */

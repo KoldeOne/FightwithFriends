@@ -666,7 +666,8 @@ export const ROUND_1: WaveDef = makeRound(1);
 
 /** The camp (meta-progression between map runs): station caps. Placeholders to tune. */
 export const CAMP = {
-  maxGearLevel: 10,
+  /** Gear stops at level 5 (2026-11-04: fewer stat levels; the camp's other unlocks carry the rest). */
+  maxGearLevel: 5,
 };
 
 /**

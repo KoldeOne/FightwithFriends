@@ -9,6 +9,7 @@ import {
   chooseEvent,
   chooseUpgrade,
   eventChoices,
+  attunementNote,
   describeReward,
   heroLabel,
   leaveShop,
@@ -24,6 +25,7 @@ import {
 } from '../../sim/run';
 import { sound } from '../sound';
 import { abilityIcon, COLORS, cssColor, ICON_PX, traitIcon } from '../theme';
+import { relicIcon } from '../relicIcons';
 
 /** The icon for a reward: the ability it adds or upgrades, the passive, or a stat. */
 export function rewardIcon(r: Reward): string {
@@ -41,6 +43,8 @@ export function rewardIcon(r: Reward): string {
       return 'icon-ef-empower';
     case 'focus':
       return 'icon-tr-arcaneSurge';
+    case 'relic':
+      return relicIcon(r.id);
   }
 }
 
@@ -96,12 +100,16 @@ export class Choices {
     const d = describeReward(r);
     const left = cx - 185;
     const wrap = 400;
-    const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';
+    const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : d.tag === 'RELIC' ? '#ffd166' : '#7dff9b';
     const preview = rewardPreview(run, slot, r);
-    const who = this.s.text(left, y + 8, `${d.tag} · ${heroName(run, slot)}${extra ? ` · ${extra}` : ''}`, 11, tagColor).setFontStyle('bold');
+    // A relic is for the whole party.
+    const who = this.s.text(left, y + 8, `${d.tag} · ${r.kind === 'relic' ? 'Whole party' : heroName(run, slot)}${extra ? ` · ${extra}` : ''}`, 11, tagColor).setFontStyle('bold');
     const title = this.s.text(left, y + 22, d.title, 17, '#ffffff').setFontStyle('bold');
     const desc = this.s.text(left, y + 44, r.kind === 'ability' && preview ? preview.after : d.text, 12, '#c9d1e0').setWordWrapWidth(wrap);
     const texts: Phaser.GameObjects.Text[] = [who, title, desc];
+    // A new ability: what it does to the party's attunement.
+    const note = r.kind === 'ability' ? attunementNote(run, r.id) : '';
+    if (note) texts.push(this.s.text(left, y + 46 + desc.height, note, 11, '#ffd166').setWordWrapWidth(wrap));
     if (preview && r.kind !== 'ability') {
       const now = this.s.text(left, y + 46 + desc.height, `Now: ${preview.now ?? '—'}`, 11, '#9aa5b8').setWordWrapWidth(wrap);
       const after = this.s.text(left, y + 48 + desc.height + now.height, `After: ${preview.after}`, 11, '#ffd166').setWordWrapWidth(wrap);
@@ -179,7 +187,8 @@ export class Choices {
           const pv = rewardPreview(run, slot, r);
           const body = r.kind === 'ability' && pv ? pv.after : d.text;
           const nums = pv && r.kind !== 'ability' ? `\nNow: ${pv.now ?? '—'}\nAfter: ${pv.after}` : '';
-          detail.setText(`${heroName(run, slot)}: ${d.title} (${d.tag.toLowerCase()})\n${body}${nums}`);
+          const att = r.kind === 'ability' ? attunementNote(run, r.id) : '';
+          detail.setText(`${heroName(run, slot)}: ${d.title} (${d.tag.toLowerCase()})\n${body}${nums}${att ? `\n${att}` : ''}`);
           update();
         });
         const tagColor = d.tag === 'UPGRADE' ? '#9ad1ff' : d.tag === 'NEW PASSIVE' ? '#b57bff' : '#7dff9b';

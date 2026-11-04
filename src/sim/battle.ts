@@ -27,11 +27,14 @@ import {
   WORLD,
 } from './content';
 import { createRng } from './rng';
+import { abilitySchool, attuneBonus, attunementCounts, RELIC_TUNING, type RelicId, type School } from './relics';
 import { abilityScaleFor, abilityText } from './abilityText';
 import type { AbilityId, AbilitySlot, AggroLevel, BattleEvent, CastKind, Effect, EnemyKind, HeroBuild, HeroClass, Outcome, SpawnDef, TraitId, Unit, WaveDef, Zone } from './types';
 
 interface DamageOpts {
   threatScale?: number;
+  /** Damage from a relic (Thorn Mail), for the meter. */
+  relic?: boolean;
   ability?: AbilityId;
   tick?: boolean;
   aoe?: boolean;
@@ -79,6 +82,8 @@ export interface BattleOptions {
   /** Challenge twists: enemies deal this times their damage; heroes heal this times as much. */
   enemyDamage?: number;
   healingScale?: number;
+  /** The party's relics (run-wide modifiers). */
+  relics?: RelicId[];
 }
 
 export type AbilityResult = 'ok' | 'dead' | 'cooldown' | 'resource' | 'target';
@@ -118,6 +123,10 @@ export class Battle {
   /** Challenge twists (1 = normal). */
   private enemyDamage = 1;
   private healingScale = 1;
+  /** Relics the party carries, and the attunement bonus per school (from abilities and charms). */
+  private relics = new Set<RelicId>();
+  readonly attune: Partial<Record<School, number>> = {};
+  private springTimer = 0;
 
   private nextId = 1;
   private pending: SpawnDef[];
@@ -136,6 +145,19 @@ export class Battle {
       this.addHero(spot.cls, spot.x, spot.y, opts.builds?.[spot.slot], spot.slot);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
+    // Relics and attunement (before the Priest's aura, so Iron Skin counts toward it).
+    this.relics = new Set(opts.relics ?? []);
+    const heroes = this.units.filter((u) => u.side === 'hero');
+    const counts = attunementCounts(heroes.map((h) => ({ abilities: h.abilities ?? [] })), [...this.relics]);
+    for (const [school, n] of Object.entries(counts) as [School, number][]) if (attuneBonus(n)) this.attune[school] = attuneBonus(n);
+    for (const h of heroes) {
+      if (this.relics.has('ironSkin')) {
+        h.maxHp = Math.round(h.maxHp * (1 + RELIC_TUNING.ironSkin));
+        h.hp = h.maxHp;
+      }
+      if (this.relics.has('hourglass')) h.cooldownRate = (h.cooldownRate ?? 1) * (1 + RELIC_TUNING.hourglass);
+      if (this.relics.has('manaSpring')) h.focus = (h.focus ?? 1) * (1 + RELIC_TUNING.manaSpring);
+    }
     // Priest passive: Steadfast Prayer is up on the whole party all wave.
     const priest = this.units.find((u) => u.side === 'hero' && u.passive === 'fortitudeAura');
     if (priest) this.applyFortitude(priest, Infinity);
@@ -305,6 +327,13 @@ export class Battle {
     if (this.outcome !== 'running') return;
     this.time += dt;
     this.spawnDue();
+    // Healing Spring: every hero recovers a little each second.
+    if (this.relics.has('healingSpring') && (this.springTimer += dt) >= 1) {
+      this.springTimer -= 1;
+      this.healSource = 'relic';
+      for (const h of this.units) if (h.side === 'hero' && h.alive && h.hp < h.maxHp) this.healUnit(h, h, h.maxHp * RELIC_TUNING.healingSpring);
+      this.healSource = undefined;
+    }
 
     for (const u of this.units) {
       if (!u.alive) continue;
@@ -1267,7 +1296,10 @@ export class Battle {
   /** Mend an ally (capped at missing health); emits events and heal threat. Returns the amount. */
   private healUnit(from: Unit, to: Unit, raw: number): number {
     if (!to.alive) return 0;
-    const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(this.healAmount(from, to, raw) * (from.side === 'hero' ? this.healingScale : 1))));
+    // Attunement: heals from an ability of an attuned school are stronger.
+    const src = this.healSource?.split(':')[0] as AbilityId | undefined;
+    const attuned = from.side === 'hero' && src && from.abilities?.some((a) => a.id === src) ? 1 + (this.attune[abilitySchool(src)] ?? 0) : 1;
+    const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(this.healAmount(from, to, raw) * attuned * (from.side === 'hero' ? this.healingScale : 1))));
     if (amount <= 0) return 0;
     to.hp += amount;
     this.events.push({ type: 'heal', from: from.id, to: to.id, amount });
@@ -1877,6 +1909,15 @@ export class Battle {
         this.events.push({ type: 'notice', id: from.id, text: 'Ambush!', tone: 'good' });
       }
     }
+    // Attunement and relics: an attuned school hits harder; Whetstone sharpens auto-attacks; Glass Cannon both ways.
+    if (from.side === 'hero') {
+      if (opts.ability) {
+        const bonus = this.attune[abilitySchool(opts.ability)];
+        if (bonus) amount = Math.round(amount * (1 + bonus));
+      } else if (!opts.tick && this.relics.has('whetstone')) amount = Math.round(amount * (1 + RELIC_TUNING.whetstone));
+      if (this.relics.has('glassCannon')) amount = Math.round(amount * (1 + RELIC_TUNING.glassCannon.dealt));
+    }
+    if (to.side === 'hero' && from.side === 'enemy' && this.relics.has('glassCannon')) amount = Math.round(amount * (1 + RELIC_TUNING.glassCannon.taken));
     // Defensive effects on the target.
     // Party buffs on the attacker (Rallying Call) and curses on the target (Curse of Ruin).
     if (from.side === 'hero') {
@@ -1946,7 +1987,7 @@ export class Battle {
       amount = 0;
       this.events.push({ type: 'notice', id: to.id, text: 'Saved!', tone: 'good' });
     }
-    this.record(from, 'damage', opts.tick && opts.ability ? `${opts.ability}:dot` : opts.tick ? 'dot' : (opts.ability ?? 'auto'), Math.min(amount, Math.max(0, to.hp)));
+    this.record(from, 'damage', opts.relic ? 'relic' : opts.tick && opts.ability ? `${opts.ability}:dot` : opts.tick ? 'dot' : (opts.ability ?? 'auto'), Math.min(amount, Math.max(0, to.hp)));
     to.hp -= amount;
     if (from.side === 'hero' && to.side === 'enemy') {
       to.threat ??= {};
@@ -1954,6 +1995,10 @@ export class Battle {
     }
     if (from.resourceKind === 'rage') from.resource = Math.min(from.maxResource!, from.resource! + amount * RAGE.perDealt);
     if (to.resourceKind === 'rage') to.resource = Math.min(to.maxResource!, to.resource! + amount * RAGE.perTaken);
+    // Thorn Mail: melee attackers take some of it back.
+    if (to.side === 'hero' && from.side === 'enemy' && from.alive && !opts.tick && from.attackStyle === 'melee' && amount > 0 && this.relics.has('thornMail')) {
+      this.damage(to, from, Math.round(amount * RELIC_TUNING.thornMail), { tick: true, relic: true });
+    }
     if (opts.tick) this.events.push({ type: 'tick', to: to.id, amount, kind: 'dot', from: from.id, ability: opts.ability });
     else this.events.push({ type: 'attack', from: from.id, to: to.id, style: from.attackStyle, amount, ability: opts.ability, big: opts.big });
     if (to.hp <= 0 && to.alive) {
@@ -1968,6 +2013,12 @@ export class Battle {
       if (to.side === 'enemy') {
         this.kills.push({ kind: to.kind as EnemyKind, summoned: !!to.summoned });
         this.soulHarvest();
+        // Bloodstone: the hero who landed the killing blow heals.
+        if (from.side === 'hero' && from.alive && this.relics.has('bloodstone')) {
+          this.healSource = 'relic';
+          this.healUnit(from, from, from.maxHp * RELIC_TUNING.bloodstone);
+          this.healSource = undefined;
+        }
         const caster = contagion ? this.unit(contagion.sourceId) : undefined;
         const next = contagion ? this.nextEnemy(to, 400) : undefined;
         if (caster && next) {

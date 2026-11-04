@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ensureRelicIcons } from './relicIcons';
 import warriorSprite from '../../art/heroes/hero_warrior.png';
 import priestSprite from '../../art/heroes/hero_priest.png';
 import mageSprite from '../../art/heroes/hero_mage.png';
@@ -80,7 +81,7 @@ export function ensurePixelTextures(scene: Phaser.Scene): void {
     });
     tex.refresh();
     tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
-  }
+  }  ensureRelicIcons(scene);
 }
 
 /** Icon sizes: the generated icons are 14x14 pixels. */

@@ -1,12 +1,14 @@
 import type { BattleScene } from '../BattleScene';
 import Phaser from 'phaser';
-import { CLASS_POOL, ENEMY_STATS, HERO_KIT, WORLD } from '../../sim/content';
+import { CAMP, CLASS_POOL, ENEMY_STATS, HERO_KIT, WORLD } from '../../sim/content';
+import { RELIC_DISCOVERY_COST, RELICS } from '../../sim/relics';
+import { relicIcon } from '../relicIcons';
 import { actDef } from '../../sim/acts';
 import { describeProgress } from '../../sim/run';
-import { lockedPool, PERK_IDS, PERKS, TIERS, type Grave } from '../../sim/progress';
+import { lockedPool, PERK_IDS, PERKS, TIERS, undiscoveredRelics, type Grave } from '../../sim/progress';
 import { sound } from '../sound';
 import { ALL_CLASSES } from '../../sim/run';
-import { buyPerk, canAfford, costText, gearCost, GEAR_SLOTS, resetUpgrades, loadCamp, LOOT_NAMES, saveCamp, STATIONS, upgradeGear, type CampState, type GearSlot } from '../../sim/camp';
+import { buyPerk, discoverRelic, canAfford, costText, gearCost, GEAR_SLOTS, resetUpgrades, loadCamp, LOOT_NAMES, saveCamp, STATIONS, upgradeGear, type CampState, type GearSlot } from '../../sim/camp';
 import type { HeroClass, Loot } from '../../sim/types';
 import { COLORS, cssColor, spriteKey, spriteOriginY } from '../theme';
 import { PixelButton } from '../button';
@@ -149,7 +151,9 @@ export class CampScreen {
       GEAR_SLOTS.forEach((slot, k) => c.pips[k].setText(String(camp.gear[cls][slot])).setColor(camp.gear[cls][slot] ? '#ffffff' : '#6f7a90'));
       c.badge.setVisible(this.canUpgrade(cls));
     }
-    this.perkBadge?.setVisible(PERK_IDS.some((id) => !camp.records.perks.includes(id) && canAfford(camp.loot, PERKS[id].cost)));
+    this.perkBadge?.setVisible(
+      PERK_IDS.some((id) => !camp.records.perks.includes(id) && canAfford(camp.loot, PERKS[id].cost)) || (undiscoveredRelics(camp.records).length > 0 && canAfford(camp.loot, RELIC_DISCOVERY_COST)),
+    );
     if (this.heroPanel && this.heroFor) this.openHero(this.heroFor, true);
   }
 
@@ -232,7 +236,7 @@ export class CampScreen {
       items.push(
         s.add.rectangle(36, y, WORLD.width - 72, 116, 0x161c28).setOrigin(0, 0).setStrokeStyle(1, afford ? 0x6a8a4a : 0x2b3445),
         s.add.image(62, y + 30, `camp-gear-${slot}`).setScale(0.9),
-        s.text(90, y + 10, `${st.item}  ·  Lv ${lv} of 10`, 15, '#ffffff').setFontStyle('bold'),
+        s.text(90, y + 10, `${st.item}  ·  Lv ${lv} of ${CAMP.maxGearLevel}`, 15, '#ffffff').setFontStyle('bold'),
         s.text(WORLD.width - 48, y + 13, `from the ${st.station}`, 10, '#6f7a90').setOrigin(1, 0),
         s.text(90, y + 32, lv ? `Now: ${st.effect(lv)}` : 'Now: nothing yet', 12, '#c9d1e0').setWordWrapWidth(380),
         s.text(90, y + 50, cost ? `Next: ${st.effect(lv + 1)}` : 'Fully upgraded', 12, cost ? '#ffd166' : '#7dff9b').setWordWrapWidth(380),
@@ -669,7 +673,8 @@ export class CampScreen {
         bg.setInteractive({ useHandCursor: true }).on('pointerover', () => bg.setFillStyle(0x26314a)).on('pointerout', () => bg.setFillStyle(0x1c2433)).on('pointerdown', tap);
       }
       body.push(bg, t1, t2);
-      if (r.icon) body.push(s.add.image(48, y + rh / 2, r.icon).setScale(0.6));
+      // Camp icons are drawn at 32px, relic icons at 14px.
+      if (r.icon) body.push(s.add.image(48, y + rh / 2, r.icon).setScale(r.icon.startsWith('icon-relic') ? 1.6 : 0.6));
       y += rh + 6;
     }
     const height = y + 60;
@@ -686,37 +691,40 @@ export class CampScreen {
     this.panel = undefined;
   }
 
-  /** The Training Ground: perks for the whole guild, bought once each. */
+  /** The Training Ground: perks for the whole guild, bought once each, and relic discoveries (new relics that can turn up on runs). */
   private showPerks(): void {
     const camp = this.camp;
-    this.openPanel(
-      'Training Ground',
-      'Perks for the whole guild, bought once each. Every later run starts with them (not a Random Challenge).',
-      PERK_IDS.map((id) => {
-        const p = PERKS[id];
-        const owned = camp.records.perks.includes(id);
-        const can = !owned && canAfford(camp.loot, p.cost);
-        return {
-          title: `${p.name}${owned ? '  ✓ Learned' : `  ·  ${costText(p.cost)}`}`,
-          text: p.text,
-          color: owned ? '#7dff9b' : can ? '#ffffff' : '#8f9bb3',
-          onTap: owned
-            ? undefined
-            : () => {
-                if (!buyPerk(camp, id)) {
-                  sound.play('click');
-                  this.float(WORLD.width / 2, 200, 'Not enough loot', '#ff8a8a');
-                  return;
-                }
-                sound.play('levelUp');
-                saveCamp(camp);
-                this.s.cameras.main.flash(120, 255, 230, 160);
-                this.refresh();
-                this.showPerks();
-              },
-        };
-      }),
-    );
+    const bought = () => {
+      sound.play('levelUp');
+      saveCamp(camp);
+      this.s.cameras.main.flash(120, 255, 230, 160);
+      this.refresh();
+      this.showPerks();
+    };
+    const short = () => {
+      sound.play('click');
+      this.float(WORLD.width / 2, 200, 'Not enough loot', '#ff8a8a');
+    };
+    const perks = PERK_IDS.map((id) => {
+      const p = PERKS[id];
+      const owned = camp.records.perks.includes(id);
+      const can = !owned && canAfford(camp.loot, p.cost);
+      return {
+        title: `${p.name}${owned ? '  ✓ Learned' : `  ·  ${costText(p.cost)}`}`,
+        text: p.text,
+        color: owned ? '#7dff9b' : can ? '#ffffff' : '#8f9bb3',
+        onTap: owned ? undefined : () => (buyPerk(camp, id) ? bought() : short()),
+      };
+    });
+    const can = canAfford(camp.loot, RELIC_DISCOVERY_COST);
+    const relics = undiscoveredRelics(camp.records).map((id) => ({
+      title: `Discover ${RELICS[id].name}  ·  ${costText(RELIC_DISCOVERY_COST)}`,
+      text: `A new relic that can turn up on later runs: ${RELICS[id].text}`,
+      icon: relicIcon(id),
+      color: can ? '#ffd166' : '#8f9bb3',
+      onTap: () => (discoverRelic(camp, id) ? bought() : short()),
+    }));
+    this.openPanel('Training Ground', 'Perks for the whole guild, bought once each (not in a Random Challenge), and new relics to find on your runs.', [...perks, ...relics]);
   }
 
   /** The trophy wall's records: bosses slain, tiers won, and abilities each class has unlocked. */

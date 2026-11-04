@@ -1,4 +1,5 @@
 import { abilityText } from './abilityText';
+import { abilitySchool, ATTUNEMENT, attuneBonus, attunementCounts, RELICS, RELIC_TUNING, SCHOOL_NAMES, STARTING_RELICS, type RelicId } from './relics';
 import { ECONOMY, goldFor, makeEncounter, STRENGTH } from './acts';
 import { ABILITIES, CLASS_POOL, HERO_KIT, HERO_STATS, LEVEL_SCALING, MAX_ABILITY_SLOTS, RESOURCES, TRAITS, UPGRADE } from './content';
 import { generateActMap, nextNodes, type ActMap, type MapNode } from './map';
@@ -31,7 +32,9 @@ export type Reward =
   | { kind: 'haste'; id: AbilityId }
   | { kind: 'vitality' }
   | { kind: 'might' }
-  | { kind: 'focus' };
+  | { kind: 'focus' }
+  /** A relic: for the whole party (its slot doesn't matter). */
+  | { kind: 'relic'; id: RelicId };
 
 /** A reward for one hero in the party (chests, elites, bosses and shops offer these). */
 export interface PartyReward {
@@ -80,6 +83,10 @@ export interface RunState {
   locked: string[];
   /** A Random Challenge: a random hero and map, every ability open, no camp gear or perks, and it doesn't count toward tiers or unlocks. */
   challenge?: boolean;
+  /** Relics the party carries (run-wide). */
+  relics: RelicId[];
+  /** Relics that can be offered this run (the camp's discoveries). */
+  relicPool: RelicId[];
   gold: number;
   /** Wishes held (from a Wishing Well): a wipe uses one, and the fight starts over. */
   wishes: number;
@@ -156,6 +163,8 @@ export interface RunOptions {
   perks?: PerkId[];
   locked?: string[];
   challenge?: boolean;
+  /** Relics that can turn up this run (default: the starting ones). */
+  relicPool?: RelicId[];
 }
 
 export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting, seed = Date.now() % 1_000_000, opts: RunOptions = {}): RunState {
@@ -177,6 +186,8 @@ export function newRun(cls: HeroClass, first: AbilityId = HERO_KIT[cls].starting
     perks,
     locked: opts.locked ?? [],
     challenge: opts.challenge || undefined,
+    relics: [],
+    relicPool: opts.relicPool ?? [...STARTING_RELICS],
     // Perks: a Coin Purse starts you with gold, a Lucky Charm with a wish.
     gold: perks.includes('purse') ? 50 : 0,
     wishes: perks.includes('charm') ? 1 : 0,
@@ -271,6 +282,20 @@ export function partyPickOptions(run: RunState, salt: number, count = 3): PartyR
   return [...fresh, ...partyUpgradeOptions(run, salt + 1, count - fresh.length)];
 }
 
+/** A relic the party doesn't have yet, from this run's pool (none if they have them all). */
+export function relicOffer(run: RunState, salt: number): RelicId | undefined {
+  const left = run.relicPool.filter((r) => !run.relics.includes(r));
+  if (!left.length) return undefined;
+  return left[Math.floor(nodeRng(run, salt)() * left.length)];
+}
+
+/** Swap the last option of a pick for a relic (elites, golden chests), if there's one left to find. */
+function withRelic(run: RunState, options: PartyReward[], salt: number): PartyReward[] {
+  const id = relicOffer(run, salt);
+  if (!id || !options.length) return options;
+  return [...options.slice(0, -1), { slot: -1, reward: { kind: 'relic', id } }];
+}
+
 /**
  * Upgrades for the party (shops, and elites and bosses once everyone is full): named upgrades first,
  * spread across different heroes where possible.
@@ -345,7 +370,9 @@ function shopStock(run: RunState, rerolls: number): ShopItem[] {
     heroes.add(a.slot);
   }
   const ups = partyUpgradeOptions(run, 70 + rerolls, 5 - items.length).map((u) => ({ ...u, price: price(ECONOMY.prices.upgrade) }));
-  return [...items, ...ups];
+  // One relic on the shelf, dearer than anything else.
+  const relic = relicOffer(run, 80 + rerolls);
+  return [...items, ...ups, ...(relic ? [{ slot: -1, reward: { kind: 'relic' as const, id: relic }, price: price(ECONOMY.prices.relic) }] : [])];
 }
 
 export function rerollPrice(run: RunState): number {
@@ -382,7 +409,7 @@ export function enterNode(run: RunState, id: string): MapNode {
       run.gold += gold;
       run.stats.gold += gold;
       // One pick for one hero (four options if golden).
-      run.pending = { kind: 'upgrade', source: 'chest', options: partyPickOptions(run, 2, node.rich ? 4 : 3), gold };
+      run.pending = { kind: 'upgrade', source: 'chest', options: node.rich ? withRelic(run, partyPickOptions(run, 2, 4), 3) : partyPickOptions(run, 2, 3), gold };
       break;
     }
     case 'shop':
@@ -432,7 +459,7 @@ export function eliteTwist(run: RunState, node: MapNode): Twist | undefined {
 }
 
 /** Everything about the current fight beyond its enemies: curse, feast, an elite's twist. */
-export function fightMods(run: RunState): { curse?: number; feast?: number; enemyDamage?: number; healingScale?: number } {
+export function fightMods(run: RunState): { curse?: number; feast?: number; enemyDamage?: number; healingScale?: number; relics?: RelicId[] } {
   const node = currentNode(run);
   const twist = node ? eliteTwist(run, node) : undefined;
   // No Rest halves healing; Tier 4 takes another 15%.
@@ -442,6 +469,7 @@ export function fightMods(run: RunState): { curse?: number; feast?: number; enem
     feast: run.feast ? FEAST.health : undefined,
     enemyDamage: twist === 'enraged' ? 1.3 : undefined,
     healingScale: healing === 1 ? undefined : healing,
+    relics: run.relics?.length ? run.relics : undefined,
   };
 }
 
@@ -493,12 +521,12 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
   if (node.type === 'elite') run.stats.elites += 1;
   if (node.type === 'boss') run.stats.bosses += 1;
   const plain = Math.round(kills.reduce((a, k) => a + (k.summoned ? 0 : goldFor(k.kind)), 0) * ECONOMY.actGold[run.act - 1] * tierRules(run.tier ?? 0).gold);
-  const gold = Math.round(plain * (node.rich ? ECONOMY.richBonus : 1));
+  const gold = Math.round(plain * (node.rich ? ECONOMY.richBonus : 1) * (run.relics?.includes('luckyCoin') ? 1 + RELIC_TUNING.luckyCoin : 1));
   run.gold += gold;
   run.stats.gold += gold;
   spoils.gold = gold;
   spoils.goldBonus = gold - plain;
-  const gained = Math.round(((ECONOMY.xp[node.type] ?? 0) + (eliteTwist(run, node) ? 2 : 0)) * (node.rich ? ECONOMY.richXp : 1));
+  const gained = Math.round(((ECONOMY.xp[node.type] ?? 0) + (eliteTwist(run, node) ? 2 : 0)) * (node.rich ? ECONOMY.richXp : 1) * (run.relics?.includes('scholarsTome') ? 1 + RELIC_TUNING.scholarsTome : 1));
   spoils.xp = gained;
   run.team.forEach((_, slot) => {
     const b = run.builds[slot];
@@ -515,7 +543,8 @@ export function finishFight(run: RunState, won: boolean, fallen: number[], kills
   }
   // An elite: one reward for one hero (four options if it had a twist).
   if (node.type === 'elite') {
-    run.pending = { kind: 'upgrade', source: 'elite', options: partyPickOptions(run, 5, eliteTwist(run, node) ? 4 : 3) };
+    // Every elite's pick includes a relic (while any are left to find).
+    run.pending = { kind: 'upgrade', source: 'elite', options: withRelic(run, partyPickOptions(run, 5, eliteTwist(run, node) ? 4 : 3), 6) };
     spoils.pick = true;
   }
   // A boss: every hero gets their own pick (1 of 4).
@@ -573,7 +602,7 @@ export function recruit(run: RunState, cls: HeroClass, first: AbilityId = HERO_K
 export function train(run: RunState, slot: number, reward: Reward | null): void {
   const p = run.pending;
   if (p?.kind !== 'train' || !p.left.includes(slot)) throw new Error('no pick for this hero here');
-  if (reward) applyReward(run.builds[slot], reward);
+  if (reward) grant(run, slot, reward);
   p.left = p.left.filter((s) => s !== slot);
   if (!p.left.length) finishPending(run);
 }
@@ -581,7 +610,7 @@ export function train(run: RunState, slot: number, reward: Reward | null): void 
 /** Take one of the offered upgrades (elite, boss). */
 export function chooseUpgrade(run: RunState, pick: PartyReward | null): void {
   if (run.pending?.kind !== 'upgrade') throw new Error('no upgrade here');
-  if (pick) applyReward(run.builds[pick.slot], pick.reward);
+  if (pick) grant(run, pick.slot, pick.reward);
   finishPending(run);
 }
 
@@ -591,11 +620,12 @@ export function buy(run: RunState, index: number): boolean {
   const item = p.stock[index];
   if (!item || item.sold || run.gold < item.price) return false;
   run.gold -= item.price;
-  applyReward(run.builds[item.slot], item.reward);
+  grant(run, item.slot, item.reward);
   item.sold = true;
   // Anything no longer possible (a full hero, an upgrade already taken) leaves the shelf.
   for (const other of p.stock) {
     if (other.sold) continue;
+    if (other.reward.kind === 'relic') continue;
     if (other.reward.kind === 'ability' || other.reward.kind === 'trait') {
       if (!freshPicks(run.team[other.slot], run.builds[other.slot], run.locked).some((r) => JSON.stringify(r) === JSON.stringify(other.reward))) other.sold = true;
     }
@@ -699,13 +729,19 @@ export function autoTrain(run: RunState): { slot: number; reward: Reward | null 
 export function autoUpgrade(run: RunState, options: PartyReward[]): PartyReward | null {
   if (!options.length) return null;
   return (
+    options.find((o) => o.reward.kind === 'relic') ??
     options.find((o) => o.reward.kind === 'mastery' && run.builds[o.slot].abilities[0]?.id === o.reward.id) ??
     options.find((o) => o.reward.kind === 'mastery') ??
     options[0]
   );
 }
 
-/** Auto at a shop: buy abilities for heroes with the fewest, then upgrades, while gold lasts. */
+/** How much Auto wants a shop item: new abilities, then a relic, then upgrades. */
+function shopRank(r: Reward): number {
+  return r.kind === 'ability' || r.kind === 'trait' ? 2 : r.kind === 'relic' ? 1 : 0;
+}
+
+/** Auto at a shop: buy abilities for heroes with the fewest, then a relic, then upgrades, while gold lasts. */
 export function autoShop(run: RunState): void {
   const p = run.pending;
   if (p?.kind !== 'shop') return;
@@ -713,7 +749,7 @@ export function autoShop(run: RunState): void {
     const options = p.stock
       .map((item, i) => ({ item, i }))
       .filter(({ item }) => !item.sold && item.price <= run.gold)
-      .sort((a, b) => Number(b.item.reward.kind === 'ability' || b.item.reward.kind === 'trait') - Number(a.item.reward.kind === 'ability' || a.item.reward.kind === 'trait'));
+      .sort((a, b) => shopRank(b.item.reward) - shopRank(a.item.reward));
     if (!options.length) break;
     buy(run, options[0].i);
   }
@@ -749,6 +785,13 @@ export function autoChoose(cls: HeroClass, options: Reward[]): Reward {
     options[0]
   );
 }
+/** Give a reward: a relic goes to the party, anything else to the hero in that slot. */
+export function grant(run: RunState, slot: number, r: Reward): void {
+  if (r.kind === 'relic') {
+    if (!run.relics.includes(r.id)) run.relics.push(r.id);
+  } else applyReward(run.builds[slot], r);
+}
+
 export function applyReward(b: HeroBuild, r: Reward): void {
   switch (r.kind) {
     case 'ability':
@@ -777,6 +820,8 @@ export function applyReward(b: HeroBuild, r: Reward): void {
     case 'focus':
       b.focus = (b.focus ?? 0) + 1;
       break;
+    case 'relic':
+      break;
   }
 }
 export function describeReward(r: Reward): { tag: string; title: string; text: string } {
@@ -797,9 +842,12 @@ export function describeReward(r: Reward): { tag: string; title: string; text: s
       return { tag: 'UPGRADE', title: 'Might', text: `+${UPGRADE.mightPerRank * 100}% damage and healing.` };
     case 'focus':
       return { tag: 'UPGRADE', title: 'Focus', text: `+${UPGRADE.focusPerRank * 100}% mana / energy regeneration.` };
+    case 'relic':
+      return { tag: 'RELIC', title: RELICS[r.id].name, text: RELICS[r.id].text };
   }
 }
 export function rewardPreview(run: RunState, slot: number, r: Reward): { now?: string; after: string } | null {
+  if (r.kind === 'relic') return null;
   const b = run.builds[slot];
   const stats = { level: b.level, might: 1 + UPGRADE.mightPerRank * (b.might ?? 0), traits: b.traits };
   const current = (id: AbilityId) => b.abilities.find((a) => a.id === id);
@@ -834,6 +882,18 @@ export function rewardPreview(run: RunState, slot: number, r: Reward): { now?: s
   }
 }
 
+/** What a new ability does to the party's attunement: "Fire 1 → 2: +8% Fire" (empty if nothing changes). */
+export function attunementNote(run: RunState, id: AbilityId): string {
+  const school = abilitySchool(id);
+  const n = attunementCounts(run.builds, run.relics)[school] ?? 0;
+  const before = attuneBonus(n);
+  const after = attuneBonus(n + 1);
+  const name = SCHOOL_NAMES[school];
+  if (after > before) return `${name} attunement ${n} → ${n + 1}: +${Math.round(after * 100)}% ${name} damage and healing for the party`;
+  const next = ATTUNEMENT.find((st) => st.at > n + 1);
+  return next ? `${name} attunement ${n} → ${n + 1} (${next.at} for +${Math.round(next.bonus * 100)}%)` : '';
+}
+
 // --- saving -------------------------------------------------------------
 
 const SAVE_KEY = 'fightwithfriends.run.v5';
@@ -864,6 +924,8 @@ export function loadRun(): RunState | null {
     run.locked ??= [];
     run.wishes ??= 0;
     run.attempt ??= 0;
+    run.relics ??= [];
+    run.relicPool ??= [...STARTING_RELICS];
     // The daily run became the Random Challenge.
     const daily = (run as { daily?: string }).daily;
     if (daily) {

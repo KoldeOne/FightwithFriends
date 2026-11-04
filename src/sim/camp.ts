@@ -2,7 +2,8 @@ import { CAMP, ENEMY_STATS, GEAR_BONUS, LOOT } from './content';
 import { createRng } from './rng';
 import { ALL_CLASSES } from './run';
 import type { EnemyKind, HeroBuild, HeroClass, Loot } from './types';
-import { newRecords, PERKS, type PerkId, type Records } from './progress';
+import { newRecords, PERKS, undiscoveredRelics, type PerkId, type Records } from './progress';
+import { RELIC_DISCOVERY_COST, type RelicId } from './relics';
 
 /**
  * The camp: the guild's lasting progress between map runs. Every fight's loot
@@ -106,6 +107,20 @@ export function gearCost(slot: GearSlot, level: number): Partial<Loot> | null {
   return { spoils: 10 * next + 3 * next * next, [STATIONS[slot].material]: next, trophies: next % 5 === 0 ? 1 : 0 };
 }
 
+/** What a gear level cost before the cap came down to 5 (for refunding old saves). */
+function oldGearCost(slot: GearSlot, level: number): Partial<Loot> {
+  const next = level + 1;
+  return { spoils: 10 * next + 3 * next * next, [STATIONS[slot].material]: next, trophies: next % 5 === 0 ? 1 : 0 };
+}
+
+/** Discover a relic at the Training Ground: it can turn up on every later run. */
+export function discoverRelic(camp: CampState, id: RelicId): boolean {
+  if (!undiscoveredRelics(camp.records).includes(id) || !canAfford(camp.loot, RELIC_DISCOVERY_COST)) return false;
+  pay(camp.loot, RELIC_DISCOVERY_COST);
+  camp.records.relics.push(id);
+  return true;
+}
+
 /** What the retired Drills cost (for refunding old saves). */
 function oldDrillsCost(rank: number): Partial<Loot> {
   return { spoils: 60 * (rank + 1), trophies: 1 };
@@ -124,7 +139,7 @@ export function costText(cost: Partial<Loot> | null): string {
   if (!cost) return 'Max level';
   return (Object.keys(cost) as (keyof Loot)[])
     .filter((k) => (cost[k] ?? 0) > 0)
-    .map((k) => `${cost[k]} ${LOOT_NAMES[k]}`)
+    .map((k) => `${cost[k]} ${cost[k] === 1 && k === 'trophies' ? 'Trophy' : LOOT_NAMES[k]}`)
     .join(', ');
 }
 
@@ -162,7 +177,7 @@ export function gearShort(gear: Gear): string {
 }
 
 /**
- * Testing aid: undo every gear level and perk and give back everything
+ * Testing aid: undo every gear level, perk and relic discovery and give back everything
  * they cost, so the same loot can be spent again.
  */
 export function resetUpgrades(camp: CampState): Loot {
@@ -177,6 +192,8 @@ export function resetUpgrades(camp: CampState): Loot {
     }
   for (const id of camp.records.perks) add(PERKS[id].cost);
   camp.records.perks = [];
+  for (let i = 0; i < (camp.records.relics ?? []).length; i++) add(RELIC_DISCOVERY_COST);
+  camp.records.relics = [];
   addLoot(camp.loot, refund);
   return refund;
 }
@@ -234,6 +251,14 @@ export function loadCamp(): CampState {
       }
     }
     for (let r = 0; r < (data.drills ?? 0); r++) addLoot(camp.loot, { ...emptyLoot(), ...oldDrillsCost(r) });
+    camp.records.relics ??= [];
+    // Gear used to go to level 10: anything above the new cap is refunded.
+    for (const cls of Object.keys(camp.gear) as HeroClass[])
+      for (const slot of GEAR_SLOTS)
+        while (camp.gear[cls][slot] > CAMP.maxGearLevel) {
+          camp.gear[cls][slot] -= 1;
+          addLoot(camp.loot, { ...emptyLoot(), ...oldGearCost(slot, camp.gear[cls][slot]) });
+        }
     return camp;
   } catch {
     return newCamp();

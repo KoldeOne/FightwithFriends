@@ -4,7 +4,7 @@
  * records what happened. Pure: no Phaser, no DOM.
  */
 import { withGear, type CampState } from '../src/sim/camp';
-import { lockedAbilities } from '../src/sim/progress';
+import { lockedAbilities, relicPool } from '../src/sim/progress';
 import { settleFight } from '../src/sim/settle';
 import { Battle, STEP } from '../src/sim/battle';
 import { ARENA, HERO_KIT, WORLD } from '../src/sim/content';
@@ -245,7 +245,7 @@ export function playRun(start: HeroClass, seed: number, policy: PickPolicy = 'ai
   const pick = <T>(list: T[]): T => list[Math.floor(rng() * list.length)];
   const locked = camp ? lockedAbilities(camp.records) : [];
   const options = firstAbilityOptions(start, locked);
-  const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed, { tier, perks: camp?.records.perks, locked });
+  const run = newRun(start, policy === 'random' ? pick(options) : HERO_KIT[start].starting, seed, { tier, perks: camp?.records.perks, locked, relicPool: camp ? relicPool(camp.records) : undefined });
   const rec: RunRecord = { team: [start], seed, reached: 0, act: 1, won: false, gold: 0, losses: [], rounds: [], violations: [], picks: [], path: [] };
   const log = (slot: number, r: Reward | string) => rec.picks.push({ cls: run.team[slot], round: position(run), pick: typeof r === 'string' ? r : rewardKey(r) });
   for (let guard = 0; guard < 2000 && (run.status === 'map' || run.status === 'fight'); guard++) {
