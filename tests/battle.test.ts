@@ -269,7 +269,7 @@ describe('Starting abilities and player controls', () => {
     expect(b.useAbility()).toBe('ok');
   });
 
-  it('Heroic Strike spends rage and hits hard with extra threat', () => {
+  it('Brave Strike spends rage and hits hard with extra threat', () => {
     const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'warrior' });
     b.playerAuto = false;
     b.step(STEP);
@@ -309,7 +309,7 @@ describe('Starting abilities and player controls', () => {
     expect(withPriest.hasEffect(w1, 'fortitude')).toBe(true); // never wears off
   });
 
-  it('Polymorph passive sheeps casters before others, and never the last enemy', () => {
+  it('Woolly Hex passive sheeps casters before others, and never the last enemy', () => {
     const wave = { number: 1, spawns: [{ time: 0, kind: 'grunt' as const, x: 230 }, { time: 0, kind: 'shaman' as const, x: 310 }] };
     const b = new Battle({ seed: 1, wave, playerClass: 'mage' });
     b.playerAuto = false;
@@ -326,7 +326,7 @@ describe('Starting abilities and player controls', () => {
     expect(solo.isSheep(solo.enemies[0])).toBe(false);
   });
 
-  it('Polymorph passive prefers elites', () => {
+  it('Woolly Hex passive prefers elites', () => {
     const wave = { number: 1, spawns: [{ time: 0, kind: 'shaman' as const, x: 230 }, { time: 0, kind: 'grunt' as const, x: 310 }] };
     const b = new Battle({ seed: 1, wave, playerClass: 'mage' });
     b.step(STEP);
@@ -368,7 +368,7 @@ describe('Starting abilities and player controls', () => {
     expect(b.hasEffect(r, 'stealth')).toBe(true);
   });
 
-  it('Heal (player) heals the focused ally', () => {
+  it('Mend (player) heals the focused ally', () => {
     const b = new Battle({ seed: 1, wave: grunts(1), playerClass: 'priest' });
     b.playerAuto = false;
     b.step(STEP);
@@ -430,7 +430,7 @@ describe('Earnable abilities', () => {
     for (let i = 0; i < seconds / STEP; i++) b.step(STEP);
   };
 
-  it('Thunderclap hits every nearby enemy and slows them', () => {
+  it('Ground Slam hits every nearby enemy and slows them', () => {
     const b = new Battle({ seed: 1, wave: wave(['grunt', 'grunt', 'grunt']), playerClass: 'warrior' });
     b.playerAuto = false;
     b.step(STEP);
@@ -449,7 +449,7 @@ describe('Earnable abilities', () => {
     }
   });
 
-  it('Renew heals the focused ally over time', () => {
+  it('Soothing Glow heals the focused ally over time', () => {
     const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'priest' });
     b.playerAuto = false;
     b.step(STEP);
@@ -463,7 +463,7 @@ describe('Earnable abilities', () => {
     expect(rogue.hp).toBeGreaterThanOrEqual(160);
   });
 
-  it('Power Word: Fortitude (earned, without a priest) raises max health, then wears off', () => {
+  it('Steadfast Prayer (earned, without a priest) raises max health, then wears off', () => {
     const b = new Battle({ seed: 1, wave: wave(['grunt']), playerClass: 'warrior', heroes: ['warrior', 'mage'] });
     b.playerAuto = false;
     b.step(STEP);
@@ -480,7 +480,7 @@ describe('Earnable abilities', () => {
     });
   });
 
-  it('Polymorph: sheep do not attack and ignore AoE', () => {
+  it('Woolly Hex: sheep do not attack and ignore AoE', () => {
     const b = new Battle({ seed: 1, wave: wave(['grunt', 'grunt']), playerClass: 'mage' });
     b.playerAuto = false;
     b.step(STEP);
@@ -507,7 +507,7 @@ describe('Earnable abilities', () => {
     expect(b.isSheep(sheep)).toBe(true);
   });
 
-  it('a direct hit breaks Polymorph; casting it clears your focus', () => {
+  it('a direct hit breaks Woolly Hex; casting it clears your focus', () => {
     const b = new Battle({ seed: 1, wave: wave(['grunt', 'grunt']), playerClass: 'mage' });
     b.playerAuto = false;
     b.step(STEP);
@@ -526,7 +526,7 @@ describe('Earnable abilities', () => {
   const shamanSetup = (cls: 'rogue' | 'mage', interrupt: 'kick' | 'counterspell') => {
     const b = new Battle({ seed: 1, wave: wave(['shaman', 'grunt']), playerClass: cls, heroes: [cls, 'priest'] });
     b.playerAuto = false;
-    b.player!.passiveCooldown = 999; // keep the mage's auto-Polymorph out of this test
+    b.player!.passiveCooldown = 999; // keep the mage's auto-Woolly Hex out of this test
     b.step(STEP);
     b.learnAbility(b.player!, interrupt);
     const [shaman, grunt] = b.enemies;
@@ -582,7 +582,7 @@ describe('Traits (future rewards)', () => {
     for (let i = 0; i < seconds / STEP; i++) b.step(STEP);
   };
 
-  it('Combo Points: auto attacks build them and Sinister Strike spends them', () => {
+  it('Momentum: auto attacks build them and Quick Stab spends them', () => {
     const b = new Battle({ seed: 1, wave: one, playerClass: 'rogue', heroes: ['rogue'] });
     b.playerAuto = false;
     b.step(STEP);
@@ -614,7 +614,7 @@ describe('Traits (future rewards)', () => {
     expect(healOn(['blessedHands'])).toBeGreaterThan(healOn([]) * 1.15);
   });
 
-  it('Arcane Surge sometimes makes Fireball free', () => {
+  it('Kindling sometimes makes Fireball free', () => {
     let free = 0;
     for (let seed = 1; seed <= 40; seed++) {
       const b = new Battle({ seed, wave: one, playerClass: 'mage', heroes: ['mage'] });
@@ -658,14 +658,14 @@ describe('Paladin and Warlock', () => {
     for (let i = 0; i < seconds / STEP; i++) b.step(STEP);
   };
 
-  it('start with Judgement + Aegis Aura and Hex Bolt + Soul Harvest', () => {
+  it('start with Verdict + Aegis Aura and Hex Bolt + Reaping', () => {
     const b = new Battle({ seed: 1, wave: ROUND_1, team: ['paladin', 'warlock'] });
     const kit = Object.fromEntries(b.heroes.map((h) => [h.kind, [h.abilities!.map((a) => a.id), h.passive]]));
     expect(kit).toEqual({ paladin: [['judgement'], 'aegisAura'], warlock: [['hexBolt'], 'soulHarvest'] });
     expect(b.heroes.find((h) => h.kind === 'paladin')!.isTank).toBe(true);
   });
 
-  it('Judgement hits at range and heals the most injured ally for half', () => {
+  it('Verdict hits at range and heals the most injured ally for half', () => {
     const b = new Battle({ seed: 2, wave: lineup(['grunt']), playerClass: 'paladin', heroes: ['paladin', 'mage'] });
     b.playerAuto = false;
     b.step(STEP);
@@ -673,7 +673,7 @@ describe('Paladin and Warlock', () => {
     const mage = b.heroes.find((h) => h.kind === 'mage')!;
     const e = b.enemies[0];
     e.x = p.x;
-    e.y = p.y - 150; // out of melee reach, inside Judgement's range
+    e.y = p.y - 150; // out of melee reach, inside Verdict's range
     mage.hp = 60;
     b.drainEvents();
     expect(b.useAbility(0)).toBe('ok');
@@ -740,7 +740,7 @@ describe('Paladin and Warlock', () => {
     expect(b.hasEffect(brute, 'weaken')).toBe(true);
   });
 
-  it('Soul Harvest: a kill restores mana and heals the most injured ally', () => {
+  it('Reaping: a kill restores mana and heals the most injured ally', () => {
     const b = new Battle({ seed: 6, wave: lineup(['grunt', 'grunt']), heroes: ['warlock', 'mage'] });
     const w = b.heroes.find((h) => h.kind === 'warlock')!;
     const mage = b.heroes.find((h) => h.kind === 'mage')!;

@@ -320,14 +320,14 @@ Passive: **Taunt**: Automatically taunts an enemy attacking an ally (every 8s).
 
 | | Ability | Cost | Cooldown | Effect (level 1) | Named upgrade |
 |---|---|--:|--:|---|---|
-| Start | **Heroic Strike** | 15 | 3s | Deals 26 damage with extra threat. | *Cleave*: Also hits another enemy next to the target, just as hard. |
-| Pool | **Shield Block** | 15 | 12s | Takes 40% less damage for 5s. | *Shield Wall*: Blocks 60% for 6s. |
+| Start | **Brave Strike** | 15 | 3s | Deals 26 damage with extra threat. | *Cleave*: Also hits another enemy next to the target, just as hard. |
+| Pool | **Brace** | 15 | 12s | Takes 40% less damage for 5s. | *Bulwark*: Blocks 60% for 6s. |
 | Pool | **Shield Bash** | 15 | 12s | Interrupts and stuns an enemy for 2s, dealing 15 damage. | *Concussive Bash*: Stuns for 3.5s. |
 | Passive | **Rage** | | | Hits up to 20% harder at full rage. | |
-| Pool | **Rallying Shout** | 30 | 20s | The party deals 15% more damage for 8s. | *Battle Cry*: Also heals every ally for 8% of their maximum health. |
-| Pool | **Last Stand** | free | 40s | Below 30% health, recovers 30% of maximum health. | *Unbreakable*: Recovers 50% and blocks 40% of damage for 6s. |
-| Pool | **Thunderclap** | 20 | 6s | Deals 12 damage to every nearby enemy (high threat) and slows their attacks for 6s. | *Aftershock*: Enemies hit also deal 15% less damage for 6s. |
-| Pool | **Whirlwind** | 25 | 6s | Deals 30 damage to every nearby enemy, with high threat. | *Bladestorm*: Spins twice: a second hit for 60%. |
+| Pool | **Rallying Call** | 30 | 20s | The party deals 15% more damage for 8s. | *Battle Cry*: Also heals every ally for 8% of their maximum health. |
+| Pool | **Hold the Line** | free | 40s | Below 30% health, recovers 30% of maximum health. | *Unbreakable*: Recovers 50% and blocks 40% of damage for 6s. |
+| Pool | **Ground Slam** | 20 | 6s | Deals 12 damage to every nearby enemy (high threat) and slows their attacks for 6s. | *Aftershock*: Enemies hit also deal 15% less damage for 6s. |
+| Pool | **Spinning Slash** | 25 | 6s | Deals 30 damage to every nearby enemy, with high threat. | *Blade Cyclone*: Spins twice: a second hit for 60%. |
 
 #### Paladin
 
@@ -335,55 +335,55 @@ Passive: **Aegis Aura**: While the Paladin stands, the whole party takes 10% les
 
 | | Ability | Cost | Cooldown | Effect (level 1) | Named upgrade |
 |---|---|--:|--:|---|---|
-| Start | **Judgement** | 15 | 4s | Deals 40 damage at range 220; the most injured ally is healed for half of it. | *Twin Judgement*: Also strikes a second enemy for 60%. |
-| Pool | **Mercy** | free | 30s | Heals an ally below 35% health for 160. | *Grace*: They also take 50% less damage for 4s. |
-| Passive | **Zeal** | | | Judgement heals for the full damage dealt, not half. | |
-| Pool | **Radiant Light** | 25 | 4s | Heals one ally for 95. | *Beacon*: The Paladin is healed for half as much too. |
+| Start | **Verdict** | 15 | 4s | Deals 40 damage at range 220; the most injured ally is healed for half of it. | *Twin Verdict*: Also strikes a second enemy for 60%. |
+| Pool | **Mercy** | free | 30s | Heals an ally below 35% health for 160. | *Shelter*: They also take 50% less damage for 4s. |
+| Passive | **Zeal** | | | Verdict heals for the full damage dealt, not half. | |
+| Pool | **Radiant Light** | 25 | 4s | Heals one ally for 95. | *Shared Light*: The Paladin is healed for half as much too. |
 | Pool | **Hallowed Ground** | 25 | 10s | Deals 72 damage over 6s to enemies on the blessed ground, with high threat. | *Sanctified Ground*: Also heals allies standing in it. |
-| Pool | **Exorcism** | 25 | 8s | Deals 50 damage (100 to undead and demons). | *Purify*: Also burns for 30 over 3s. |
-| Pool | **Hammer of Justice** | 15 | 14s | Interrupts and stuns an enemy up to 220 away for 2.5s. | *Heavy Hammer*: Stuns for 4s. |
+| Pool | **Banishing Light** | 25 | 8s | Deals 50 damage (100 to undead and demons). | *Purify*: Also burns for 30 over 3s. |
+| Pool | **Gavel Strike** | 15 | 14s | Interrupts and stuns an enemy up to 220 away for 2.5s. | *Heavy Hammer*: Stuns for 4s. |
 
 #### Priest
 
-Passive: **Power Word: Fortitude**: The whole party has +20% maximum health.
+Passive: **Steadfast Prayer**: The whole party has +20% maximum health.
 
 | | Ability | Cost | Cooldown | Effect (level 1) | Named upgrade |
 |---|---|--:|--:|---|---|
-| Start | **Heal** | 25 | 3s | Heals one ally for 80. | *Greater Heal*: Heals 40% more. |
+| Start | **Mend** | 25 | 3s | Heals one ally for 80. | *Deep Mend*: Heals 40% more. |
 | Passive | **Blessed Hands** | | | Heals on an ally below 35% health are 25% stronger. | |
-| Pool | **Guardian Spirit** | 20 | 40s | For 12s, a killing blow on the ally leaves them at 25% health instead. | *Second Wind*: They survive at 50% health. |
-| Pool | **Power Shield** | 20 | 6s | Shields an ally from 60 damage for 15s. | *Reflective Shield*: Attackers take half the damage the shield absorbs. |
-| Pool | **Renew** | 20 | 3s | Heals one ally for 84 over 9s. | *Twin Renew*: Also renews a second ally. |
-| Pool | **Holy Nova** | 30 | 8s | Heals every ally for 25 and deals 25 damage to enemies within 130. | *Radiant Nova*: +50% healing and damage, and a wider burst. |
+| Pool | **Saving Grace** | 20 | 40s | For 12s, a killing blow on the ally leaves them at 25% health instead. | *Second Wind*: They survive at 50% health. |
+| Pool | **Ward** | 20 | 6s | Shields an ally from 60 damage for 15s. | *Mirror Ward*: Attackers take half the damage the shield absorbs. |
+| Pool | **Soothing Glow** | 20 | 3s | Heals one ally for 84 over 9s. | *Twin Glow*: Also renews a second ally. |
+| Pool | **Radiance** | 30 | 8s | Heals every ally for 25 and deals 25 damage to enemies within 130. | *Blinding Radiance*: +50% healing and damage, and a wider burst. |
 | Pool | **Chain of Light** | 30 | 5s | Heals 65, then 46, then 32 (most injured allies first). | *Bright Chain*: Jumps to one more ally, and loses less on each jump. |
 
 #### Mage
 
-Passive: **Polymorph**: Every 15s, turns an enemy into a sheep — elites and casters first.
+Passive: **Woolly Hex**: Every 15s, turns an enemy into a sheep — elites and casters first.
 
 | | Ability | Cost | Cooldown | Effect (level 1) | Named upgrade |
 |---|---|--:|--:|---|---|
 | Start | **Fireball** | 30 | 4s | Deals 45 damage, then 15 burn damage over 3s. | *Searing Fire*: The burn is twice as strong and spreads to a nearby enemy. |
-| Pool | **Counterspell** | free | 12s | Interrupts a cast; locks casting for 4s. | *Mana Burn*: Also deals 40 damage and locks casting for 7s. |
-| Passive | **Arcane Surge** | | | Fireball has a 25% chance to cost no mana. | |
-| Pool | **Ice Lance** | 12 | 2s | Deals 28 damage. | *Shatter*: Each lance chills the target; chilled or stunned enemies take double damage. |
-| Pool | **Blizzard** | 35 | 12s | Deals 78 damage over 6s to enemies in the storm and slows them. | *Glacial Storm*: A 40% wider storm that hits a third harder. |
-| Pool | **Frost Nova** | 20 | 14s | Freezes every enemy within 110 for 2.5s and deals 10 damage. | *Ice Prison*: Freezes for 4s, in a wider ring. |
-| Pool | **Arcane Barrage** | 25 | 6s | Fires 3 missiles of 18 damage at random enemies. | *Arcane Torrent*: Five missiles. |
+| Pool | **Counterspell** | free | 12s | Interrupts a cast; locks casting for 4s. | *Spell Burn*: Also deals 40 damage and locks casting for 7s. |
+| Passive | **Kindling** | | | Fireball has a 25% chance to cost no mana. | |
+| Pool | **Frost Shard** | 12 | 2s | Deals 28 damage. | *Brittle*: Each lance chills the target; chilled or stunned enemies take double damage. |
+| Pool | **Ice Storm** | 35 | 12s | Deals 78 damage over 6s to enemies in the storm and slows them. | *Glacial Storm*: A 40% wider storm that hits a third harder. |
+| Pool | **Frost Ring** | 20 | 14s | Freezes every enemy within 110 for 2.5s and deals 10 damage. | *Ice Prison*: Freezes for 4s, in a wider ring. |
+| Pool | **Star Missiles** | 25 | 6s | Fires 3 missiles of 18 damage at random enemies. | *Star Shower*: Five missiles. |
 
 #### Warlock
 
-Passive: **Soul Harvest**: Whenever an enemy dies, the Warlock regains 20 mana and the most injured ally is healed for 30.
+Passive: **Reaping**: Whenever an enemy dies, the Warlock regains 20 mana and the most injured ally is healed for 30.
 
 | | Ability | Cost | Cooldown | Effect (level 1) | Named upgrade |
 |---|---|--:|--:|---|---|
 | Start | **Hex Bolt** | 20 | 3s | Deals 46 damage. | *Hex of Rot*: Also rots the target for 24 over 6s. |
 | Pool | **Doom** | 30 | 15s | After 8s, deals 200 damage to the toughest enemy. | *Inevitable*: Lands for 50% more, and comes back 3s sooner. |
 | Pool | **Enfeeble** | 15 | 12s | The most dangerous enemy in range deals 30% less damage for 8s. | *Crippling Curse*: 40% less, and it attacks slower. |
-| Pool | **Wither** | 15 | 2s | Deals 78 damage over 12s. | *Contagion*: When a withering enemy dies, the curse jumps to the nearest enemy. |
-| Pool | **Soul Drain** | 25 | 6s | Deals 40 damage; the most injured ally is healed for the same amount. | *Soul Feast*: Heals for 150% of the damage. |
+| Pool | **Wither** | 15 | 2s | Deals 78 damage over 12s. | *Spreading Blight*: When a withering enemy dies, the curse jumps to the nearest enemy. |
+| Pool | **Life Siphon** | 25 | 6s | Deals 40 damage; the most injured ally is healed for the same amount. | *Soul Feast*: Heals for 150% of the damage. |
 | Pool | **Curse of Ruin** | 20 | 10s | An enemy takes 25% more damage from everything for 10s. | *Deep Ruin*: +40% damage taken instead. |
-| Passive | **Agony** | | | Wither deals 50% more damage. | |
+| Passive | **Deep Wither** | | | Wither deals 50% more damage. | |
 
 #### Rogue
 
@@ -391,18 +391,18 @@ Passive: **Stealth**: Starts hidden; the first hit out of stealth deals double d
 
 | | Ability | Cost | Cooldown | Effect (level 1) | Named upgrade |
 |---|---|--:|--:|---|---|
-| Start | **Sinister Strike** | 40 | 1.5s | Deals 36 damage. | *Serrated Blade*: Also makes the target bleed for 18 over 3s. |
+| Start | **Quick Stab** | 40 | 1.5s | Deals 36 damage. | *Serrated Blade*: Also makes the target bleed for 18 over 3s. |
 | Passive | **Poisoned Blades** | | | Auto attacks poison the target: 6 damage a second for 4s. | |
-| Pool | **Gouge** | 15 | 8s | Stuns an enemy for 2s (breaks its cast). | *Blind*: Stuns for 3.5s. |
+| Pool | **Dirty Trick** | 15 | 8s | Stuns an enemy for 2s (breaks its cast). | *Pocket Sand*: Stuns for 3.5s. |
 | Pool | **Evasion** | free | 20s | Dodges 75% of attacks for 6s. | *Riposte*: Every dodged attack is answered with a 20-damage counter. |
-| Pool | **Eviscerate** | 35 | 6s | Deals 55 damage. | *Executioner*: Double damage to enemies below 35% health. |
+| Pool | **Finishing Cut** | 35 | 6s | Deals 55 damage. | *Executioner*: Double damage to enemies below 35% health. |
 | Pool | **Kick** | free | 10s | Interrupts a cast; locks casting for 4s; deals 8 damage. | *Crippling Kick*: Locks casting for 6s and stuns for 1.5s. |
-| Passive | **Combo Points** | | | Auto attacks build combo points; Sinister Strike and Eviscerate spend them for +15% damage each. | |
-| Pool | **Fan of Knives** | 35 | 5s | Deals 26 damage to every enemy within 100. | *Poison Fan*: The knives also poison: 20 damage over 4s. |
+| Passive | **Momentum** | | | Auto attacks build combo points; Quick Stab and Finishing Cut spend them for +15% damage each. | |
+| Pool | **Knife Storm** | 35 | 5s | Deals 26 damage to every enemy within 100. | *Poison Fan*: The knives also poison: 20 damage over 4s. |
 
-Retired on 2026-11-02: **Prayer of Healing** (replaced by Holy Nova and Chain of
+Retired on 2026-11-02: **Prayer of Healing** (replaced by Radiance and Chain of
 Light), **Inner Focus** (replaced by Blessed Hands). Taunt, Fortitude and
-Polymorph exist as ability definitions but are only used by the passives.
+Woolly Hex exist as ability definitions but are only used by the passives.
 
 ---
 
@@ -424,7 +424,7 @@ Polymorph exist as ability definitions but are only used by the passives.
   - **Named upgrade** (one per ability, e.g. Fireball: *Searing Fire*). Offered
     first.
   - **Empowered X:** +25% effect per rank. Only offered for abilities with
-    something to scale (not interrupts, stuns, Shield Block, Last Stand...).
+    something to scale (not interrupts, stuns, Brace, Hold the Line...).
   - **Quick X:** 20% shorter cooldown per rank (up to 2), for cooldowns of 4s+.
   - **Vitality:** +10% max health. **Might:** +10% damage and healing.
     **Focus:** +40% mana or energy regeneration (not offered for rage).
@@ -483,11 +483,11 @@ Polymorph exist as ability definitions but are only used by the passives.
 - Heroes use abilities on their own when it makes sense:
   - heals on the most hurt ally
   - interrupts on enemy casts
-  - Blizzard on the biggest group
-  - Shield Block when taking hits
+  - Ice Storm on the biggest group
+  - Brace when taking hits
   - Enfeeble on the most dangerous enemy; Wither spread across enemies
-- **Mana discipline:** cheap filler spells (Renew, Power Shield, Ice Lance,
-  Judgement, Hex Bolt) keep enough mana for the hero's big spells.
+- **Mana discipline:** cheap filler spells (Soothing Glow, Ward, Frost Shard,
+  Verdict, Hex Bolt) keep enough mana for the hero's big spells.
 
 ### Enemy AI
 
@@ -498,9 +498,9 @@ Polymorph exist as ability definitions but are only used by the passives.
 | Healer | Shaman (Mend), Death Cultist (Dark Mend), Shadow Caller (Shadow Mend) | Casts for **2.5s** to heal a hurt ally (missing at least 40 HP) for **70**. 7s cooldown. Can be interrupted. |
 | Smasher | Brute (Smash), Abomination (Slam), Pit Brute (Crush), and all bosses | Telegraphed cast for **1.8s**, then a hit for **2.9×** its damage, plus **1.25×** splash within 70px. 8s cooldown. Can be interrupted. |
 
-- **Elites** (Brute, Abomination, Pit Brute) are the Mage's first Polymorph
+- **Elites** (Brute, Abomination, Pit Brute) are the Mage's first Woolly Hex
   targets. Casters are next.
-- **Bosses** are immune to Polymorph, **shake off stuns twice as fast**, and
+- **Bosses** are immune to Woolly Hex, **shake off stuns twice as fast**, and
   **resist interrupts**: after one is interrupted, its next cast is
   **unstoppable** (orange cast bar). Two interrupters used to cancel every
   boss slam.
@@ -788,7 +788,7 @@ These come from the original castle-gate design (see
 | Castle gate, enemies marching in waves, flank spawns | **Dropped** | Replaced by the arena |
 | 4x3 placement grid for heroes | **Dropped** (2026-11-02) | Heroes line up by role on their own |
 | Swapping abilities after round 20 | **Decided against** (2026-11-02) | Abilities stay once picked |
-| Prayer of Healing, Inner Focus | **Replaced** (2026-11-02) | Holy Nova / Chain of Light; Blessed Hands |
+| Prayer of Healing, Inner Focus | **Replaced** (2026-11-02) | Radiance / Chain of Light; Blessed Hands |
 | Player-controlled hero, ability buttons, focus target, Full Auto toggle | **Dropped** | The game is fully AI. Only the sim's test path remains. |
 | 30-wave runs with a win at wave 30 | **Dropped** | Replaced by the 3-act map run (2026-11-03) |
 | Endless rounds, 3 lives, team builder, ready screen | **Dropped** (2026-11-03) | The map run: one hero, recruits at campsites, one life |

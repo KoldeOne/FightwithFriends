@@ -186,15 +186,15 @@ export const SLOW_STROKE = 0x5dade2;
 
 /** How each buff/debuff is shown in the HUD and its tooltip. */
 export const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string; color: number; debuff: boolean; text: (e: Effect) => string }> = {
-  fortitude: { name: 'Power Word: Fortitude', letter: 'F', color: 0xfff3b0, debuff: false, text: (e) => `Maximum health increased by ${e.amount}.` },
-  hot: { name: 'Renew', letter: 'R', color: 0x7dff9b, debuff: false, text: (e) => `Heals ${Math.round(e.amount)} health every ${e.tickEvery}s.` },
+  fortitude: { name: 'Steadfast Prayer', letter: 'F', color: 0xfff3b0, debuff: false, text: (e) => `Maximum health increased by ${e.amount}.` },
+  hot: { name: 'Soothing Glow', letter: 'R', color: 0x7dff9b, debuff: false, text: (e) => `Heals ${Math.round(e.amount)} health every ${e.tickEvery}s.` },
   dot: { name: 'Burning', letter: 'B', color: 0xff8c1a, debuff: true, text: (e) => `Takes ${Math.round(e.amount)} damage every second.` },
   slow: { name: 'Slowed', letter: 'S', color: 0x5dade2, debuff: true, text: () => 'Attacks 30% slower.' },
-  sheep: { name: 'Polymorphed', letter: '~', color: 0xf4f1e8, debuff: true, text: () => 'Turned into a sheep. Breaks when hit directly.' },
+  sheep: { name: 'Sheeped', letter: '~', color: 0xf4f1e8, debuff: true, text: () => 'Turned into a sheep. Breaks when hit directly.' },
   silence: { name: 'Silenced', letter: 'X', color: 0xb57bff, debuff: true, text: () => 'Cannot cast spells.' },
   stealth: { name: 'Stealth', letter: 'H', color: 0x9aa5b8, debuff: false, text: () => 'Hidden: enemies cannot target you. Your next hit deals double damage.' },
-  block: { name: 'Shield Block', letter: 'B', color: 0xd4a24c, debuff: false, text: (e) => `Taking ${Math.round(e.amount * 100)}% less damage.` },
-  shield: { name: 'Power Shield', letter: 'P', color: 0xfff7d6, debuff: false, text: (e) => `Absorbs the next ${Math.round(e.amount)} damage.` },
+  block: { name: 'Brace', letter: 'B', color: 0xd4a24c, debuff: false, text: (e) => `Taking ${Math.round(e.amount * 100)}% less damage.` },
+  shield: { name: 'Ward', letter: 'P', color: 0xfff7d6, debuff: false, text: (e) => `Absorbs the next ${Math.round(e.amount)} damage.` },
   evasion: { name: 'Evasion', letter: 'E', color: 0xf1c40f, debuff: false, text: (e) => `Dodging ${Math.round(e.amount * 100)}% of attacks.` },
   weaken: { name: 'Enfeebled', letter: 'W', color: 0x8e44ad, debuff: true, text: (e) => `Deals ${Math.round(e.amount * 100)}% less damage.` },
   stun: { name: 'Stunned', letter: 'Z', color: 0xfff27a, debuff: true, text: () => "Can't move, attack or cast." },
@@ -204,7 +204,7 @@ export const EFFECT_INFO: Record<Effect['kind'], { name: string; letter: string;
   cursed: { name: 'Cursed', letter: '!', color: 0x7dff9b, debuff: true, text: (e) => `A shrine's curse: takes ${Math.round(e.amount * 100)}% more damage this fight.` },
   empower: { name: 'Rallied', letter: 'A', color: 0xff9f43, debuff: false, text: (e) => `Deals ${Math.round(e.amount * 100)}% more damage.` },
   frenzy: { name: 'War Cry', letter: '!', color: 0xe74c3c, debuff: false, text: (e) => `Attacks ${Math.round(e.amount * 100)}% faster.` },
-  guardian: { name: 'Guardian Spirit', letter: 'G', color: 0xfffbe0, debuff: false, text: (e) => `A killing blow leaves them at ${Math.round(e.amount * 100)}% health instead.` },
+  guardian: { name: 'Saving Grace', letter: 'G', color: 0xfffbe0, debuff: false, text: (e) => `A killing blow leaves them at ${Math.round(e.amount * 100)}% health instead.` },
   doom: { name: 'Doomed', letter: 'D', color: 0x5b2c6f, debuff: true, text: (e) => `${Math.round(e.amount)} damage lands in ${e.remaining.toFixed(1)}s.` },
 };
 
@@ -249,9 +249,9 @@ export interface PartyFrame {
   buffs: Phaser.GameObjects.Image[];
 }
 
-/** "Heroic Strike" -> "HS", "Fireball" -> "Fi". */
-/** Icon letters that would otherwise clash within a class (Shield Block / Shield Bash). */
-const ICON_LETTERS: Record<string, string> = { 'Shield Bash': 'Ba', Eviscerate: 'Vi', 'Fan of Knives': 'FK', 'Curse of Ruin': 'CR', 'Hammer of Justice': 'HJ', 'Chain of Light': 'CL' };
+/** "Brave Strike" -> "BS", "Fireball" -> "Fi". */
+/** Icon letters that would otherwise clash within a class (Brace / Shield Bash). */
+const ICON_LETTERS: Record<string, string> = { 'Shield Bash': 'Ba', 'Finishing Cut': 'FC', 'Knife Storm': 'KS', 'Curse of Ruin': 'CR', 'Gavel Strike': 'GS', 'Chain of Light': 'CL' };
 
 export function initials(name: string): string {
   if (ICON_LETTERS[name]) return ICON_LETTERS[name];

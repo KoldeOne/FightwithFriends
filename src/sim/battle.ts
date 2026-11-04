@@ -100,7 +100,7 @@ export class Battle {
   playerAuto = true;
   /** Player's focus: an enemy (or, for healers, an ally). */
   focusId: number | null = null;
-  /** Ground effects such as Blizzard. */
+  /** Ground effects such as Ice Storm. */
   zones: Zone[] = [];
   /** Shots in flight. */
   private projectiles: Projectile[] = [];
@@ -136,7 +136,7 @@ export class Battle {
       this.addHero(spot.cls, spot.x, spot.y, opts.builds?.[spot.slot], spot.slot);
     }
     if (opts.playerClass) this.setPlayer(opts.playerClass);
-    // Priest passive: Power Word: Fortitude is up on the whole party all wave.
+    // Priest passive: Steadfast Prayer is up on the whole party all wave.
     const priest = this.units.find((u) => u.side === 'hero' && u.passive === 'fortitudeAura');
     if (priest) this.applyFortitude(priest, Infinity);
     if (opts.curse)
@@ -752,7 +752,7 @@ export class Battle {
   }
 
   /**
-   * Who Polymorph should sheep when there are several enemies: elites first,
+   * Who Woolly Hex should sheep when there are several enemies: elites first,
    * then casters, then anything beating on a non-tank. Never the last enemy.
    */
   private polymorphCandidate(h: Unit): Unit | undefined {
@@ -1231,7 +1231,7 @@ export class Battle {
     return valid.find((u) => u.isBoss) ?? valid.find((u) => u.isElite) ?? tankTarget ?? valid.find((u) => u.id === h.targetId) ?? null;
   }
 
-  /** Who a stun (Shield Bash, Gouge, Hammer of Justice) should hit: a caster first, then a boss or elite hitting someone. */
+  /** Who a stun (Shield Bash, Dirty Trick, Gavel Strike) should hit: a caster first, then a boss or elite hitting someone. */
   private stunTarget(h: Unit, a: AbilitySlot): Unit | null {
     const t = ABILITY_TUNING;
     const range = a.id === 'hammerOfJustice' ? t.hammerOfJustice.range : Math.max(h.range, t.shieldBash.range);
@@ -1241,7 +1241,7 @@ export class Battle {
     return valid.find((u) => this.interruptible(u)) ?? valid.find((u) => (u.isBoss || u.isElite) && u.targetId !== null && !u.casting) ?? null;
   }
 
-  /** Guardian Spirit: an ally in real danger who isn't already watched over. */
+  /** Saving Grace: an ally in real danger who isn't already watched over. */
   private guardianCandidate(): Unit | undefined {
     const allies = this.allies().filter((u) => !this.hasEffect(u, 'guardian'));
     const smashed = allies.find((u) => this.units.some((e) => e.side === 'enemy' && e.alive && e.casting?.kind === 'smasher' && e.casting.targetId === u.id && e.isBoss));
@@ -1264,7 +1264,7 @@ export class Battle {
     return raw;
   }
 
-  /** Heal an ally (capped at missing health); emits events and heal threat. Returns the amount. */
+  /** Mend an ally (capped at missing health); emits events and heal threat. Returns the amount. */
   private healUnit(from: Unit, to: Unit, raw: number): number {
     if (!to.alive) return 0;
     const amount = Math.max(0, Math.min(to.maxHp - to.hp, Math.round(this.healAmount(from, to, raw) * (from.side === 'hero' ? this.healingScale : 1))));
@@ -1280,7 +1280,7 @@ export class Battle {
     return this.units.filter((e) => e.side === 'enemy' && e.alive && e.targetId === u.id).length;
   }
 
-  /** Best place for a Blizzard: the enemy with the most other enemies around it, in range. */
+  /** Best place for a Ice Storm: the enemy with the most other enemies around it, in range. */
   private blizzardSpot(h: Unit, a?: AbilitySlot): { x: number; y: number; count: number; unit?: Unit } {
     const r = ABILITY_TUNING.blizzard.radius * (a?.mastery ? ABILITY_TUNING.blizzard.masteryRadius : 1);
     let best: { x: number; y: number; count: number; unit?: Unit } = { x: 0, y: 0, count: 0 };
@@ -1317,7 +1317,7 @@ export class Battle {
   }
 
   /**
-   * Allies without Renew who are being attacked or are missing health,
+   * Allies without Soothing Glow who are being attacked or are missing health,
    * most-attacked first, then lowest health.
    */
   private renewCandidates(): Unit[] {
@@ -1791,7 +1791,7 @@ export class Battle {
     let cost = this.abilityCost(h, id);
     if (id === 'fireball' && this.hasTrait(h, 'arcaneSurge') && this.rng() < TRAIT_TUNING.arcaneSurgeChance) {
       cost = 0;
-      this.events.push({ type: 'notice', id: h.id, text: 'Arcane Surge!', tone: 'info' });
+      this.events.push({ type: 'notice', id: h.id, text: 'Kindling!', tone: 'info' });
     }
     h.resource = h.resource! - cost;
     a.cooldown = this.abilityCooldown(a);
@@ -1878,7 +1878,7 @@ export class Battle {
       }
     }
     // Defensive effects on the target.
-    // Party buffs on the attacker (Rallying Shout) and curses on the target (Curse of Ruin).
+    // Party buffs on the attacker (Rallying Call) and curses on the target (Curse of Ruin).
     if (from.side === 'hero') {
       const empower = Math.max(0, ...(from.effects ?? []).filter((e) => e.kind === 'empower').map((e) => e.amount));
       if (empower) amount = Math.round(amount * (1 + empower));
@@ -1898,7 +1898,7 @@ export class Battle {
         }
         return;
       }
-      // Several blocks (Shield Block, Last Stand, Grace) don't stack: the strongest counts.
+      // Several blocks (Brace, Hold the Line, Shelter) don't stack: the strongest counts.
       const block = Math.max(0, ...(to.effects ?? []).filter((e) => e.kind === 'block').map((e) => e.amount));
       if (block) amount = Math.round(amount * (1 - block));
       const shield = to.effects?.find((e) => e.kind === 'shield');
@@ -1908,7 +1908,7 @@ export class Battle {
         amount -= absorbed;
         this.record(this.unit(shield.sourceId), 'healing', `${shield.ability ?? 'shield'}:absorb`, absorbed);
         if (shield.amount <= 0) shield.remaining = 0;
-        // Reflective Shield: the attacker takes half of what was absorbed.
+        // Mirror Ward: the attacker takes half of what was absorbed.
         if (shield.ability === 'powerShield' && absorbed > 0 && from.alive && from.side === 'enemy') {
           const caster = this.unit(shield.sourceId);
           if (caster) this.damage(caster, from, Math.round(absorbed * ABILITY_TUNING.powerShield.reflect), { ability: 'powerShield', tick: true });
@@ -1938,7 +1938,7 @@ export class Battle {
       amount = Math.round(amount * (1 + TRAIT_TUNING.rageDamageAtMax * (from.resource! / from.maxResource!)));
     }
     if (this.time > SUDDEN_DEATH.after) amount = Math.round(amount * this.damageRamp);
-    // Guardian Spirit: a killing blow leaves the hero standing instead.
+    // Saving Grace: a killing blow leaves the hero standing instead.
     const guardian = to.side === 'hero' && amount >= to.hp ? to.effects?.find((e) => e.kind === 'guardian') : undefined;
     if (guardian) {
       to.effects = to.effects!.filter((e) => e !== guardian);
@@ -1960,7 +1960,7 @@ export class Battle {
       to.hp = 0;
       to.alive = false;
       for (const e of to.effects ?? []) if (e.kind === 'fortitude') this.removeFortitude(to, e);
-      // Contagion: a withering enemy passes the curse on as it dies.
+      // Spreading Blight: a withering enemy passes the curse on as it dies.
       const contagion = to.effects?.find((e) => e.kind === 'dot' && e.ability === 'wither' && e.contagion);
       to.effects = [];
       if (this.focusId === to.id) this.focusId = null;
@@ -1973,7 +1973,7 @@ export class Battle {
         if (caster && next) {
           const w = ABILITY_TUNING.wither;
           this.addEffect(next, { ...contagion!, remaining: w.duration, tickTimer: w.tick });
-          this.events.push({ type: 'notice', id: next.id, text: 'Contagion', tone: 'good' });
+          this.events.push({ type: 'notice', id: next.id, text: 'Spreading Blight', tone: 'good' });
         }
       }
     }

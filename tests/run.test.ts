@@ -542,7 +542,7 @@ describe('New earnable abilities', () => {
     return b;
   };
 
-  it('Whirlwind hits all nearby enemies', () => {
+  it('Spinning Slash hits all nearby enemies', () => {
     const b = setup('warrior', 'whirlwind');
     const w = b.player!;
     b.enemies.forEach((e, i) => ((e.x = w.x - 20 + i * 40), (e.y = w.y - 50)));
@@ -550,13 +550,13 @@ describe('New earnable abilities', () => {
     for (const e of b.enemies) expect(e.hp).toBeLessThan(e.maxHp);
   });
 
-  it('Shield Block halves incoming damage', () => {
+  it('Brace halves incoming damage', () => {
     const b = setup('warrior', 'shieldBlock');
     expect(b.useAbility(1)).toBe('ok');
     expect(b.hasEffect(b.player!, 'block')).toBe(true);
   });
 
-  it('Power Shield absorbs damage on an ally', () => {
+  it('Ward absorbs damage on an ally', () => {
     const b = setup('priest', 'powerShield');
     const rogue = b.heroes.find((h) => h.kind === 'rogue')!;
     b.setFocus(rogue.id);
@@ -564,18 +564,18 @@ describe('New earnable abilities', () => {
     expect(b.hasEffect(rogue, 'shield')).toBe(true);
   });
 
-  it('Holy Nova heals every hurt ally', () => {
+  it('Radiance heals every hurt ally', () => {
     const b = setup('priest', 'holyNova');
     for (const h of b.heroes) h.hp = h.maxHp - 50;
     expect(b.useAbility(1)).toBe('ok');
     for (const h of b.heroes) expect(h.hp).toBeGreaterThan(h.maxHp - 50);
   });
 
-  it('Ice Lance and Eviscerate deal damage', () => {
+  it('Frost Shard and Finishing Cut deal damage', () => {
     const m = setup('mage', 'iceLance', 1);
     m.enemies[0].y = 400;
     expect(m.useAbility(1)).toBe('ok');
-    for (let i = 0; i < 0.7 / STEP; i++) m.step(STEP); // the Ice Lance is in flight
+    for (let i = 0; i < 0.7 / STEP; i++) m.step(STEP); // the Frost Shard is in flight
     expect(m.enemies[0].hp).toBeLessThan(m.enemies[0].maxHp);
     const r = setup('rogue', 'eviscerate', 1);
     r.enemies[0].x = r.player!.x;
@@ -584,7 +584,7 @@ describe('New earnable abilities', () => {
     expect(r.enemies[0].hp).toBeLessThan(r.enemies[0].maxHp);
   });
 
-  it('Blizzard creates a damaging zone on a group', () => {
+  it('Ice Storm creates a damaging zone on a group', () => {
     const b = setup('mage', 'blizzard', 3);
     for (const e of b.enemies) e.y = 400;
     expect(b.useAbility(1)).toBe('ok');

@@ -231,11 +231,11 @@ export class UnitLayer {
     }
   }
 
-  /** Ground effects such as Blizzard. */
+  /** Ground effects such as Ice Storm. */
   drawZones(time: number): void {
     this.zoneLayer.clear();
     for (const z of this.s.battle.zones) {
-      // Tinted by school (Blizzard: frost blue, Hallowed Ground: holy gold), with a pulsing edge.
+      // Tinted by school (Ice Storm: frost blue, Hallowed Ground: holy gold), with a pulsing edge.
       const c = SCHOOL_COLORS[schoolOf(z.ability)];
       const wave = Math.sin(time / 180);
       this.zoneLayer.fillStyle(c.main, 0.2 + wave * 0.04).fillCircle(z.x, z.y, z.radius);
@@ -560,7 +560,7 @@ export class UnitLayer {
     this.spark(x, y, c.light, Math.floor(n / 2), heavy ? 22 : 16);
   }
 
-  /** A soft coloured puff (Polymorph's poof). */
+  /** A soft coloured puff (Woolly Hex's poof). */
   puff(x: number, y: number, color: number, light: number): void {
     for (let i = 0; i < 8; i++) {
       if (!this.takeParticle()) return;

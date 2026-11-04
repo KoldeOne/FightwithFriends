@@ -67,7 +67,7 @@ describe('Stuns', () => {
     expect(boss.effects!.find((e) => e.kind === 'stun')!.remaining).toBeCloseTo(1.25);
   });
 
-  it('Frost Nova freezes every enemy near the Mage', () => {
+  it('Frost Ring freezes every enemy near the Mage', () => {
     const { b, h } = setup('mage', 'frostNova', ['grunt', 'grunt', 'grunt']);
     for (const e of b.enemies) adjacent(e, h);
     expect(b.useAbility(1)).toBe('ok');
@@ -90,14 +90,14 @@ describe('Buffs and curses', () => {
     expect(hit(true)).toBeGreaterThan(hit(false) * 1.1);
   });
 
-  it('Rallying Shout: the party deals more damage', () => {
+  it('Rallying Call: the party deals more damage', () => {
     const { b, h } = setup('warrior', 'rallyingShout', ['grunt'], ['warrior', 'mage']);
     expect(b.useAbility(1)).toBe('ok');
     for (const ally of b.heroes) expect(b.hasEffect(ally, 'empower')).toBe(true);
     void h;
   });
 
-  it('Guardian Spirit: a killing blow leaves the ally at 25% health instead', () => {
+  it('Saving Grace: a killing blow leaves the ally at 25% health instead', () => {
     const { b } = setup('priest', 'guardianSpirit', ['brute'], ['priest', 'mage']);
     const mage = b.heroes.find((x) => x.kind === 'mage')!;
     b.setFocus(mage.id);
@@ -126,7 +126,7 @@ describe('Buffs and curses', () => {
     expect(before - e.hp).toBeGreaterThan(100);
   });
 
-  it('Contagion: Wither jumps to the next enemy when its target dies', () => {
+  it('Spreading Blight: Wither jumps to the next enemy when its target dies', () => {
     const { b, h } = setup('warlock', 'wither', ['grunt', 'grunt'], undefined, true);
     const [a, c] = b.enemies;
     a.y = c.y = h.y - 200;
@@ -150,7 +150,7 @@ describe('Healing spells', () => {
     expect(hurt.filter((x, i) => x.hp > before[i])).toHaveLength(3);
   });
 
-  it('Holy Nova also hurts enemies near the Priest', () => {
+  it('Radiance also hurts enemies near the Priest', () => {
     const { b, h } = setup('priest', 'holyNova');
     const e = b.enemies[0];
     adjacent(e, h);
@@ -160,7 +160,7 @@ describe('Healing spells', () => {
 });
 
 describe('Named upgrades', () => {
-  it('Cleave: Heroic Strike also hits a second enemy', () => {
+  it('Cleave: Brave Strike also hits a second enemy', () => {
     const { b, h } = setup('warrior', null, ['grunt', 'grunt']);
     h.abilities![0].mastery = true;
     for (const e of b.enemies) adjacent(e, h);
@@ -169,13 +169,13 @@ describe('Named upgrades', () => {
     expect(b.enemies.filter((e) => e.hp < e.maxHp)).toHaveLength(2);
   });
 
-  it('Shield Wall blocks 60%', () => {
+  it('Bulwark blocks 60%', () => {
     const { b, h } = setup('warrior', 'shieldBlock', ['grunt'], undefined, true);
     expect(b.useAbility(1)).toBe('ok');
     expect(h.effects!.find((e) => e.kind === 'block')!.amount).toBe(0.6);
   });
 
-  it('Executioner: Eviscerate hits twice as hard on a wounded enemy', () => {
+  it('Executioner: Finishing Cut hits twice as hard on a wounded enemy', () => {
     const dmg = (mastery: boolean) => {
       const { b, h } = setup('rogue', 'eviscerate', ['abomination'], undefined, mastery);
       h.effects = [];
@@ -189,7 +189,7 @@ describe('Named upgrades', () => {
     expect(dmg(true)).toBeGreaterThan(dmg(false) * 1.7);
   });
 
-  it('Shatter: Ice Lance hits twice as hard on a frozen enemy', () => {
+  it('Brittle: Frost Shard hits twice as hard on a frozen enemy', () => {
     const { b, h } = setup('mage', 'iceLance', ['abomination'], undefined, true);
     const e = b.enemies[0];
     e.y = h.y - 200;
@@ -200,7 +200,7 @@ describe('Named upgrades', () => {
     expect(lastAttack(b, h.id, e.id, 'iceLance')).toBeGreaterThan(48);
   });
 
-  it('Reflective Shield hurts whoever hits it', () => {
+  it('Mirror Ward hurts whoever hits it', () => {
     const { b } = setup('priest', 'powerShield', ['grunt'], ['priest', 'warrior'], true);
     const w = b.heroes.find((x) => x.kind === 'warrior')!;
     b.setFocus(w.id);

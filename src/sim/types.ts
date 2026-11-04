@@ -93,7 +93,7 @@ export interface AbilitySlot {
   mastery?: boolean;
 }
 
-/** A ground area effect (e.g. Blizzard). */
+/** A ground area effect (e.g. Ice Storm). */
 export interface Zone {
   id: number;
   x: number;
@@ -134,7 +134,7 @@ export interface Effect {
     | 'empower'
     /** Enemy attacks `amount` faster (War Cry). */
     | 'frenzy'
-    /** Guardian Spirit: the next killing blow leaves the hero at `amount` of max health instead. */
+    /** Saving Grace: the next killing blow leaves the hero at `amount` of max health instead. */
     | 'guardian'
     /** Doom: `amount` damage lands when it expires. */
     | 'doom'
@@ -153,7 +153,7 @@ export interface Effect {
   sourceId: number;
   /** The ability that applied it (for stats), if any. */
   ability?: AbilityId;
-  /** Wither with Contagion: jumps to the nearest enemy when the target dies. */
+  /** Wither with Spreading Blight: jumps to the nearest enemy when the target dies. */
   contagion?: boolean;
 }
 
@@ -206,7 +206,7 @@ export interface Unit {
   passiveCooldown?: number;
   /** Rogue: seconds without dealing/taking damage (to re-enter stealth). */
   outOfCombat?: number;
-  /** Enemy: elite (tougher) and caster flags, used by auto-Polymorph priority. */
+  /** Enemy: elite (tougher) and caster flags, used by auto-Woolly Hex priority. */
   isElite?: boolean;
   isCaster?: boolean;
   /** Current velocity (px/s) — movement eases in and out instead of snapping. */
@@ -230,13 +230,13 @@ export interface Unit {
   cooldownRate?: number;
   /** Hero: passive traits earned so far (none at the start). */
   traits?: TraitId[];
-  /** Rogue: combo points (0-5), only used with the Combo Points trait. */
+  /** Rogue: combo points (0-5), only used with the Momentum trait. */
   comboPoints?: number;
   /** Enemy: spell being cast, if any. */
   casting?: { spell: string; kind: CastKind; remaining: number; total: number; targetId: number; unstoppable?: boolean; x?: number; y?: number };
   /** Boss: seconds until its signature move is ready again. */
   specialCooldown?: number;
-  /** Enemy raised mid-fight (Raise Dead): doesn't count toward Soul Harvest twice etc. */
+  /** Enemy raised mid-fight (Raise Dead): doesn't count toward Reaping twice etc. */
   summoned?: boolean;
   /** Boss: its next heavy cast can't be interrupted (set when one was). */
   enraged?: boolean;
@@ -245,7 +245,7 @@ export interface Unit {
   /** Enemy: special behaviour (heal or smash), and that spell's name. */
   ai?: EnemyAI;
   spell?: string;
-  /** Enemy: bosses are immune to Polymorph. */
+  /** Enemy: bosses are immune to Woolly Hex. */
   isBoss?: boolean;
 }
 

@@ -160,24 +160,24 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   // --- Warrior ---------------------------------------------------------------
   taunt: { id: 'taunt', name: 'Taunt', cls: 'warrior', cost: 0, cooldown: 8, description: 'Forces an enemy to attack you.', scales: false, mastery: { name: 'Taunt', text: '' } },
   heroicStrike: {
-    id: 'heroicStrike', name: 'Heroic Strike', cls: 'warrior', cost: 15, cooldown: 3, scales: true,
+    id: 'heroicStrike', name: 'Brave Strike', cls: 'warrior', cost: 15, cooldown: 3, scales: true,
     description: 'A heavy strike that generates extra threat.',
     mastery: { name: 'Cleave', text: 'Also hits another enemy next to the target, just as hard.' },
   },
   thunderclap: {
-    id: 'thunderclap', name: 'Thunderclap', cls: 'warrior', cost: 20, cooldown: 6, scales: true,
+    id: 'thunderclap', name: 'Ground Slam', cls: 'warrior', cost: 20, cooldown: 6, scales: true,
     description: 'Damage and high threat to nearby enemies; slows their attacks.',
     mastery: { name: 'Aftershock', text: 'Enemies hit also deal 15% less damage for 6s.' },
   },
   whirlwind: {
-    id: 'whirlwind', name: 'Whirlwind', cls: 'warrior', cost: 25, cooldown: 6, scales: true,
+    id: 'whirlwind', name: 'Spinning Slash', cls: 'warrior', cost: 25, cooldown: 6, scales: true,
     description: 'Hits every nearby enemy, with high threat.',
-    mastery: { name: 'Bladestorm', text: 'Spins twice: a second hit for 60%.' },
+    mastery: { name: 'Blade Cyclone', text: 'Spins twice: a second hit for 60%.' },
   },
   shieldBlock: {
-    id: 'shieldBlock', name: 'Shield Block', cls: 'warrior', cost: 15, cooldown: 12, scales: false,
+    id: 'shieldBlock', name: 'Brace', cls: 'warrior', cost: 15, cooldown: 12, scales: false,
     description: 'Take 40% less damage for 5s.',
-    mastery: { name: 'Shield Wall', text: 'Blocks 60% for 6s.' },
+    mastery: { name: 'Bulwark', text: 'Blocks 60% for 6s.' },
   },
   shieldBash: {
     id: 'shieldBash', name: 'Shield Bash', cls: 'warrior', cost: 15, cooldown: 12, scales: false,
@@ -185,41 +185,41 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     mastery: { name: 'Concussive Bash', text: 'Stuns for 3.5s.' },
   },
   lastStand: {
-    id: 'lastStand', name: 'Last Stand', cls: 'warrior', cost: 0, cooldown: 40, scales: false,
+    id: 'lastStand', name: 'Hold the Line', cls: 'warrior', cost: 0, cooldown: 40, scales: false,
     description: 'Below 30% health: instantly recovers 30% of maximum health.',
     mastery: { name: 'Unbreakable', text: 'Recovers 50% and blocks 40% of damage for 6s.' },
   },
   rallyingShout: {
-    id: 'rallyingShout', name: 'Rallying Shout', cls: 'warrior', cost: 30, cooldown: 20, scales: false,
+    id: 'rallyingShout', name: 'Rallying Call', cls: 'warrior', cost: 30, cooldown: 20, scales: false,
     description: 'The whole party deals 15% more damage for 8s.',
     mastery: { name: 'Battle Cry', text: 'Also heals every ally for 8% of their maximum health.' },
   },
   // --- Priest ----------------------------------------------------------------
   heal: {
-    id: 'heal', name: 'Heal', cls: 'priest', cost: 25, cooldown: 3, scales: true,
+    id: 'heal', name: 'Mend', cls: 'priest', cost: 25, cooldown: 3, scales: true,
     description: 'A strong heal on one ally.',
-    mastery: { name: 'Greater Heal', text: 'Heals 40% more.' },
+    mastery: { name: 'Deep Mend', text: 'Heals 40% more.' },
   },
   renew: {
-    id: 'renew', name: 'Renew', cls: 'priest', cost: 20, cooldown: 3, scales: true,
+    id: 'renew', name: 'Soothing Glow', cls: 'priest', cost: 20, cooldown: 3, scales: true,
     description: 'Heals an ally over 9 seconds.',
-    mastery: { name: 'Twin Renew', text: 'Also renews a second ally.' },
+    mastery: { name: 'Twin Glow', text: 'Also renews a second ally.' },
   },
-  fortitude: { id: 'fortitude', name: 'Power Word: Fortitude', cls: 'priest', cost: 0, cooldown: 30, description: "Raises the whole party's maximum health by 20% for 30s.", scales: false, mastery: { name: '', text: '' } },
+  fortitude: { id: 'fortitude', name: 'Steadfast Prayer', cls: 'priest', cost: 0, cooldown: 30, description: "Raises the whole party's maximum health by 20% for 30s.", scales: false, mastery: { name: '', text: '' } },
   powerShield: {
-    id: 'powerShield', name: 'Power Shield', cls: 'priest', cost: 20, cooldown: 6, scales: true,
+    id: 'powerShield', name: 'Ward', cls: 'priest', cost: 20, cooldown: 6, scales: true,
     description: 'Shields an ally from 60 damage.',
-    mastery: { name: 'Reflective Shield', text: 'Attackers take half the damage the shield absorbs.' },
+    mastery: { name: 'Mirror Ward', text: 'Attackers take half the damage the shield absorbs.' },
   },
   guardianSpirit: {
-    id: 'guardianSpirit', name: 'Guardian Spirit', cls: 'priest', cost: 20, cooldown: 40, scales: false,
+    id: 'guardianSpirit', name: 'Saving Grace', cls: 'priest', cost: 20, cooldown: 40, scales: false,
     description: 'Watches over an ally in danger for 12s: a killing blow leaves them at 25% health instead.',
     mastery: { name: 'Second Wind', text: 'They survive at 50% health.' },
   },
   holyNova: {
-    id: 'holyNova', name: 'Holy Nova', cls: 'priest', cost: 30, cooldown: 8, scales: true,
+    id: 'holyNova', name: 'Radiance', cls: 'priest', cost: 30, cooldown: 8, scales: true,
     description: 'A burst of light: heals every ally and damages enemies near the Priest.',
-    mastery: { name: 'Radiant Nova', text: '+50% healing and damage, and a wider burst.' },
+    mastery: { name: 'Blinding Radiance', text: '+50% healing and damage, and a wider burst.' },
   },
   chainOfLight: {
     id: 'chainOfLight', name: 'Chain of Light', cls: 'priest', cost: 30, cooldown: 5, scales: true,
@@ -232,35 +232,35 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     description: 'Big hit that leaves a burn.',
     mastery: { name: 'Searing Fire', text: 'The burn is twice as strong and spreads to a nearby enemy.' },
   },
-  polymorph: { id: 'polymorph', name: 'Polymorph', cls: 'mage', cost: 0, cooldown: 15, description: 'Turns an enemy (not a boss) into a sheep for 10s.', scales: false, mastery: { name: '', text: '' } },
+  polymorph: { id: 'polymorph', name: 'Woolly Hex', cls: 'mage', cost: 0, cooldown: 15, description: 'Turns an enemy (not a boss) into a sheep for 10s.', scales: false, mastery: { name: '', text: '' } },
   counterspell: {
     id: 'counterspell', name: 'Counterspell', cls: 'mage', cost: 0, cooldown: 12, scales: false,
     description: 'Interrupts an enemy cast and locks it out of casting.',
-    mastery: { name: 'Mana Burn', text: 'Also deals 40 damage and locks casting for 7s.' },
+    mastery: { name: 'Spell Burn', text: 'Also deals 40 damage and locks casting for 7s.' },
   },
   iceLance: {
-    id: 'iceLance', name: 'Ice Lance', cls: 'mage', cost: 12, cooldown: 2, scales: true,
+    id: 'iceLance', name: 'Frost Shard', cls: 'mage', cost: 12, cooldown: 2, scales: true,
     description: 'A quick, cheap ranged hit.',
-    mastery: { name: 'Shatter', text: 'Each lance chills the target; chilled or stunned enemies take double damage.' },
+    mastery: { name: 'Brittle', text: 'Each lance chills the target; chilled or stunned enemies take double damage.' },
   },
   blizzard: {
-    id: 'blizzard', name: 'Blizzard', cls: 'mage', cost: 35, cooldown: 12, scales: true,
+    id: 'blizzard', name: 'Ice Storm', cls: 'mage', cost: 35, cooldown: 12, scales: true,
     description: 'Ice storm on the biggest group of enemies: damage over time and slow.',
     mastery: { name: 'Glacial Storm', text: 'A 40% wider storm that hits a third harder.' },
   },
   frostNova: {
-    id: 'frostNova', name: 'Frost Nova', cls: 'mage', cost: 20, cooldown: 14, scales: false,
+    id: 'frostNova', name: 'Frost Ring', cls: 'mage', cost: 20, cooldown: 14, scales: false,
     description: 'Freezes every enemy near the Mage in place for 2.5s.',
     mastery: { name: 'Ice Prison', text: 'Freezes for 4s, in a wider ring.' },
   },
   arcaneBarrage: {
-    id: 'arcaneBarrage', name: 'Arcane Barrage', cls: 'mage', cost: 25, cooldown: 6, scales: true,
+    id: 'arcaneBarrage', name: 'Star Missiles', cls: 'mage', cost: 25, cooldown: 6, scales: true,
     description: 'Three arcane missiles at random enemies.',
-    mastery: { name: 'Arcane Torrent', text: 'Five missiles.' },
+    mastery: { name: 'Star Shower', text: 'Five missiles.' },
   },
   // --- Rogue -----------------------------------------------------------------
   sinisterStrike: {
-    id: 'sinisterStrike', name: 'Sinister Strike', cls: 'rogue', cost: 40, cooldown: 1.5, scales: true,
+    id: 'sinisterStrike', name: 'Quick Stab', cls: 'rogue', cost: 40, cooldown: 1.5, scales: true,
     description: 'A fast, heavy strike.',
     mastery: { name: 'Serrated Blade', text: 'Also makes the target bleed for 18 over 3s.' },
   },
@@ -270,7 +270,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     mastery: { name: 'Crippling Kick', text: 'Locks casting for 6s and stuns for 1.5s.' },
   },
   eviscerate: {
-    id: 'eviscerate', name: 'Eviscerate', cls: 'rogue', cost: 35, cooldown: 6, scales: true,
+    id: 'eviscerate', name: 'Finishing Cut', cls: 'rogue', cost: 35, cooldown: 6, scales: true,
     description: 'A big finishing strike.',
     mastery: { name: 'Executioner', text: 'Double damage to enemies below 35% health.' },
   },
@@ -280,25 +280,25 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     mastery: { name: 'Riposte', text: 'Every dodged attack is answered with a 20-damage counter.' },
   },
   gouge: {
-    id: 'gouge', name: 'Gouge', cls: 'rogue', cost: 15, cooldown: 8, scales: false,
+    id: 'gouge', name: 'Dirty Trick', cls: 'rogue', cost: 15, cooldown: 8, scales: false,
     description: 'A dirty strike that stuns an enemy for 2s (and breaks its cast).',
-    mastery: { name: 'Blind', text: 'Stuns for 3.5s.' },
+    mastery: { name: 'Pocket Sand', text: 'Stuns for 3.5s.' },
   },
   fanOfKnives: {
-    id: 'fanOfKnives', name: 'Fan of Knives', cls: 'rogue', cost: 35, cooldown: 5, scales: true,
+    id: 'fanOfKnives', name: 'Knife Storm', cls: 'rogue', cost: 35, cooldown: 5, scales: true,
     description: 'Throws knives at every enemy near the Rogue.',
     mastery: { name: 'Poison Fan', text: 'The knives also poison: 20 damage over 4s.' },
   },
   // --- Paladin ---------------------------------------------------------------
   judgement: {
-    id: 'judgement', name: 'Judgement', cls: 'paladin', cost: 15, cooldown: 4, scales: true,
+    id: 'judgement', name: 'Verdict', cls: 'paladin', cost: 15, cooldown: 4, scales: true,
     description: 'Holy strike at range; the most injured ally is healed for half the damage.',
-    mastery: { name: 'Twin Judgement', text: 'Also strikes a second enemy for 60%.' },
+    mastery: { name: 'Twin Verdict', text: 'Also strikes a second enemy for 60%.' },
   },
   radiantLight: {
     id: 'radiantLight', name: 'Radiant Light', cls: 'paladin', cost: 25, cooldown: 4, scales: true,
     description: 'A solid heal on one ally.',
-    mastery: { name: 'Beacon', text: 'The Paladin is healed for half as much too.' },
+    mastery: { name: 'Shared Light', text: 'The Paladin is healed for half as much too.' },
   },
   hallowedGround: {
     id: 'hallowedGround', name: 'Hallowed Ground', cls: 'paladin', cost: 25, cooldown: 10, scales: true,
@@ -308,15 +308,15 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   mercy: {
     id: 'mercy', name: 'Mercy', cls: 'paladin', cost: 0, cooldown: 30, scales: true,
     description: 'A huge heal on an ally about to fall.',
-    mastery: { name: 'Grace', text: 'They also take 50% less damage for 4s.' },
+    mastery: { name: 'Shelter', text: 'They also take 50% less damage for 4s.' },
   },
   hammerOfJustice: {
-    id: 'hammerOfJustice', name: 'Hammer of Justice', cls: 'paladin', cost: 15, cooldown: 14, scales: false,
+    id: 'hammerOfJustice', name: 'Gavel Strike', cls: 'paladin', cost: 15, cooldown: 14, scales: false,
     description: 'A thrown hammer: interrupts and stuns an enemy for 2.5s.',
     mastery: { name: 'Heavy Hammer', text: 'Stuns for 4s.' },
   },
   exorcism: {
-    id: 'exorcism', name: 'Exorcism', cls: 'paladin', cost: 25, cooldown: 8, scales: true,
+    id: 'exorcism', name: 'Banishing Light', cls: 'paladin', cost: 25, cooldown: 8, scales: true,
     description: 'Holy fire at range; double damage to undead and demons.',
     mastery: { name: 'Purify', text: 'Also burns for 30 over 3s.' },
   },
@@ -329,10 +329,10 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   wither: {
     id: 'wither', name: 'Wither', cls: 'warlock', cost: 15, cooldown: 2, scales: true,
     description: 'A curse that eats away at an enemy over 12 seconds.',
-    mastery: { name: 'Contagion', text: 'When a withering enemy dies, the curse jumps to the nearest enemy.' },
+    mastery: { name: 'Spreading Blight', text: 'When a withering enemy dies, the curse jumps to the nearest enemy.' },
   },
   soulDrain: {
-    id: 'soulDrain', name: 'Soul Drain', cls: 'warlock', cost: 25, cooldown: 6, scales: true,
+    id: 'soulDrain', name: 'Life Siphon', cls: 'warlock', cost: 25, cooldown: 6, scales: true,
     description: "Tears at an enemy's soul; the most injured ally is healed for the damage.",
     mastery: { name: 'Soul Feast', text: 'Heals for 150% of the damage.' },
   },
@@ -406,7 +406,7 @@ export const ABILITY_TUNING = {
   fireball: { damage: 45, burnPerSecond: 5, burnDuration: 3, spreadRadius: 110 },
   polymorph: { duration: 10, range: 380 },
   counterspell: { silence: 4, range: 380, masteryDamage: 40, masterySilence: 7 },
-  /** Shatter: each lance chills (slows) the target; chilled or stunned targets take double. */
+  /** Brittle: each lance chills (slows) the target; chilled or stunned targets take double. */
   iceLance: { damage: 28, shatter: 2, chill: 3 },
   blizzard: { radius: 85, duration: 6, damagePerSecond: 13, masteryRadius: 1.4, masteryDamage: 1.33 },
   frostNova: { radius: 110, freeze: 2.5, masteryFreeze: 4, masteryRadius: 150, damage: 10 },
@@ -418,7 +418,7 @@ export const ABILITY_TUNING = {
   evasion: { duration: 6, dodge: 0.75, riposte: 20 },
   gouge: { stun: 2, masteryStun: 3.5 },
   fanOfKnives: { radius: 100, damage: 26, poison: 20, poisonDuration: 4 },
-  /** Paladin: Judgement reaches further than the Paladin's melee swing. */
+  /** Paladin: Verdict reaches further than the Paladin's melee swing. */
   judgement: { damage: 40, range: 220, healShare: 0.5, second: 0.6 },
   radiantLight: { amount: 95, beacon: 0.5 },
   hallowedGround: { radius: 95, duration: 6, damagePerSecond: 12, threatBonus: 2, healPerSecond: 6 },
@@ -455,11 +455,11 @@ export interface TraitDef {
 export const TRAITS: Record<TraitId, TraitDef> = {
   rage: { id: 'rage', cls: 'warrior', name: 'Rage', description: 'Hits up to 20% harder at full rage.' },
   blessedHands: { id: 'blessedHands', cls: 'priest', name: 'Blessed Hands', description: 'Heals on an ally below 35% health are 25% stronger.' },
-  arcaneSurge: { id: 'arcaneSurge', cls: 'mage', name: 'Arcane Surge', description: 'Fireball has a 25% chance to cost no mana.' },
-  comboPoints: { id: 'comboPoints', cls: 'rogue', name: 'Combo Points', description: 'Auto attacks build combo points; Sinister Strike and Eviscerate spend them for +15% damage each.' },
+  arcaneSurge: { id: 'arcaneSurge', cls: 'mage', name: 'Kindling', description: 'Fireball has a 25% chance to cost no mana.' },
+  comboPoints: { id: 'comboPoints', cls: 'rogue', name: 'Momentum', description: 'Auto attacks build combo points; Quick Stab and Finishing Cut spend them for +15% damage each.' },
   poisonedBlades: { id: 'poisonedBlades', cls: 'rogue', name: 'Poisoned Blades', description: 'Auto attacks poison the target: 6 damage a second for 4s.' },
-  zeal: { id: 'zeal', cls: 'paladin', name: 'Zeal', description: 'Judgement heals for the full damage dealt, not half.' },
-  agony: { id: 'agony', cls: 'warlock', name: 'Agony', description: 'Wither deals 50% more damage.' },
+  zeal: { id: 'zeal', cls: 'paladin', name: 'Zeal', description: 'Verdict heals for the full damage dealt, not half.' },
+  agony: { id: 'agony', cls: 'warlock', name: 'Deep Wither', description: 'Wither deals 50% more damage.' },
 };
 
 export const TRAIT_TUNING = {
@@ -469,7 +469,7 @@ export const TRAIT_TUNING = {
   blessedHandsBonus: 0.25,
   arcaneSurgeChance: 0.25,
   maxComboPoints: 5,
-  /** Sinister Strike: +15% damage per combo point. */
+  /** Quick Stab: +15% damage per combo point. */
   comboBonusPerPoint: 0.15,
   poisonPerSecond: 6,
   poisonDuration: 4,
@@ -535,10 +535,10 @@ export interface PassiveDef {
 /** Each class's always-on starting passive (no button). */
 export const PASSIVES: Record<PassiveId, PassiveDef> = {
   autoTaunt: { id: 'autoTaunt', name: 'Taunt', short: 'Auto-taunts enemies attacking allies.', description: 'Automatically taunts an enemy attacking an ally (every 8s).' },
-  fortitudeAura: { id: 'fortitudeAura', name: 'Power Word: Fortitude', short: 'Party has +20% max health.', description: 'The whole party has +20% maximum health.' },
-  autoPolymorph: { id: 'autoPolymorph', name: 'Polymorph', short: 'Auto-sheeps an enemy (elites, casters first).', description: 'Every 15s, turns an enemy into a sheep — elites and casters first.' },
+  fortitudeAura: { id: 'fortitudeAura', name: 'Steadfast Prayer', short: 'Party has +20% max health.', description: 'The whole party has +20% maximum health.' },
+  autoPolymorph: { id: 'autoPolymorph', name: 'Woolly Hex', short: 'Auto-sheeps an enemy (elites, casters first).', description: 'Every 15s, turns an enemy into a sheep — elites and casters first.' },
   aegisAura: { id: 'aegisAura', name: 'Aegis Aura', short: 'Party takes 10% less damage.', description: 'While the Paladin stands, the whole party takes 10% less damage.' },
-  soulHarvest: { id: 'soulHarvest', name: 'Soul Harvest', short: 'Kills restore mana and heal an ally.', description: 'Whenever an enemy dies, the Warlock regains 20 mana and the most injured ally is healed for 30.' },
+  soulHarvest: { id: 'soulHarvest', name: 'Reaping', short: 'Kills restore mana and heal an ally.', description: 'Whenever an enemy dies, the Warlock regains 20 mana and the most injured ally is healed for 30.' },
   stealth: { id: 'stealth', name: 'Stealth', short: 'Starts hidden; first hit deals double.', description: 'Starts hidden; the first hit out of stealth deals double damage. Re-stealths after 5s out of combat.' },
 };
 
@@ -561,7 +561,7 @@ export const HERO_KIT: Record<HeroClass, { resource: ResourceKind; starting: Abi
   warlock: { resource: 'mana', starting: 'hexBolt', passive: 'soulHarvest', role: 'Ranged damage — curses and life drain' },
 };
 
-/** Which faction each enemy belongs to (Exorcism hits undead and demons twice as hard). */
+/** Which faction each enemy belongs to (Banishing Light hits undead and demons twice as hard). */
 export const FACTION: Record<EnemyKind, 'goblin' | 'undead' | 'demon'> = {
   grunt: 'goblin', archer: 'goblin', shaman: 'goblin', brute: 'goblin', warchief: 'goblin',
   skeleton: 'undead', boneArcher: 'undead', cultist: 'undead', ghoul: 'undead', abomination: 'undead', boneKing: 'undead',

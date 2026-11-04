@@ -28,5 +28,6 @@ Vitest). Design doc: `docs/GAME_DESIGN.md` (keep it in sync with the code).
   bios, boss lines, dialogue) in a data file such as `src/content/story.ts`,
   so it can be edited without touching game logic or screen code. She may
   prefer to create it herself — offer, don't insist.
-- Ability names are working names; many are WoW-derived and must be renamed
-  before any public release. Don't add new WoW-specific names.
+- Ability, mastery and passive names were moved off WoW-derived names on
+  2026-11-04 (display names only; ids like `heroicStrike` stay for saves).
+  Don't add new WoW-specific names.
