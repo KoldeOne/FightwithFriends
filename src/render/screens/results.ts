@@ -200,27 +200,23 @@ export class Results {
     });
   }
 
-  /** Give up on the run (from the top bar, with a check first). */
+  /**
+   * Give up on the run (from the top bar, with a check first). Only this run
+   * ends: the camp (loot, gear, perks, unlocks and records) is untouched, and
+   * you go straight back to choosing a hero.
+   */
   abandon(): void {
     const run = this.s.run;
     if (!run) return;
-    this.s.confirm('Abandon this run?', 'The run ends here. Your best progress is kept, and its camp loot is already at the camp.', 'Abandon', () => {
+    this.s.confirm('Abandon this run?', 'This run ends and you go back to choosing a hero. Everything at the camp (loot, gear, perks and unlocks) is kept.', 'Abandon', () => {
       recordProgress(run);
-      // The graveyard keeps abandoned runs too.
+      // The graveyard remembers abandoned runs too.
       const camp = loadCamp();
       addGrave(run, camp);
       saveCamp(camp);
       clearRun();
-      this.s.map.hide();
-      this.s.inspect.closeInspect();
-      this.s.overlay?.destroy();
-      this.showAbandoned();
+      this.s.scene.restart({});
     });
-  }
-
-  /** You gave up on the run. */
-  showAbandoned(): void {
-    this.showEnd({ title: 'Run abandoned', color: '#c9d1e0', lines: [`Best: ${describeProgress(bestProgress())}`] });
   }
 
   /**

@@ -649,14 +649,24 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   - A legend, and the boss's move at the top on the floor before it.
 - **Spoils panel** after each win; **game over / victory** screens show the
   run's stats and the loot sent home, with buttons to the camp and a new run.
-- **Camp screen** (§2b): a profile card per hero at the top (gear levels and
-  bonuses; the chosen one highlighted), and a campground below, where the six
-  heroes wander around a campfire. Tap a card or a hero to choose whose gear to
-  work on. The Blacksmith's forge, the Armorer's tent, the Jeweler's stall and
-  the Training Ground are tappable: each shows the chosen hero's level and the
-  next upgrade's cost underneath, and a tap buys it. **Reset upgrades
-  (testing)** gives back everything spent. **New run** is bottom center, as is
-  **The Camp** on the Choose your hero screen.
+- **Camp screen** (§2b; 2026-11-04 rework), an evening campground:
+  - **Loot bar** at the top: an icon and count per kind (tap for where each
+    comes from and what it buys), and one line of guidance.
+  - **Hero cards** (3 x 2): portrait, name, and weapon / armor / trinket levels
+    as icons with numbers; a pulsing gold **!** when that hero has an
+    affordable upgrade. Tap a card, or the hero walking around the fire, to
+    open their **gear panel**: one row per slot with its level (of 10), what
+    it does now and at the next level, the cost as loot chips (red where
+    you're short), and an **Upgrade** button (greyed, saying what's missing,
+    when you can't afford it). ◀ ▶ step through the heroes.
+  - **The campground**: patchy grass, layered trees, a lit clearing with
+    firelight, sparks, a string of lanterns, fireflies and darker edges. The
+    Blacksmith, Armorer and Jeweler are scenery (a tap says what they make;
+    buying their gear throws sparks over them). The **Training Ground** sells
+    guild perks (with a ! when one is affordable). The **Trophy Wall** and
+    **Graveyard** are records, with wooden name plaques.
+  - **New run** bottom centre; a **⚙** menu bottom right holds the testing
+    reset.
 - **Hero panels** (bottom): one per hero: name and level, health and resource
   bars, a row of **buff/debuff icons** (tap one for what it does and how long
   is left; buffs first), then the **ability icons** with cooldown shading
@@ -668,9 +678,10 @@ The start-class spread needs more seeds to read (20 runs each is noisy).
   with level and abilities, and a **damage bar and a healing bar** for the run
   (tap a hero for what their numbers were made of). Then the camp loot sent
   home, The Camp and New run.
-- **Top bar:** **✕ Abandon run** (top centre, whenever a run is under way: map, fights, choice screens; with a check first) ends the run.
-  The end screen then shows only the whole-run damage and healing chart (the
-  last fight's meter is hidden there). Starting a new run from the title screen while one is saved
+- **Top bar:** **✕ Abandon run** (top centre, whenever a run is under way: map, fights, choice screens; with a check first) ends only that run and goes straight back to Choose your hero; everything
+  at the camp (loot, gear, perks, unlocks, records) is kept, and the run gets a
+  grave. The end screens (party fallen, victory) show only the whole-run
+  damage and healing chart (the last fight's meter is hidden there). Starting a new run from the title screen while one is saved
   asks first.
 - **Fights:** cast names sit above units, one at a time, and damage numbers
   fan out; spells are coloured by school (frost, fire, holy, shadow, nature,
